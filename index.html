@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Maybe Rain?</title>
     <meta name="theme-color" content="#000000">
     <meta name="description" content="Glanceable weekly weather — should I expect rain, and when?">
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icons/icon-192x192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -446,6 +447,38 @@
             display: none;
         }
 
+        /* Install banner — bottom-center pill, dismissible, remembered.
+           Shown once per device until installed or dismissed. */
+        .install-banner {
+            position: fixed;
+            left: 50%;
+            bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+            transform: translateX(-50%);
+            background: #111;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 12px;
+            z-index: 50;
+            max-width: calc(100vw - 32px);
+        }
+        .install-banner.hidden { display: none; }
+        .install-banner .btn { padding: 5px 12px; font-size: 12px; white-space: nowrap; }
+        .install-banner .dismiss {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            line-height: 1;
+            padding: 4px;
+        }
+        .install-banner .dismiss:hover { color: #fff; }
+
         /* Search functionality */
         .search-container {
             flex: 1;
@@ -596,6 +629,29 @@
                 height: -webkit-fill-available;
             }
         }
+
+        /* Installed PWA on a phone: the app IS the screen. Lock the
+           viewport — no scroll, no rubber-banding — and pad into the
+           safe areas (viewport-fit=cover + translucent status bar mean
+           content otherwise runs under the notch/home bar). The .standalone
+           class is set from JS (display-mode media query + iOS legacy). */
+        @media (max-width: 480px) {
+            html.standalone, html.standalone body {
+                overflow: hidden;
+                overscroll-behavior: none;
+                height: 100dvh;
+            }
+            html.standalone body {
+                position: fixed;
+                inset: 0;
+                padding: calc(10px + env(safe-area-inset-top, 0px))
+                         calc(10px + env(safe-area-inset-right, 0px))
+                         calc(10px + env(safe-area-inset-bottom, 0px))
+                         calc(10px + env(safe-area-inset-left, 0px));
+            }
+            html.standalone .container { height: 100%; }
+            html.standalone .chart { min-height: 0; }
+        }
     </style>
 </head>
 <body>
@@ -630,11 +686,18 @@
                 <div class="seg">
                     <button data-view="rain">rain</button>
                     <button data-view="temp">temp</button>
+                    <button data-view="wind">wind</button>
                 </div>
             </div>
             <div class="legend" id="legend"></div>
             <div id="status" class="status"></div>
         </div>
+    </div>
+
+    <div class="install-banner hidden" id="installBanner">
+        <span id="installText"></span>
+        <button class="btn" id="installGo">Install</button>
+        <button class="dismiss" id="installDismiss" aria-label="Dismiss">✕</button>
     </div>
 
     <div class="tooltip" id="tooltip"></div>
@@ -654,7 +717,8 @@
         const LS_FORECAST = 'mr-forecast';
         const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 5
         const LS_SETTINGS = 'mr-settings';
-        const LS_VIEW = 'mr-view';       // 'rain' | 'temp' grid mode
+        const LS_VIEW = 'mr-view';       // 'rain' | 'temp' | 'wind' grid mode
+        const LS_INSTALL = 'mr-install-dismissed';
         const MAX_CITIES = 5;
 
         // --- Preferences (the app's only menu) ---------------------------
@@ -685,24 +749,39 @@
         };
 
         const displayTemp = c => settings.unit === 'F' ? Math.round(c * 9 / 5 + 32) : c;
+        // Wind is stored in km/h (Open-Meteo default); converted at render.
+        const WIND_UNITS = { kmh: ['km/h', 1], mph: ['mph', 0.621371], kn: ['kn', 0.539957] };
+        const displayWind = k => Math.round(k * WIND_UNITS[settings.windUnit][1]);
+        const windUnitLabel = () => WIND_UNITS[settings.windUnit][0];
         const hourLabel = h => settings.clock === '12'
             ? `${((h + 11) % 12) + 1}${h < 12 ? 'am' : 'pm'}`
             : `${h}:00`;
 
-        // --- Temperature view heat scale ---------------------------------
-        // Cold blue → white → gold → hot red, anchored in °C.
-        const HEAT_STOPS = [[-5, [74, 144, 217]], [10, [245, 245, 245]], [22, [255, 215, 0]], [35, [229, 72, 77]]];
-        const heatRGB = t => {
-            if (t <= HEAT_STOPS[0][0]) return HEAT_STOPS[0][1];
-            for (let i = 1; i < HEAT_STOPS.length; i++) {
-                const [t1, c1] = HEAT_STOPS[i - 1], [t2, c2] = HEAT_STOPS[i];
+        // --- Temperature & wind view scales -------------------------------
+        // One piecewise-linear interpolator over [value, rgb] stops.
+        const scaleRGB = (stops, t) => {
+            if (t <= stops[0][0]) return stops[0][1];
+            for (let i = 1; i < stops.length; i++) {
+                const [t1, c1] = stops[i - 1], [t2, c2] = stops[i];
                 if (t <= t2) {
                     const f = (t - t1) / (t2 - t1);
                     return c1.map((c, j) => Math.round(c + (c2[j] - c) * f));
                 }
             }
-            return HEAT_STOPS[HEAT_STOPS.length - 1][1];
+            return stops[stops.length - 1][1];
         };
+        // Heat: cold blue → white → gold → hot red, anchored in °C.
+        const HEAT_STOPS = [[-5, [74, 144, 217]], [10, [245, 245, 245]], [22, [255, 215, 0]], [35, [229, 72, 77]]];
+        const heatRGB = t => scaleRGB(HEAT_STOPS, t);
+        // Wind: calm grey → breeze teal → fresh green → strong gold → gale
+        // red, anchored in km/h (≈ Beaufort 0 / 3 / 5 / 7 / 9+).
+        const WIND_STOPS = [[0, [58, 58, 58]], [12, [72, 143, 138]], [29, [80, 200, 120]], [50, [255, 215, 0]], [75, [229, 72, 77]]];
+        const windRGB = v => scaleRGB(WIND_STOPS, v);
+        // Open-Meteo reports the bearing the wind comes FROM; the block
+        // arrow points where it blows TO (wind from N → ↓). 8 octants.
+        const WIND_ARROWS = ['↓', '↙', '←', '↖', '↑', '↗', '→', '↘'];
+        const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        const windOctant = d => Math.round(d / 45) % 8;
 
         // --- Conditions: the single source of truth -----------------------
         // Ordered scales: gold sun; 3-step grey for cloud cover (fog folds
@@ -790,8 +869,22 @@
         };
         // heatWarn is anchored in °C; uvWarn is a UV index — ⚠ thresholds,
         // user-settable in the ⚙ menu because regions differ.
-        settings = { unit: 'C', clock: '24', allHours: false, heatWarn: 35, uvWarn: 8, ...(loadJSON(LS_SETTINGS) || {}) };
-        view = loadJSON(LS_VIEW) === 'temp' ? 'temp' : 'rain';
+        const VIEWS = ['rain', 'temp', 'wind'];
+        const enabledViews = () => VIEWS.filter(v => settings.views[v]);
+        {
+            const saved = loadJSON(LS_SETTINGS) || {};
+            settings = {
+                unit: 'C', clock: '24', allHours: false, heatWarn: 35, uvWarn: 8,
+                windUnit: 'kmh', legend: true, ...saved,
+                // deep-merged so pre-wind saved settings still get defaults
+                views: { rain: true, temp: true, wind: true, ...(saved.views || {}) }
+            };
+        }
+        {
+            const saved = loadJSON(LS_VIEW);
+            view = VIEWS.includes(saved) && settings.views[saved]
+                ? saved : (enabledViews()[0] || 'rain');
+        }
 
         // --- WMO weather code → CONDITIONS key + exact label ------------
         const WMO = {
@@ -924,7 +1017,7 @@
         const forecastURL = p =>
             'https://api.open-meteo.com/v1/forecast' +
             `?latitude=${p.latitude}&longitude=${p.longitude}` +
-            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation_probability,uv_index' +
+            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m' +
             '&timezone=auto&forecast_days=7';
 
         const fetchWeather = async (force = false) => {
@@ -962,7 +1055,7 @@
         // --- Process Open-Meteo payload (real hours only) -----------------
         const processData = payload => {
             state.tz = payload.timezone || state.tz;
-            const { time, temperature_2m, weather_code, cloud_cover, precipitation_probability, uv_index } = payload.hourly;
+            const { time, temperature_2m, weather_code, cloud_cover, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m } = payload.hourly;
 
             // Group by city-local date (Open-Meteo returns local ISO strings).
             // ALL hours are kept in state (temps in °C); the displayed
@@ -977,6 +1070,8 @@
                     temp: Math.round(temperature_2m[i]),
                     pop: precipitation_probability?.[i] ?? null, // null = unknown, never faked
                     uv: uv_index?.[i] ?? null,
+                    wind: wind_speed_10m?.[i] ?? null,        // km/h; converted at render
+                    windDir: wind_direction_10m?.[i] ?? null, // bearing wind comes FROM
                     ...conditionFor(weather_code[i], cloud_cover?.[i] ?? 0)
                 };
                 // (⚠ heat/UV glyphs are applied at render time, so the
@@ -1039,20 +1134,28 @@
                     // data → full hue, no invented number. Color always
                     // derives from CONDITIONS; glyph contrast by luminance.
                     const cond = COND[h.condition];
-                    const rgb = view === 'temp'
-                        ? heatRGB(h.temp)
-                        : (PRECIP.has(cond.group) && h.pop != null
-                            ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
+                    const rgb = view === 'temp' ? heatRGB(h.temp)
+                        : view === 'wind'
+                            ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
+                            : (PRECIP.has(cond.group) && h.pop != null
+                                ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
                     // Heat/UV warning glyph: ⚠ at or above the user's
                     // ⚙-menu thresholds. Weather hazards (⚡ ≡ ❆) take
                     // precedence — never more than one glyph per block.
                     const hot = h.temp >= settings.heatWarn;
                     const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
-                    const glyph = h.glyph || (hot || uvHigh ? '⚠︎' : '');
+                    // Wind view: the arrow IS the data — it points where the
+                    // wind blows; hazard glyphs stay on the other two views.
+                    const glyph = view === 'wind'
+                        ? (h.windDir != null && h.wind != null ? WIND_ARROWS[windOctant(h.windDir)] : '')
+                        : h.glyph || (hot || uvHigh ? '⚠︎' : '');
                     const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
+                    const windText = h.wind != null
+                        ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
+                        : '';
                     const hazText = (hot ? ' · extreme heat' : '')
                         + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '');
-                    const info = esc(`${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${hazText}`);
+                    const info = esc(`${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}`);
                     blocks.push(
                         `<div class="weather-block reveal${current}"
                               style="animation-delay:${delay}ms;background:rgb(${rgb});color:${textOn(rgb)}"
@@ -1080,6 +1183,20 @@
         };
         const renderLegend = () => {
             const legend = $('legend');
+            // Advanced users can hide the key entirely (⚙ Key → hide);
+            // block tooltips still name every condition on tap.
+            show(legend, settings.legend);
+            if (!settings.legend) { legend.innerHTML = ''; return; }
+            if (view === 'wind') {
+                const steps = [0, 10, 20, 30, 40, 50, 60, 75]; // km/h anchors
+                legend.innerHTML = steps.map((v, i) =>
+                    `<div class="legend-step">
+                        <div class="swatch" style="background:rgb(${windRGB(v)})"></div>
+                        <span>${displayWind(v)}${i === steps.length - 1 ? ' ' + windUnitLabel() : ''}</span>
+                    </div>`
+                ).join('');
+                return;
+            }
             if (view === 'temp') {
                 legend.innerHTML = [-5, 0, 5, 10, 15, 20, 25, 30, 35].map(t =>
                     `<div class="legend-step">
@@ -1104,11 +1221,19 @@
             ).join('');
         };
 
+        // Toggle shows only the views enabled in ⚙; hidden entirely when
+        // just one view is left — nothing to switch to.
+        const renderViewToggle = () => {
+            document.querySelectorAll('#viewToggle button').forEach(b => {
+                b.style.display = settings.views[b.dataset.view] ? '' : 'none';
+                b.classList.toggle('active', b.dataset.view === view);
+            });
+            $('viewToggle').style.display = enabledViews().length > 1 ? '' : 'none';
+        };
         const setView = v => {
             view = v;
             saveJSON(LS_VIEW, v);
-            document.querySelectorAll('#viewToggle button').forEach(b =>
-                b.classList.toggle('active', b.dataset.view === v));
+            renderViewToggle();
             renderLegend();
             if (state.data.length) updateDisplay();
         };
@@ -1295,10 +1420,15 @@
                 `<div class="setting-row"><span>Units</span>${seg('unit', [['C', '°C'], ['F', '°F']])}</div>` +
                 `<div class="setting-row"><span>Clock</span>${seg('clock', [['12', '12h'], ['24', '24h']])}</div>` +
                 `<div class="setting-row"><span>Hours</span>${seg('allHours', [['false', '6–21'], ['true', '24h']])}</div>` +
+                `<div class="setting-row"><span>Wind</span>${seg('windUnit', [['kmh', 'km/h'], ['mph', 'mph'], ['kn', 'kn']])}</div>` +
+                `<div class="setting-row"><span>Views</span><div class="seg">${VIEWS.map(v =>
+                    `<button data-viewkey="${v}" class="${settings.views[v] ? 'active' : ''}">${v}</button>`).join('')}</div></div>` +
+                `<div class="setting-row"><span>Key</span>${seg('legend', [['true', 'show'], ['false', 'hide']])}</div>` +
                 `<div class="setting-row"><span>⚠ heat ≥</span>${seg('heatWarn',
                     [30, 35, 40].map(t => [String(t), `${displayTemp(t)}°`]))}</div>` +
                 `<div class="setting-row"><span>⚠ UV ≥</span>${seg('uvWarn',
                     [['8', '8'], ['10', '10'], ['11', '11']])}</div>` +
+                installSettingsRow() +
                 (savedCities.length
                     ? `<div class="setting-row"><span>Saved cities</span></div>` +
                       savedCities.map((c, i) =>
@@ -1318,13 +1448,25 @@
             const seg = e.target.closest('button[data-key]');
             if (seg) {
                 const { key, val } = seg.dataset;
-                settings[key] = key === 'allHours' ? val === 'true'
+                settings[key] = (key === 'allHours' || key === 'legend') ? val === 'true'
                     : (key === 'heatWarn' || key === 'uvWarn') ? +val : val;
                 saveJSON(LS_SETTINGS, settings);
                 applyPrefs();
                 renderSettings();
                 return;
             }
+            const vk = e.target.closest('button[data-viewkey]');
+            if (vk) { // multi-toggle: each view on/off independently
+                const v = vk.dataset.viewkey;
+                if (settings.views[v] && enabledViews().length === 1) return; // keep at least one
+                settings.views[v] = !settings.views[v];
+                saveJSON(LS_SETTINGS, settings);
+                if (!settings.views[view]) setView(enabledViews()[0]);
+                else renderViewToggle();
+                renderSettings();
+                return;
+            }
+            if (e.target.id === 'installBtn') { promptInstall(); return; }
             const forget = e.target.closest('button[data-city]');
             if (forget) { // remove a saved-city shortcut
                 savedCities.splice(+forget.dataset.city, 1);
@@ -1366,7 +1508,7 @@
         chart.addEventListener('touchend', e => {
             if (e.touches.length < 2) pinchDist = null;
         });
-        // One-finger horizontal swipe on the grid flips rain ↔ temp view.
+        // One-finger horizontal swipe on the grid cycles the enabled views.
         // Vertical stays scroll, two fingers stay zoom; the toggle buttons
         // remain the visible state indicator. Guarded (>60px, mostly
         // horizontal, single finger) so taps and sloppy scrolls never flip.
@@ -1381,7 +1523,10 @@
             const dx = t.clientX - swipeStart.x, dy = t.clientY - swipeStart.y;
             swipeStart = null;
             if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
-                setView(view === 'rain' ? 'temp' : 'rain');
+                const enabled = enabledViews();
+                if (enabled.length < 2) return;
+                const i = enabled.indexOf(view);
+                setView(enabled[(i + (dx < 0 ? 1 : enabled.length - 1)) % enabled.length]);
             }
         });
         // macOS trackpad pinch arrives as ctrl+wheel.
@@ -1446,14 +1591,66 @@
             }
         });
 
+        // --- PWA install: banner + ⚙ row ----------------------------------
+        // Chrome/Edge (desktop & Android) fire beforeinstallprompt — deferred
+        // for a native prompt on demand. iOS Safari never fires it, so it
+        // gets share-sheet instructions instead. Already installed
+        // (standalone) hides everything.
+        const isStandalone = () =>
+            matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+        const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS masquerades as Mac
+        let deferredInstall = null;
+        const IOS_HINT = 'Share → Add to Home Screen';
+
+        const hideInstallBanner = () => show($('installBanner'), false);
+        const showInstallBanner = () => {
+            if (isStandalone() || loadJSON(LS_INSTALL)) return;
+            if (deferredInstall) {
+                $('installText').textContent = 'Add Maybe Rain? to your home screen';
+                show($('installGo'), true);
+            } else if (isIOS()) {
+                $('installText').textContent = `Install: ${IOS_HINT}`;
+                show($('installGo'), false);
+            } else return; // no native prompt, not iOS: nothing useful to offer
+            show($('installBanner'), true);
+        };
+        const promptInstall = async () => {
+            if (!deferredInstall) return;
+            const p = deferredInstall;
+            deferredInstall = null;
+            hideInstallBanner();
+            try { p.prompt(); await p.userChoice; } catch { /* dismissed */ }
+        };
+        // ⚙ row: native install button, iOS instructions, or nothing.
+        const installSettingsRow = () => {
+            if (isStandalone()) return '';
+            if (deferredInstall) return `<div class="setting-row"><span>App</span>` +
+                `<button class="btn" id="installBtn" style="padding:5px 10px;font-size:12px;">Install</button></div>`;
+            if (isIOS()) return `<div class="setting-row"><span>App</span><span>${esc(IOS_HINT)}</span></div>`;
+            return '';
+        };
+        window.addEventListener('beforeinstallprompt', e => {
+            e.preventDefault();
+            deferredInstall = e;
+            showInstallBanner();
+        });
+        window.addEventListener('appinstalled', () => { deferredInstall = null; hideInstallBanner(); });
+        $('installGo').onclick = promptInstall;
+        $('installDismiss').onclick = () => { saveJSON(LS_INSTALL, true); hideInstallBanner(); };
+
         // Auto-refresh every 30 minutes
         setInterval(() => {
             if (!document.hidden && !state.loading) fetchWeather();
         }, 30 * 60 * 1000);
 
         // --- Init: render last known data instantly, then refresh ---------
+        // Installed PWA (mobile): .standalone locks the viewport to exactly
+        // one screen — no scroll (see the standalone CSS block).
+        if (isStandalone()) document.documentElement.classList.add('standalone');
+        showInstallBanner(); // iOS path — beforeinstallprompt never fires there
         applyBand();   // --band from the current hours setting
-        setView(view); // paints the rain/temp toggle + matching legend
+        setView(view); // paints the view toggle + matching legend
 
         const savedPlace = loadJSON(LS_PLACE);
         if (savedPlace?.name && savedPlace.latitude != null) state.place = savedPlace;
