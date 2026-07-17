@@ -343,6 +343,22 @@
             cursor: default;
         }
 
+        /* Sunrise/sunset: one straight gold hairline across the full chart
+           width (same span as the gridlines) at TODAY's exact minute,
+           BEHIND the blocks — it peeks out in the gaps (negative z-index
+           keeps the data pixels on top). Starts at the column field, clear
+           of the time labels; keeps the gridlines' right overhang. Per-day
+           exact times live in each covering block's tooltip. */
+        .sun-line {
+            position: absolute;
+            left: var(--gutter);
+            right: 0;
+            height: 0;
+            border-top: 1px solid #FFD700;
+            z-index: -1;
+            pointer-events: none;
+        }
+
         /* Grid lines — one 1px line at the TOP of each hour band, where the
            2px block gap is. Lines span the full chart width (left: 0), so
            they extend through the label gutter beyond the grid itself. */
@@ -415,12 +431,15 @@
             border: 1px solid var(--line);
             border-radius: var(--radius);
             font-size: 12px;
-            max-width: 240px;
+            width: max-content;
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.2s ease;
             z-index: 1000;
         }
+        /* One fact per line, never wrapped mid-fact ("wind 6 km/h NW"
+           stays whole); the tooltip grows to fit instead. */
+        .tooltip div { white-space: nowrap; line-height: 1.5; }
 
         /* Status and animations. Centered on the column field like the
            legend. No hue of its own: gold stays reserved for now/today/sun,
@@ -679,6 +698,7 @@
             <div class="day-labels" id="days"></div>
             <div class="temp-row" id="temps"></div>
             <div class="chart">
+                <div id="sunLines"></div>
                 <div class="time-labels" id="times"></div>
                 <div class="chart-grid" id="grid"></div>
             </div>
@@ -756,6 +776,10 @@
         const hourLabel = h => settings.clock === '12'
             ? `${((h + 11) % 12) + 1}${h < 12 ? 'am' : 'pm'}`
             : `${h}:00`;
+        // Minute-exact variant for sunrise/sunset.
+        const timeLabel = (h, m) => settings.clock === '12'
+            ? `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`
+            : `${h}:${String(m).padStart(2, '0')}`;
 
         // --- Temperature & wind view scales -------------------------------
         // One piecewise-linear interpolator over [value, rgb] stops.
@@ -852,7 +876,8 @@
             place: DEFAULT_PLACE,
             tz: 'Pacific/Auckland', // overwritten by every forecast response
             data: [],     // [day][{hour, temp, pop, condition, description}] — all real hours
-            days: [],     // [{text, isToday}]
+            days: [],     // [{text, isToday, date}]
+            sun: {},      // date → { rise: {h, m}, set: {h, m} } (city-local)
             fetchedAt: 0, // timestamp of the forecast currently displayed
             loading: false,
             controller: null,
@@ -875,7 +900,7 @@
             const saved = loadJSON(LS_SETTINGS) || {};
             settings = {
                 unit: 'C', clock: '24', allHours: false, heatWarn: 35, uvWarn: 8,
-                windUnit: 'kmh', legend: true, ...saved,
+                windUnit: 'kmh', legend: true, sunLines: true, ...saved,
                 // deep-merged so pre-wind saved settings still get defaults
                 views: { rain: true, temp: true, wind: true, ...(saved.views || {}) }
             };
@@ -921,6 +946,11 @@
         };
         const DAY_ABBR = ['SU', 'M', 'T', 'W', 'TH', 'F', 'S'];
         const weekdayOf = dateStr => DAY_ABBR[new Date(dateStr + 'T00:00:00Z').getUTCDay()];
+        const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const dateLabel = dateStr => {
+            const d = new Date(dateStr + 'T00:00:00Z');
+            return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+        };
 
         // --- UI state ---------------------------------------------------
         const setStatus = (text, cls = '') => {
@@ -967,6 +997,7 @@
                 `<div class="temp-item"><span class="temp-max">–</span><span class="temp-sep">/</span><span class="temp-min">–</span></div>`
             ).join('');
             renderTimes();
+            $('sunLines').innerHTML = ''; // no data, no lines
             $('grid').innerHTML = Array(days).fill().map((_, d) =>
                 `<div class="day-column">${
                     `<div class="weather-block skeleton" style="animation-delay:${(d * 0.12).toFixed(2)}s"></div>`.repeat(rows)
@@ -1017,7 +1048,8 @@
         const forecastURL = p =>
             'https://api.open-meteo.com/v1/forecast' +
             `?latitude=${p.latitude}&longitude=${p.longitude}` +
-            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m' +
+            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
+            '&daily=sunrise,sunset' +
             '&timezone=auto&forecast_days=7';
 
         const fetchWeather = async (force = false) => {
@@ -1055,7 +1087,17 @@
         // --- Process Open-Meteo payload (real hours only) -----------------
         const processData = payload => {
             state.tz = payload.timezone || state.tz;
-            const { time, temperature_2m, weather_code, cloud_cover, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m } = payload.hourly;
+            const { time, temperature_2m, weather_code, cloud_cover, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
+
+            // Daily sunrise/sunset (local ISO strings) → per-date {h, m}.
+            state.sun = {};
+            const daily = payload.daily;
+            if (daily?.time) {
+                const hm = s => s ? { h: +s.slice(11, 13), m: +s.slice(14, 16) } : null;
+                daily.time.forEach((date, i) => {
+                    state.sun[date] = { rise: hm(daily.sunrise?.[i]), set: hm(daily.sunset?.[i]) };
+                });
+            }
 
             // Group by city-local date (Open-Meteo returns local ISO strings).
             // ALL hours are kept in state (temps in °C); the displayed
@@ -1072,6 +1114,7 @@
                     uv: uv_index?.[i] ?? null,
                     wind: wind_speed_10m?.[i] ?? null,        // km/h; converted at render
                     windDir: wind_direction_10m?.[i] ?? null, // bearing wind comes FROM
+                    gust: wind_gusts_10m?.[i] ?? null,        // km/h
                     ...conditionFor(weather_code[i], cloud_cover?.[i] ?? 0)
                 };
                 // (⚠ heat/UV glyphs are applied at render time, so the
@@ -1084,7 +1127,7 @@
             state.data = []; state.days = [];
             for (const date of Object.keys(byDate).sort()) {
                 state.data.push(byDate[date]);
-                state.days.push({ text: weekdayOf(date), isToday: date === today });
+                state.days.push({ text: weekdayOf(date), isToday: date === today, date });
             }
         };
 
@@ -1111,8 +1154,24 @@
             renderTimes();
 
             const currentHour = cityNow().hour;
+
+            // Sun hairlines: one straight line across the whole grid at
+            // TODAY's sunrise/sunset minute (⚙ Sun → hide turns them off).
+            // Neighbouring days drift only minutes; each day's exact times
+            // are in its blocks' tooltips.
+            const todayMeta = dayMeta.find(d => d.isToday) || dayMeta[0];
+            const sunToday = (todayMeta && state.sun[todayMeta.date]) || {};
+            $('sunLines').innerHTML = !settings.sunLines ? '' : ['rise', 'set'].map(k => {
+                const t = sunToday[k];
+                if (!t) return '';
+                const f = t.h + t.m / 60;
+                if (f < start || f > end + 1) return ''; // outside the hour window
+                return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
+            }).join('');
+
             $('grid').innerHTML = shownDays.map((dayData, dayIndex) => {
                 const isToday = dayMeta[dayIndex].isToday;
+                const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
                 const blocks = [];
                 for (let hour = start; hour <= end; hour++) {
                     const h = dayData.find(x => x.hour === hour);
@@ -1155,13 +1214,16 @@
                         : '';
                     const hazText = (hot ? ' · extreme heat' : '')
                         + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '');
-                    const info = esc(`${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}`);
+                    const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
+                        + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
+                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}${sunText}`);
                     blocks.push(
                         `<div class="weather-block reveal${current}"
                               style="animation-delay:${delay}ms;background:rgb(${rgb});color:${textOn(rgb)}"
                               tabindex="0"
                               aria-label="${info}"
                               data-day="${dayIndex}"
+                              data-hour="${h.hour}"
                               data-info="${info}">${glyph}</div>`);
                 }
                 return `<div class="day-column">${blocks.join('')}</div>`;
@@ -1252,18 +1314,38 @@
             if (el.dataset.cond != null) { // legend cell: exact condition names
                 const c = CONDITIONS[+el.dataset.cond];
                 tooltip.innerHTML =
-                    `<strong>${esc(c.label)}</strong><br>${namesFor(c.key).map(esc).join(' · ')}`;
-            } else { // grid block: day, hour, condition, temp, rain %, hazards
-                const [time, desc] = el.dataset.info.split(' - ');
-                const day = state.days[+el.dataset.day];
-                tooltip.innerHTML =
-                    `<strong>${day.isToday ? 'Today' : day.text} ${esc(time)}</strong><br>${esc(desc)}`;
+                    `<div><strong>${esc(c.label)}</strong></div><div>${namesFor(c.key).map(esc).join(' · ')}</div>`;
+            } else { // grid block: structured lines from state — one fact per line
+                const di = +el.dataset.day;
+                const day = state.days[di];
+                const h = state.data[di]?.find(x => x.hour === +el.dataset.hour);
+                if (!day || !h) return;
+                const lines = [
+                    `<strong>${day.isToday ? 'Today' : day.text} ${dateLabel(day.date)} · ${hourLabel(h.hour)}</strong>`,
+                    `${esc(h.description)}, ${displayTemp(h.temp)}°${settings.unit}`
+                ];
+                if (h.pop != null) lines.push(`${h.pop}% rain`);
+                if (h.wind != null) {
+                    let w = `wind ${displayWind(h.wind)} ${windUnitLabel()}`
+                        + (h.windDir != null ? ` ${COMPASS[windOctant(h.windDir)]}` : '');
+                    // Gusts: wind view only — that's where they matter.
+                    if (view === 'wind' && h.gust != null) w += `, gusts ${displayWind(h.gust)}`;
+                    lines.push(w);
+                }
+                if (h.temp >= settings.heatWarn) lines.push('⚠︎ extreme heat');
+                if (h.uv != null && h.uv >= settings.uvWarn) lines.push(`⚠︎ very high UV (${Math.round(h.uv)})`);
+                const sun = state.sun[day.date] || {};
+                if (sun.rise?.h === h.hour) lines.push(`☀︎ sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`);
+                if (sun.set?.h === h.hour) lines.push(`☀︎ sunset ${timeLabel(sun.set.h, sun.set.m)}`);
+                tooltip.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
             }
             tooltip.style.opacity = '1';
+            // Measure the real size, center on the block, clamp to the
+            // viewport; flip below the block near the top edge.
             const rect = el.getBoundingClientRect();
-            // Clamp inside the viewport; flip below the block near the top edge.
-            tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - 148, rect.left + rect.width / 2 - 60))}px`;
-            tooltip.style.top = `${rect.top < 70 ? rect.bottom + 8 : rect.top - 60}px`;
+            const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+            tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - tw - 8, rect.left + rect.width / 2 - tw / 2))}px`;
+            tooltip.style.top = `${rect.top < th + 16 ? rect.bottom + 8 : rect.top - th - 8}px`;
         };
         let tappedBlock = null; // element whose tooltip was opened by tap
         const hideTooltip = () => { $('tooltip').style.opacity = '0'; tappedBlock = null; };
@@ -1424,6 +1506,7 @@
                 `<div class="setting-row"><span>Views</span><div class="seg">${VIEWS.map(v =>
                     `<button data-viewkey="${v}" class="${settings.views[v] ? 'active' : ''}">${v}</button>`).join('')}</div></div>` +
                 `<div class="setting-row"><span>Key</span>${seg('legend', [['true', 'show'], ['false', 'hide']])}</div>` +
+                `<div class="setting-row"><span>Sun</span>${seg('sunLines', [['true', 'show'], ['false', 'hide']])}</div>` +
                 `<div class="setting-row"><span>⚠ heat ≥</span>${seg('heatWarn',
                     [30, 35, 40].map(t => [String(t), `${displayTemp(t)}°`]))}</div>` +
                 `<div class="setting-row"><span>⚠ UV ≥</span>${seg('uvWarn',
@@ -1448,7 +1531,7 @@
             const seg = e.target.closest('button[data-key]');
             if (seg) {
                 const { key, val } = seg.dataset;
-                settings[key] = (key === 'allHours' || key === 'legend') ? val === 'true'
+                settings[key] = (key === 'allHours' || key === 'legend' || key === 'sunLines') ? val === 'true'
                     : (key === 'heatWarn' || key === 'uvWarn') ? +val : val;
                 saveJSON(LS_SETTINGS, settings);
                 applyPrefs();
