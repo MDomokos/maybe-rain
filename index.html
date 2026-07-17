@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maybe Rain?</title>
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Glanceable weekly weather — should I expect rain, and when?">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --gutter: 44px;    /* left space for time labels */
+            --gap: 10px;       /* horizontal gap between day columns */
+            --block-gap: 4px;  /* vertical gap between blocks in a column */
+            --overhang: 14px;  /* how far gridlines extend past the grid on the right */
+            --band: 6.25%;     /* height of one hour band = 100 / displayed rows (set from JS) */
+            --radius: 2px;     /* the one corner radius, everywhere — the grid's */
+            --line: rgba(255,255,255,0.25); /* one hairline for panels & controls
+                                               (gridlines stay 0.3 — deliberately stronger) */
+            /* vertical rhythm, 8px scale */
+            --sp-1: 8px; --sp-2: 16px; --sp-3: 24px; --sp-4: 32px;
+        }
+        /* Semantic zoom (pinch / ±): fewer columns, slightly larger type. */
+        .container[data-zoom="1"] { --ui: 1.12; }
+        .container[data-zoom="2"] { --ui: 1.28; }
+        body {
+            background: #000;
+            color: #fff;
+            font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
+            padding: 20px;
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            min-height: 100dvh;
+        }
+        /* Width follows viewport height so the grid keeps its portrait
+           proportions: larger screens get a larger grid, capped at 540px. */
+        .container { max-width: clamp(380px, 54vh, 540px); margin: 0 auto; }
+        .location-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: var(--sp-4);
+        }
+        /* Type hierarchy: city name and temps lead, the rest recedes */
+        .location {
+            font-size: 24px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: color 0.2s ease;
+        }
+        .location::after {
+            content: '↓';
+            font-size: 16px;
+            opacity: 0.6;
+            transition: transform 0.2s ease;
+        }
+        .location:hover {
+            color: #FFD700;
+        }
+        .location:hover::after {
+            transform: translateY(2px);
+        }
+
+        /* Button styles */
+        .btn {
+            background: transparent;
+            border: 1px solid var(--line);
+            color: #fff;
+            border-radius: var(--radius);
+            padding: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s ease;
+        }
+        .btn:hover, .btn:focus { border-color: rgba(255,255,255,0.6); outline: none; }
+        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        /* Settings — the only menu in the app. */
+        .gear {
+            margin-left: auto;
+            border: none;    /* quiet: no outline, just the glyph */
+            font-size: 16px;
+            line-height: 1;
+            color: #ccc;
+            padding: 6px 9px;
+        }
+        .gear:hover, .gear:focus-visible { color: #FFD700; }
+        .settings {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: #111;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 12px;
+            z-index: 30;
+            min-width: 230px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            font-size: 12px;
+        }
+        .settings.hidden { display: none; }
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            color: #ccc;
+        }
+        .saved-city {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #fff;
+        }
+        .saved-city .forget {
+            background: none;
+            border: none;
+            color: #666;
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            padding: 4px 6px;
+        }
+        .saved-city .forget:hover, .saved-city .forget:focus-visible { color: #fff; outline: none; }
+
+        /* Segmented control (settings rows + view toggle) */
+        .seg {
+            display: flex;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        .seg button {
+            background: transparent;
+            border: none;
+            color: #888;
+            font-family: inherit;
+            font-size: 12px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .seg button.active { background: #fff; color: #000; }
+        .seg button:focus-visible { outline: 1px solid #FFD700; outline-offset: -2px; }
+
+        /* Rain/temperature view toggle — one tap, near the grid.
+           Right margin = --overhang, so it aligns with the last column,
+           not the gridline overhang. */
+        .view-toggle {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: var(--sp-1);
+            margin-right: var(--overhang);
+        }
+        .view-toggle .seg button { padding: 3px 10px; font-size: 11px; }
+
+        /* Keyboard focus */
+        .location:focus-visible { color: #FFD700; outline: none; }
+        .weather-block:focus-visible {
+            outline: none;
+            box-shadow: inset 0 0 0 2px #000, inset 0 0 0 4px #fff;
+            z-index: 1;
+            position: relative;
+        }
+
+        /* Loading states — skeleton grid, no spinner: the placeholder IS the grid */
+        .weather-block.skeleton {
+            background: #1c1c1c;
+            cursor: default;
+            animation: skeletonPulse 1.6s ease-in-out infinite;
+        }
+        @keyframes skeletonPulse {
+            0%, 100% { opacity: 0.45; }
+            50% { opacity: 1; }
+        }
+        .status.updating {
+            color: #888;
+            animation: skeletonPulse 1.6s ease-in-out infinite;
+        }
+        /* Pixelated reveal when forecast data arrives: no fades — each
+           block snaps on (dim for a beat, then full) at its own discrete
+           tick, in dithered order across the grid. `backwards` fill keeps
+           a block invisible until its delay elapses; afterwards it returns
+           to natural styles, so the hover opacity transition keeps working. */
+        .weather-block.reveal {
+            animation: blockIn 120ms linear backwards;
+        }
+        @keyframes blockIn {
+            0% { opacity: 0; }
+            5%, 60% { opacity: 0.45; }
+            65%, 100% { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .weather-block.skeleton, .status.updating { animation: none; opacity: 0.7; }
+            .weather-block.reveal { animation: none; }
+        }
+        .error {
+            border: 1px solid rgba(255,0,0,0.5);
+            border-radius: var(--radius);
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #ff6b6b;
+        }
+
+        /* Temperature and day labels.
+           All three rows (temps, day labels, grid columns) share the same
+           left gutter, gap, and flex:1 items, so they stay column-aligned
+           at every width. */
+        .temp-row {
+            display: flex;
+            gap: var(--gap);
+            margin-bottom: var(--sp-1);
+            padding-left: var(--gutter);
+            padding-right: var(--overhang);
+        }
+        /* One-line temps "18/9": ° dropped — the unit
+           lives in settings, tooltips, and the temp-view legend. Max leads
+           in white-medium, min recedes to axis grey. */
+        .temp-item { flex: 1; text-align: center; white-space: nowrap; }
+        .temp-max { font-weight: 500; font-size: calc(14px * var(--ui, 1)); }
+        .temp-sep { color: #666; font-size: calc(12px * var(--ui, 1)); }
+        .temp-min { color: #888; font-size: calc(12px * var(--ui, 1)); }
+        /* Day identity anchors the column, directly above its temps. */
+        .day-labels {
+            display: flex;
+            gap: var(--gap);
+            margin-bottom: 2px;
+            padding-left: var(--gutter);
+            padding-right: var(--overhang);
+        }
+        .day-label {
+            flex: 1;
+            font-size: calc(12px * var(--ui, 1));
+            color: #ccc;
+            text-align: center;
+        }
+        .day-label.today {
+            color: #FFD700;
+            font-weight: 500;
+        }
+
+        /* Chart and grid */
+        .chart {
+            position: relative;
+            /* pinch on the grid is semantic zoom (fewer columns), handled in
+               JS — pan-y keeps one-finger scroll while blocking browser
+               pinch here; page-level pinch-zoom stays enabled elsewhere */
+            touch-action: pan-y;
+            height: clamp(260px, 52vh, 640px);
+            padding-left: var(--gutter);
+            /* columns stop short of the right edge, so the full-width
+               gridlines overhang the grid on both sides */
+            padding-right: var(--overhang);
+            margin-top: 0;
+        }
+        .time-labels {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: calc(var(--gutter) - 8px);
+        }
+        .time-label {
+            position: absolute;
+            font-size: calc(11px * var(--ui, 1));
+            color: #888;
+            right: 0;
+            /* label is positioned at the vertical middle of its hour band,
+               translateY centers the text on that point — so each label
+               lines up with its row of blocks */
+            transform: translateY(-50%);
+            font-weight: 300;
+        }
+        .chart-grid {
+            display: flex;
+            gap: var(--gap);
+            height: 100%;
+        }
+        /* Gapped "pixel" grid: no column outline — each block is
+           a discrete rounded pixel; the block gaps and gridlines carry all
+           the structure. */
+        .day-column {
+            flex: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        /* Each hour band is exactly --band = 100% / displayed rows. A block
+           fills its band minus a fixed top gap where the gridline shows through.
+           (px, not %, for the gap: percentage vertical margins resolve
+           against the column WIDTH — that was the old misalignment bug.)
+           Colors come inline from the JS CONDITIONS array — no condition
+           data in CSS; flex centering + inline color draw the hazard glyph. */
+        .weather-block {
+            width: 100%;
+            height: calc(var(--band) - var(--block-gap));
+            margin-top: var(--block-gap);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: opacity 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: calc(10px * var(--ui, 1));
+            line-height: 1;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .weather-block:hover {
+            opacity: 0.8;
+        }
+        /* Current hour: two-tone inset ring — outer black band
+           shows on light blocks (sunny gold), inner white band on dark
+           blocks (navy, overcast). Static: the "now" attention-getter is
+           the axis marker below. */
+        .weather-block.current {
+            z-index: 1;
+            position: relative;
+            box-shadow: inset 0 0 0 2px #000, inset 0 0 0 4px #fff;
+        }
+        /* Side "now" indicator: at the current hour, the axis label
+           becomes a gold current-temp marker with a ▶ pointing at today's
+           row. Static — gold + weight carry the emphasis, nothing moves. */
+        .time-label.now {
+            color: #FFD700;
+            font-weight: 600;
+        }
+        .time-label.now::after { content: ' ▶'; font-size: 8px; }
+        .weather-block.empty {
+            background: transparent;
+            cursor: default;
+        }
+
+        /* Grid lines — one 1px line at the TOP of each hour band, where the
+           2px block gap is. Lines span the full chart width (left: 0), so
+           they extend through the label gutter beyond the grid itself. */
+        .chart::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: repeating-linear-gradient(
+                to bottom,
+                rgba(255,255,255,0.3) 0,
+                rgba(255,255,255,0.3) 1px,
+                transparent 1px,
+                transparent var(--band)
+            );
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Legend and tooltip.
+           Spectrum legend: both views render the same one-line
+           strip of blocks — conditions ordered sun → cloud → rain → storm →
+           snow (group labels beneath), or the heat scale in temp view.
+           2px gaps + per-block radius, so the strip rhymes with the grid. */
+        .legend {
+            display: flex;
+            justify-content: center;
+            align-items: stretch;
+            gap: 2px;
+            margin-top: var(--sp-3);
+            /* same gutter/overhang as the grid: the strip centers on the
+               column field, not the container */
+            padding: var(--sp-2) var(--overhang) 0 var(--gutter);
+            border-top: 1px solid var(--line);
+        }
+        .legend-step {
+            flex: 1;
+            max-width: 52px;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            color: #ccc;
+        }
+        .legend-step .swatch {
+            width: 100%;
+            height: 14px;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            line-height: 1;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* group label may be wider than its cell; neighbors are empty */
+        .legend-step span { min-height: 1.2em; white-space: nowrap; }
+        .legend-swatch { cursor: pointer; }
+        .legend-swatch:focus-visible { outline: 1px solid #fff; outline-offset: 1px; }
+        .tooltip {
+            position: absolute;
+            background: #000;
+            color: white;
+            padding: 8px 12px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            font-size: 12px;
+            max-width: 240px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+        }
+
+        /* Status and animations. Centered on the column field like the
+           legend. No hue of its own: gold stays reserved for now/today/sun,
+           the rationalised palette for conditions — words carry the state. */
+        .status {
+            font-size: 11px;
+            color: #666;
+            text-align: center;
+            margin-top: var(--sp-1);
+            padding-left: var(--gutter);
+            padding-right: var(--overhang);
+        }
+        .status.stale {
+            color: #B0B0B0;
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .hidden {
+            display: none;
+        }
+
+        /* Search functionality */
+        .search-container {
+            flex: 1;
+            max-width: 300px;
+            background: #111;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 8px;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.3s ease;
+            pointer-events: none;
+            position: relative;
+        }
+        .search-container.active {
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: auto;
+            z-index: 10;
+        }
+        .search-input {
+            width: 100%;
+            padding: 6px;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-family: inherit;
+            font-size: 16px;
+        }
+        .search-input:focus {
+            outline: none;
+        }
+        .search-results {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 5px;
+            background: #111;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .search-result {
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .search-result.geo { color: #FFD700; }
+        .search-result .forget {
+            background: none;
+            border: none;
+            color: #666;
+            font-family: inherit;
+            font-size: 13px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 4px 6px;
+        }
+        .search-result .forget:hover { color: #fff; }
+        .search-result:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .search-result + .search-result {
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .container.search-active #content {
+            filter: brightness(0.5);
+            transition: filter 0.3s ease;
+        }
+
+        /* Mobile styles */
+        @media (max-width: 480px) {
+            :root {
+                --gutter: 36px;
+                --gap: 7px;
+                --block-gap: 3px;
+                --overhang: 10px;
+            }
+            body {
+                padding: 10px;
+                min-height: 100vh;
+                min-height: -webkit-fill-available;
+                min-height: 100dvh;
+            }
+            .container {
+                max-width: 100%;
+                height: 100vh;
+                height: -webkit-fill-available;
+                height: 100dvh;
+                display: flex;
+                flex-direction: column;
+            }
+            /* Let the grid absorb whatever height the screen has:
+               tall phones get a taller grid, everything stays one screen. */
+            #content {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+            }
+            .chart {
+                flex: 1;
+                height: auto;
+                min-height: 280px;
+                margin-top: var(--sp-1);
+            }
+            .location-wrapper {
+                margin-bottom: var(--sp-2);
+            }
+            .location {
+                font-size: 18px;
+            }
+            .location::after {
+                font-size: 14px;
+            }
+            .time-label {
+                font-size: calc(10px * var(--ui, 1));
+            }
+            .temp-max {
+                font-size: calc(13px * var(--ui, 1));
+            }
+            .temp-min, .temp-sep {
+                font-size: calc(11px * var(--ui, 1));
+            }
+            /* °F triple digits ("104/86" = 6 monospace chars) need a font
+               step down to fit a ~36px phone column. °C never triggers it. */
+            .temp-row.unit-f .temp-max { font-size: calc(10px * var(--ui, 1)); }
+            .temp-row.unit-f .temp-min, .temp-row.unit-f .temp-sep { font-size: calc(9px * var(--ui, 1)); }
+            .day-label {
+                font-size: calc(11px * var(--ui, 1));
+            }
+            .legend {
+                margin-top: var(--sp-2);
+                padding-top: var(--sp-2);
+            }
+            .legend-step {
+                font-size: 9px;
+            }
+            html {
+                height: -webkit-fill-available;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container fade-in">
+        <div class="location-wrapper">
+            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"></div>
+            <div class="search-container" id="searchContainer">
+                <input type="text"
+                       class="search-input"
+                       id="searchInput"
+                       placeholder="Search city..."
+                       autocomplete="off">
+                <div class="search-results" id="searchResults"></div>
+            </div>
+            <button class="btn gear" id="gear" aria-label="Settings" aria-expanded="false">⚙</button>
+            <div class="settings hidden" id="settings"></div>
+        </div>
+
+        <div id="error" class="error hidden">
+            <div id="errorText"></div>
+            <button class="btn" id="retry">Retry</button>
+        </div>
+
+        <div id="content">
+            <div class="day-labels" id="days"></div>
+            <div class="temp-row" id="temps"></div>
+            <div class="chart">
+                <div class="time-labels" id="times"></div>
+                <div class="chart-grid" id="grid"></div>
+            </div>
+            <div class="view-toggle" id="viewToggle">
+                <div class="seg">
+                    <button data-view="rain">rain</button>
+                    <button data-view="temp">temp</button>
+                </div>
+            </div>
+            <div class="legend" id="legend"></div>
+            <div id="status" class="status"></div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // ---------------------------------------------------------------
+        // Maybe Rain? — single-file weather app.
+        // Data: Open-Meteo (keyless, true hourly, 7 days, city-local time).
+        // ---------------------------------------------------------------
+        const FRESH_TIME = 10 * 60 * 1000;   // consider data fresh for 10 min
+        const HOUR_START = 6, HOUR_END = 21; // displayed hours (inclusive)
+        const DEFAULT_PLACE = {
+            name: 'Whakatane', country: 'New Zealand', admin1: 'Bay of Plenty',
+            latitude: -37.9586, longitude: 176.9854
+        };
+        const LS_PLACE = 'mr-place';
+        const LS_FORECAST = 'mr-forecast';
+        const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 5
+        const LS_SETTINGS = 'mr-settings';
+        const LS_VIEW = 'mr-view';       // 'rain' | 'temp' grid mode
+        const MAX_CITIES = 5;
+
+        // --- Preferences (the app's only menu) ---------------------------
+        // settings + view are initialised below, after loadJSON is defined.
+        let settings, view;
+        let zoom = 0; // semantic zoom (pinch/±): 0 = full week — never persisted,
+                      // the app always opens on the glanceable whole picture
+
+        const ZOOM_DAYS = [7, 5, 3];      // columns per zoom level
+        const ZOOM_HOUR_FRAC = [1, 0.75, 0.5]; // share of the hour range shown
+
+        const hourRange = () => settings.allHours
+            ? { start: 0, end: 23 } : { start: HOUR_START, end: HOUR_END };
+
+        // The window of days/hours actually rendered at the current zoom.
+        // Hours center on "now" (clamped to the range); days keep today first.
+        const visibleWindow = () => {
+            const { start, end } = hourRange();
+            const full = end - start + 1;
+            const n = Math.max(6, Math.round(full * ZOOM_HOUR_FRAC[zoom]));
+            if (n >= full) return { start, end, days: ZOOM_DAYS[zoom] };
+            const s = Math.max(start, Math.min(cityNow().hour - (n >> 1), end - n + 1));
+            return { start: s, end: s + n - 1, days: ZOOM_DAYS[zoom] };
+        };
+        const applyBand = () => {
+            const w = visibleWindow();
+            document.documentElement.style.setProperty('--band', `${100 / (w.end - w.start + 1)}%`);
+        };
+
+        const displayTemp = c => settings.unit === 'F' ? Math.round(c * 9 / 5 + 32) : c;
+        const hourLabel = h => settings.clock === '12'
+            ? `${((h + 11) % 12) + 1}${h < 12 ? 'am' : 'pm'}`
+            : `${h}:00`;
+
+        // --- Temperature view heat scale ---------------------------------
+        // Cold blue → white → gold → hot red, anchored in °C.
+        const HEAT_STOPS = [[-5, [74, 144, 217]], [10, [245, 245, 245]], [22, [255, 215, 0]], [35, [229, 72, 77]]];
+        const heatRGB = t => {
+            if (t <= HEAT_STOPS[0][0]) return HEAT_STOPS[0][1];
+            for (let i = 1; i < HEAT_STOPS.length; i++) {
+                const [t1, c1] = HEAT_STOPS[i - 1], [t2, c2] = HEAT_STOPS[i];
+                if (t <= t2) {
+                    const f = (t - t1) / (t2 - t1);
+                    return c1.map((c, j) => Math.round(c + (c2[j] - c) * f));
+                }
+            }
+            return HEAT_STOPS[HEAT_STOPS.length - 1][1];
+        };
+
+        // --- Conditions: the single source of truth -----------------------
+        // Ordered scales: gold sun; 3-step grey for cloud cover (fog folds
+        // into the lightest grey, marked by its ≡ glyph); 3-step blue for
+        // rain intensity; violet storm; white snow. Grid colors, legend
+        // strip, and tooltip labels ALL derive from this array — condition
+        // data lives nowhere else (not in CSS, not in HTML).
+        const CONDITIONS = [
+            { key: 'sunny',         color: '#FFD700', label: 'Sunny',         group: 'sun' },
+            { key: 'partly-cloudy', color: '#B0B0B0', label: 'Partly cloudy', group: 'cloud' },
+            { key: 'cloudy',        color: '#757575', label: 'Cloudy',        group: 'cloud' },
+            { key: 'overcast',      color: '#454545', label: 'Overcast',      group: 'cloud' },
+            { key: 'light-rain',    color: '#87CEEB', label: 'Light rain',    group: 'rain' },
+            { key: 'moderate-rain', color: '#4169E1', label: 'Rain',          group: 'rain' },
+            { key: 'heavy-rain',    color: '#191970', label: 'Heavy rain',    group: 'rain' },
+            { key: 'thunderstorm',  color: '#7B2FBE', label: 'Storm',         group: 'storm' },
+            { key: 'snow',          color: '#F0F8FF', label: 'Snow',          group: 'snow' }
+        ];
+        const COND = Object.fromEntries(CONDITIONS.map(c => [c.key, c]));
+        const PRECIP = new Set(['rain', 'storm', 'snow']); // probability fade applies
+
+        // Hazard glyphs: redundant non-color
+        // markers, hazards only — never ordinary data. Max one per block;
+        // vocabulary capped at four: ⚡ lightning incl. hail, ≡ fog,
+        // ❆ freezing rain/drizzle, ⚠ extreme heat / very-high UV (applied
+        // in processData — threshold-, not code-based). U+FE0E keeps the
+        // glyphs non-emoji.
+        const HAZARD_GLYPH = {
+            95: '⚡︎', 96: '⚡︎', 99: '⚡︎',       // thunderstorm / hail
+            45: '≡', 48: '≡',                  // fog — visibility hazard
+            56: '❆', 57: '❆', 66: '❆', 67: '❆' // freezing precipitation
+        };
+        // A legend cell carries a glyph only when EVERY code mapping to it
+        // has the same one (⚡ on storm); exceptional hazards (fog, freezing
+        // rain) mark blocks, not legend cells.
+        const glyphFor = key => {
+            const glyphs = Object.entries(WMO)
+                .filter(([, [k]]) => k === key)
+                .map(([code]) => HAZARD_GLYPH[code] || '');
+            return glyphs.length && glyphs.every(g => g && g === glyphs[0]) ? glyphs[0] : '';
+        };
+
+        // Blocks/legend cells get an inline background + a black or white
+        // glyph color picked by luminance.
+        const hexRGB = hex => {
+            const n = parseInt(hex.slice(1), 16);
+            return [n >> 16, (n >> 8) & 255, n & 255];
+        };
+        const textOn = rgb =>
+            (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 > 0.55 ? '#000' : '#fff';
+
+        // --- Rain probability fade ---------------------------------------
+        // Precipitation blocks fade toward a dark NAVY (not black) as the
+        // probability drops, so a 30%-chance shower stays clearly blue and
+        // never reads as one of the cloudy grays. Solid hue = certain rain.
+        const NAVY = [13, 32, 77];
+        const fadeRGB = (hex, pop) => {
+            const w = 0.35 + 0.65 * Math.max(0, Math.min(100, pop)) / 100;
+            return hexRGB(hex).map((c, i) => Math.round(NAVY[i] + (c - NAVY[i]) * w));
+        };
+
+        const $ = id => document.getElementById(id);
+        const show = (el, visible = true) => el.classList.toggle('hidden', !visible);
+        const esc = s => String(s).replace(/[&<>"']/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        let state = {
+            place: DEFAULT_PLACE,
+            tz: 'Pacific/Auckland', // overwritten by every forecast response
+            data: [],     // [day][{hour, temp, pop, condition, description}] — all real hours
+            days: [],     // [{text, isToday}]
+            fetchedAt: 0, // timestamp of the forecast currently displayed
+            loading: false,
+            controller: null,
+            suggestions: [] // saved cities + geocoding hits, in display order
+        };
+
+        // --- localStorage persistence ------------------------------------
+        const placeKey = p => `${p.latitude.toFixed(3)},${p.longitude.toFixed(3)}`;
+        const loadJSON = key => {
+            try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+        };
+        const saveJSON = (key, value) => {
+            try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* full/blocked: non-fatal */ }
+        };
+        // heatWarn is anchored in °C; uvWarn is a UV index — ⚠ thresholds,
+        // user-settable in the ⚙ menu because regions differ.
+        settings = { unit: 'C', clock: '24', allHours: false, heatWarn: 35, uvWarn: 8, ...(loadJSON(LS_SETTINGS) || {}) };
+        view = loadJSON(LS_VIEW) === 'temp' ? 'temp' : 'rain';
+
+        // --- WMO weather code → CONDITIONS key + exact label ------------
+        const WMO = {
+            0: ['sunny', 'Clear sky'], 1: ['sunny', 'Mainly clear'],
+            2: ['partly-cloudy', 'Partly cloudy'],
+            // 3 (overcast) resolved via cloud cover below
+            // fog folds into the lightest grey; its ≡ glyph marks the hazard
+            45: ['partly-cloudy', 'Fog'], 48: ['partly-cloudy', 'Rime fog'],
+            51: ['light-rain', 'Light drizzle'], 53: ['light-rain', 'Drizzle'], 55: ['light-rain', 'Dense drizzle'],
+            56: ['light-rain', 'Freezing drizzle'], 57: ['light-rain', 'Freezing drizzle'],
+            61: ['light-rain', 'Light rain'], 63: ['moderate-rain', 'Rain'], 65: ['heavy-rain', 'Heavy rain'],
+            66: ['moderate-rain', 'Freezing rain'], 67: ['heavy-rain', 'Freezing rain'],
+            71: ['snow', 'Light snow'], 73: ['snow', 'Snow'], 75: ['snow', 'Heavy snow'], 77: ['snow', 'Snow grains'],
+            80: ['light-rain', 'Light showers'], 81: ['moderate-rain', 'Showers'], 82: ['heavy-rain', 'Heavy showers'],
+            85: ['snow', 'Snow showers'], 86: ['snow', 'Snow showers'],
+            95: ['thunderstorm', 'Thunderstorm'], 96: ['thunderstorm', 'Thunderstorm, hail'], 99: ['thunderstorm', 'Thunderstorm, hail']
+        };
+        const conditionFor = (code, clouds) => {
+            if (code === 3) return clouds > 90
+                ? { condition: 'overcast', description: 'Overcast', glyph: '' }
+                : { condition: 'cloudy', description: 'Cloudy', glyph: '' };
+            const [condition, description] = WMO[code] || ['cloudy', `Unknown (${code})`];
+            return { condition, description, glyph: HAZARD_GLYPH[code] || '' };
+        };
+
+        // --- City-local date/time via the forecast's IANA timezone -----
+        const cityNow = () => {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: state.tz, year: 'numeric', month: '2-digit',
+                day: '2-digit', hour: '2-digit', hourCycle: 'h23'
+            }).formatToParts(new Date());
+            const get = type => parts.find(p => p.type === type).value;
+            return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: +get('hour') };
+        };
+        const DAY_ABBR = ['SU', 'M', 'T', 'W', 'TH', 'F', 'S'];
+        const weekdayOf = dateStr => DAY_ABBR[new Date(dateStr + 'T00:00:00Z').getUTCDay()];
+
+        // --- UI state ---------------------------------------------------
+        const setStatus = (text, cls = '') => {
+            $('status').textContent = text;
+            $('status').className = `status ${cls}`.trim();
+        };
+
+        // Shared time-axis labels (real grid and skeleton alike).
+        // (i + 0.5) * band% = vertical middle of hour band i, so each label
+        // sits level with its row of blocks. In the 24h view every 3rd hour
+        // is labelled — 24 labels don't fit the axis.
+        // Side "now" indicator: when today's column and the current
+        // hour are both on screen, that hour's label becomes a gold marker
+        // with the CURRENT temp — no temp data, arrow only (never a guess).
+        const renderTimes = () => {
+            const { start, end, days } = visibleWindow();
+            const rows = end - start + 1;
+            const band = 100 / rows;
+            const step = rows > 16 ? 3 : 1;
+            const now = cityNow().hour;
+            const ti = state.days.findIndex(d => d.isToday);
+            const hasNow = ti >= 0 && ti < days && now >= start && now <= end;
+            const nowTemp = hasNow ? state.data[ti].find(x => x.hour === now)?.temp : null;
+            $('times').innerHTML = Array(rows).fill().map((_, i) => {
+                const h = start + i;
+                if (hasNow && h === now) {
+                    return `<div class="time-label now" style="top:${(i + 0.5) * band}%;"
+                                 aria-label="Now">${nowTemp != null ? `${displayTemp(nowTemp)}°` : ''}</div>`;
+                }
+                if (h % step) return '';
+                return `<div class="time-label" style="top:${(i + 0.5) * band}%;">${hourLabel(h)}</div>`;
+            }).join('');
+        };
+
+        // Placeholder grid while no forecast is available yet.
+        // Deliberately colorless (no fake weather) — a dim pulse that
+        // sweeps across the week, replaced in place by real data.
+        const renderSkeleton = () => {
+            const { start, end, days } = visibleWindow();
+            const rows = end - start + 1;
+            $('days').innerHTML = Array(days).fill('<div class="day-label">–</div>').join('');
+            $('temps').className = `temp-row${settings.unit === 'F' ? ' unit-f' : ''}`;
+            $('temps').innerHTML = Array(days).fill(
+                `<div class="temp-item"><span class="temp-max">–</span><span class="temp-sep">/</span><span class="temp-min">–</span></div>`
+            ).join('');
+            renderTimes();
+            $('grid').innerHTML = Array(days).fill().map((_, d) =>
+                `<div class="day-column">${
+                    `<div class="weather-block skeleton" style="animation-delay:${(d * 0.12).toFixed(2)}s"></div>`.repeat(rows)
+                }</div>`
+            ).join('');
+        };
+
+        const setLoading = loading => {
+            state.loading = loading;
+            if (!loading) return;
+            show($('error'), false);
+            if (!state.data.length) {
+                // Nothing to show yet — skeleton grid + explicit indicator.
+                renderSkeleton();
+                setStatus('Loading forecast…', 'updating');
+            } else {
+                // Stale data stays on screen; just hint at the background refresh.
+                setStatus('Updating…', 'updating');
+            }
+        };
+
+        const showError = msg => {
+            $('errorText').textContent = `Unable to load weather: ${msg}`;
+            show($('error'), true);
+            state.loading = false;
+            if (!state.data.length) setStatus('No forecast yet — retry when back online', 'stale');
+        };
+
+        const updateStatus = () => {
+            if (!state.fetchedAt) { setStatus(''); return; }
+            const age = Date.now() - state.fetchedAt;
+            const minutes = Math.floor(age / 60000);
+            if (age < 60000) {
+                setStatus('Data is fresh', 'fresh');
+            } else if (age > FRESH_TIME) {
+                setStatus('Data may be outdated', 'stale');
+            } else {
+                setStatus(`Updated ${minutes} minute${minutes !== 1 ? 's' : ''} ago`);
+            }
+        };
+
+        const renderLocation = () => {
+            document.title = state.place.name;
+            $('location').textContent = state.place.name;
+        };
+
+        // --- Fetch forecast (Open-Meteo, no API key) ----------------------
+        const forecastURL = p =>
+            'https://api.open-meteo.com/v1/forecast' +
+            `?latitude=${p.latitude}&longitude=${p.longitude}` +
+            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation_probability,uv_index' +
+            '&timezone=auto&forecast_days=7';
+
+        const fetchWeather = async (force = false) => {
+            if (state.loading && !force) return;
+            if (!force && state.data.length && (Date.now() - state.fetchedAt) < FRESH_TIME) {
+                updateStatus();
+                return;
+            }
+            setLoading(true);
+            try {
+                state.controller?.abort();
+                state.controller = new AbortController();
+                const response = await fetch(forecastURL(state.place), { signal: state.controller.signal });
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                const payload = await response.json();
+                if (!payload.hourly?.time?.length) throw new Error('Invalid data received');
+
+                state.fetchedAt = Date.now();
+                saveJSON(LS_FORECAST, { placeKey: placeKey(state.place), timestamp: state.fetchedAt, payload });
+                processData(payload);
+                updateDisplay();
+                setLoading(false);
+            } catch (error) {
+                if (error.name === 'AbortError') return;
+                if (state.data.length) {
+                    // Stale data already on screen — no banner, status says "outdated".
+                    setLoading(false);
+                    updateStatus();
+                } else {
+                    showError(error.message);
+                }
+            }
+        };
+
+        // --- Process Open-Meteo payload (real hours only) -----------------
+        const processData = payload => {
+            state.tz = payload.timezone || state.tz;
+            const { time, temperature_2m, weather_code, cloud_cover, precipitation_probability, uv_index } = payload.hourly;
+
+            // Group by city-local date (Open-Meteo returns local ISO strings).
+            // ALL hours are kept in state (temps in °C); the displayed
+            // hour window and unit are applied at render time, so settings
+            // and zoom changes never need a refetch.
+            const byDate = {};
+            for (let i = 0; i < time.length; i++) {
+                if (temperature_2m[i] == null || weather_code[i] == null) continue; // honesty: skip missing
+                const date = time[i].slice(0, 10);
+                const h = {
+                    hour: +time[i].slice(11, 13),
+                    temp: Math.round(temperature_2m[i]),
+                    pop: precipitation_probability?.[i] ?? null, // null = unknown, never faked
+                    uv: uv_index?.[i] ?? null,
+                    ...conditionFor(weather_code[i], cloud_cover?.[i] ?? 0)
+                };
+                // (⚠ heat/UV glyphs are applied at render time, so the
+                // user's thresholds take effect without a refetch.)
+                (byDate[date] = byDate[date] || []).push(h);
+            }
+
+            // Only days that actually have data — no fabricated columns.
+            const today = cityNow().date;
+            state.data = []; state.days = [];
+            for (const date of Object.keys(byDate).sort()) {
+                state.data.push(byDate[date]);
+                state.days.push({ text: weekdayOf(date), isToday: date === today });
+            }
+        };
+
+        // --- Render ------------------------------------------------------
+        const updateDisplay = () => {
+            const { start, end, days } = visibleWindow();
+            const rows = end - start + 1;
+            const shownDays = state.data.slice(0, days);   // zoomed: today-first subset
+            const dayMeta = state.days.slice(0, days);
+
+            $('days').innerHTML = dayMeta.map(day =>
+                `<div class="day-label ${day.isToday ? 'today' : ''}">${day.text}</div>`
+            ).join('');
+
+            // Min/max over the displayed hour window as a one-line "18/9"
+            // pair, in the chosen unit (° implied — see .temp-item CSS).
+            $('temps').className = `temp-row${settings.unit === 'F' ? ' unit-f' : ''}`;
+            $('temps').innerHTML = shownDays.map(dayData => {
+                const t = dayData.filter(h => h.hour >= start && h.hour <= end).map(h => h.temp);
+                const fmt = v => t.length ? String(displayTemp(v)) : '–';
+                return `<div class="temp-item"><span class="temp-max">${fmt(Math.max(...t))}</span><span class="temp-sep">/</span><span class="temp-min">${fmt(Math.min(...t))}</span></div>`;
+            }).join('');
+
+            renderTimes();
+
+            const currentHour = cityNow().hour;
+            $('grid').innerHTML = shownDays.map((dayData, dayIndex) => {
+                const isToday = dayMeta[dayIndex].isToday;
+                const blocks = [];
+                for (let hour = start; hour <= end; hour++) {
+                    const h = dayData.find(x => x.hour === hour);
+                    if (!h) { // honest gap — no interpolated block
+                        blocks.push('<div class="weather-block empty"></div>');
+                        continue;
+                    }
+                    const current = isToday && hour === currentHour ? ' current' : '';
+                    // Dithered pixel order: a Knuth multiplicative hash
+                    // (top 3 bits, so it's genuinely scattered — low bits
+                    // would degenerate into a sweep) assigns each block one
+                    // of 8 discrete 45ms ticks.
+                    // Worst case 315ms + 120ms flicker ≈ 0.44s total.
+                    const cell = dayIndex * rows + (hour - start) + 1;
+                    const tick = Math.imul(cell, 2654435761) >>> 29;
+                    const delay = tick * 45;
+                    // Temperature view: heat-scale recolor.
+                    // Rain view: probability fade — no probability
+                    // data → full hue, no invented number. Color always
+                    // derives from CONDITIONS; glyph contrast by luminance.
+                    const cond = COND[h.condition];
+                    const rgb = view === 'temp'
+                        ? heatRGB(h.temp)
+                        : (PRECIP.has(cond.group) && h.pop != null
+                            ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
+                    // Heat/UV warning glyph: ⚠ at or above the user's
+                    // ⚙-menu thresholds. Weather hazards (⚡ ≡ ❆) take
+                    // precedence — never more than one glyph per block.
+                    const hot = h.temp >= settings.heatWarn;
+                    const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
+                    const glyph = h.glyph || (hot || uvHigh ? '⚠︎' : '');
+                    const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
+                    const hazText = (hot ? ' · extreme heat' : '')
+                        + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '');
+                    const info = esc(`${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${hazText}`);
+                    blocks.push(
+                        `<div class="weather-block reveal${current}"
+                              style="animation-delay:${delay}ms;background:rgb(${rgb});color:${textOn(rgb)}"
+                              tabindex="0"
+                              aria-label="${info}"
+                              data-day="${dayIndex}"
+                              data-info="${info}">${glyph}</div>`);
+                }
+                return `<div class="day-column">${blocks.join('')}</div>`;
+            }).join('');
+
+            updateStatus();
+        };
+
+        // --- Legend: spectrum strip or heat strip -------------------------
+        // One line, fixed order — sun → cloud → rain → storm → snow, group
+        // labels beneath: reads as a scale ("darker = more"). Exact
+        // condition names on tap via the shared tooltip, derived from the
+        // WMO table so legend and grid can never drift.
+        const namesFor = key => {
+            const names = Object.values(WMO).filter(([k]) => k === key).map(([, d]) => d);
+            if (key === 'cloudy') names.unshift('Cloudy');     // WMO 3, thinner cover
+            if (key === 'overcast') names.unshift('Overcast'); // WMO 3, >90% cover
+            return [...new Set(names)];
+        };
+        const renderLegend = () => {
+            const legend = $('legend');
+            if (view === 'temp') {
+                legend.innerHTML = [-5, 0, 5, 10, 15, 20, 25, 30, 35].map(t =>
+                    `<div class="legend-step">
+                        <div class="swatch" style="background:rgb(${heatRGB(t)})"></div>
+                        <span>${displayTemp(t)}°</span>
+                    </div>`
+                ).join('');
+                return;
+            }
+            // Group label sits under the middle cell of its group.
+            const members = {};
+            CONDITIONS.forEach((c, i) => (members[c.group] = members[c.group] || []).push(i));
+            const labelAt = {};
+            for (const g in members) labelAt[members[g][members[g].length >> 1]] = g;
+            legend.innerHTML = CONDITIONS.map((c, i) =>
+                `<div class="legend-step">
+                    <div class="swatch legend-swatch" style="background:${c.color};color:${textOn(hexRGB(c.color))}"
+                         tabindex="0" role="button" data-cond="${i}"
+                         aria-label="${esc(c.label)}: ${esc(namesFor(c.key).join(', '))}">${glyphFor(c.key)}</div>
+                    <span>${labelAt[i] || ''}</span>
+                </div>`
+            ).join('');
+        };
+
+        const setView = v => {
+            view = v;
+            saveJSON(LS_VIEW, v);
+            document.querySelectorAll('#viewToggle button').forEach(b =>
+                b.classList.toggle('active', b.dataset.view === v));
+            renderLegend();
+            if (state.data.length) updateDisplay();
+        };
+
+        // Re-render everything that depends on a preference or zoom level.
+        const applyPrefs = () => {
+            applyBand();
+            renderLegend();
+            if (state.data.length) updateDisplay(); else renderSkeleton();
+        };
+
+        // --- Tooltip — shared by grid blocks and legend cells -------------
+        const TIP_SEL = '.weather-block[data-info], .legend-swatch';
+        const showTooltip = el => {
+            const tooltip = $('tooltip');
+            if (el.dataset.cond != null) { // legend cell: exact condition names
+                const c = CONDITIONS[+el.dataset.cond];
+                tooltip.innerHTML =
+                    `<strong>${esc(c.label)}</strong><br>${namesFor(c.key).map(esc).join(' · ')}`;
+            } else { // grid block: day, hour, condition, temp, rain %, hazards
+                const [time, desc] = el.dataset.info.split(' - ');
+                const day = state.days[+el.dataset.day];
+                tooltip.innerHTML =
+                    `<strong>${day.isToday ? 'Today' : day.text} ${esc(time)}</strong><br>${esc(desc)}`;
+            }
+            tooltip.style.opacity = '1';
+            const rect = el.getBoundingClientRect();
+            // Clamp inside the viewport; flip below the block near the top edge.
+            tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - 148, rect.left + rect.width / 2 - 60))}px`;
+            tooltip.style.top = `${rect.top < 70 ? rect.bottom + 8 : rect.top - 60}px`;
+        };
+        let tappedBlock = null; // element whose tooltip was opened by tap
+        const hideTooltip = () => { $('tooltip').style.opacity = '0'; tappedBlock = null; };
+
+        // --- City search (Open-Meteo geocoding, URL-encoded) --------------
+        const searchCity = async query => {
+            if (query.length < 2) return [];
+            try {
+                const response = await fetch(
+                    'https://geocoding-api.open-meteo.com/v1/search' +
+                    `?name=${encodeURIComponent(query)}&count=5&language=en&format=json`
+                );
+                if (!response.ok) throw new Error('Search failed');
+                return (await response.json()).results || [];
+            } catch (error) {
+                console.error('Search error:', error);
+                return [];
+            }
+        };
+
+        const closeSearch = () => {
+            $('searchContainer').classList.remove('active');
+            document.querySelector('.container').classList.remove('search-active');
+            $('searchInput').value = '';
+            $('searchResults').innerHTML = '';
+        };
+
+        // --- Saved cities as search shortcuts -----------------------------
+        // Selecting a city saves it (MRU order, capped). No management view:
+        // saved cities only ever appear as search suggestions, removable ✕.
+        let savedCities = (() => {
+            const list = loadJSON(LS_CITIES);
+            return Array.isArray(list) ? list.filter(c => c?.name && c.latitude != null) : [];
+        })();
+
+        const rememberCity = place => {
+            savedCities = [place, ...savedCities.filter(c => placeKey(c) !== placeKey(place))]
+                .slice(0, MAX_CITIES);
+            saveJSON(LS_CITIES, savedCities);
+        };
+
+        const changeCity = place => {
+            state.place = place;
+            saveJSON(LS_PLACE, place);
+            rememberCity(place);
+            state.data = []; state.days = []; state.fetchedAt = 0;
+            renderLocation();
+            closeSearch();
+            fetchWeather(true);
+        };
+
+        // Saved matches rank first, then geocoding hits (deduped).
+        // Zero saved cities: list is just geocoding hits — exactly as before.
+        let suggestToken = 0;
+        const renderSuggestions = async query => {
+            const token = ++suggestToken;
+            const q = query.trim().toLowerCase();
+            const saved = q ? savedCities.filter(c => c.name.toLowerCase().includes(q)) : savedCities;
+            let hits = [];
+            if (q.length >= 2) {
+                hits = (await searchCity(query)).map(h => ({
+                    name: h.name, country: h.country_code || h.country || '',
+                    admin1: h.admin1 || '', latitude: h.latitude, longitude: h.longitude
+                })).filter(p => !saved.some(s => placeKey(s) === placeKey(p)));
+            }
+            if (token !== suggestToken) return; // superseded by a newer query
+            state.suggestions = [...saved.map(p => ({ ...p, saved: true })), ...hits];
+            $('searchResults').innerHTML =
+                '<div class="search-result geo">⌖ Use my location</div>' +
+                state.suggestions.map((p, i) =>
+                    `<div class="search-result" data-i="${i}">
+                        <span>${esc(p.name)}${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>
+                        ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
+                    </div>`
+                ).join('');
+        };
+
+        // --- "Use my location" ---------------------------------------------
+        const useMyLocation = () => {
+            if (!navigator.geolocation) { setStatus('Geolocation not supported here', 'stale'); return; }
+            setStatus('Locating…', 'updating');
+            navigator.geolocation.getCurrentPosition(async pos => {
+                const { latitude, longitude } = pos.coords;
+                // Keyless reverse geocode for a display name; honest
+                // "My location" fallback — never a guessed city name.
+                const place = { name: 'My location', country: '', admin1: '', latitude, longitude };
+                try {
+                    const r = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client' +
+                        `?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`);
+                    if (r.ok) {
+                        const g = await r.json();
+                        place.name = g.city || g.locality || place.name;
+                        place.admin1 = g.principalSubdivision || '';
+                        place.country = g.countryCode || g.countryName || '';
+                    }
+                } catch { /* keep the fallback name */ }
+                changeCity(place);
+            }, () => setStatus('Location unavailable — try search', 'stale'),
+               { timeout: 10000, maximumAge: 5 * 60 * 1000 });
+        };
+
+        // --- Events -------------------------------------------------------
+        $('retry').onclick = () => fetchWeather(true);
+
+        document.addEventListener('mouseover', e => {
+            if (e.target.matches(TIP_SEL)) showTooltip(e.target);
+        });
+        document.addEventListener('mouseout', e => {
+            if (e.target.matches(TIP_SEL)) hideTooltip();
+        });
+        // Keyboard: blocks and legend cells are tabbable; focus shows the
+        // same tooltip.
+        document.addEventListener('focusin', e => {
+            if (e.target.matches(TIP_SEL)) showTooltip(e.target);
+        });
+        document.addEventListener('focusout', e => {
+            if (e.target.matches(TIP_SEL)) hideTooltip();
+        });
+        // Tap toggles the tooltip — hover-only left mobile without
+        // hourly detail. Tapping the same element or anywhere else dismisses.
+        document.addEventListener('click', e => {
+            const el = e.target.closest(TIP_SEL);
+            if (el) {
+                if (tappedBlock === el) return hideTooltip();
+                showTooltip(el);
+                tappedBlock = el;
+            } else {
+                hideTooltip();
+            }
+        });
+
+        $('location').onclick = () => {
+            toggleSettings(false);
+            const opening = !$('searchContainer').classList.contains('active');
+            $('searchContainer').classList.toggle('active');
+            document.querySelector('.container').classList.toggle('search-active');
+            if (opening) {
+                renderSuggestions(''); // saved cities + geolocate, before any typing
+                $('searchInput').focus();
+            }
+        };
+        // Keyboard-operable location control
+        $('location').addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('location').click(); }
+        });
+
+        // --- Settings menu — the app's only menu --------------------------
+        const renderSettings = () => {
+            const seg = (key, options) => `<div class="seg">${options.map(([val, label]) =>
+                `<button data-key="${key}" data-val="${val}"
+                         class="${String(settings[key]) === val ? 'active' : ''}">${label}</button>`
+            ).join('')}</div>`;
+            $('settings').innerHTML =
+                `<div class="setting-row"><span>Units</span>${seg('unit', [['C', '°C'], ['F', '°F']])}</div>` +
+                `<div class="setting-row"><span>Clock</span>${seg('clock', [['12', '12h'], ['24', '24h']])}</div>` +
+                `<div class="setting-row"><span>Hours</span>${seg('allHours', [['false', '6–21'], ['true', '24h']])}</div>` +
+                `<div class="setting-row"><span>⚠ heat ≥</span>${seg('heatWarn',
+                    [30, 35, 40].map(t => [String(t), `${displayTemp(t)}°`]))}</div>` +
+                `<div class="setting-row"><span>⚠ UV ≥</span>${seg('uvWarn',
+                    [['8', '8'], ['10', '10'], ['11', '11']])}</div>` +
+                (savedCities.length
+                    ? `<div class="setting-row"><span>Saved cities</span></div>` +
+                      savedCities.map((c, i) =>
+                        `<div class="saved-city"><span>${esc(c.name)}</span>
+                         <button class="forget" data-city="${i}" aria-label="Remove ${esc(c.name)}">✕</button></div>`
+                      ).join('')
+                    : '');
+        };
+        const toggleSettings = open => {
+            const willOpen = open ?? $('settings').classList.contains('hidden');
+            $('settings').classList.toggle('hidden', !willOpen);
+            $('gear').setAttribute('aria-expanded', willOpen);
+            if (willOpen) renderSettings();
+        };
+        $('gear').onclick = () => { closeSearch(); toggleSettings(); };
+        $('settings').addEventListener('click', e => {
+            const seg = e.target.closest('button[data-key]');
+            if (seg) {
+                const { key, val } = seg.dataset;
+                settings[key] = key === 'allHours' ? val === 'true'
+                    : (key === 'heatWarn' || key === 'uvWarn') ? +val : val;
+                saveJSON(LS_SETTINGS, settings);
+                applyPrefs();
+                renderSettings();
+                return;
+            }
+            const forget = e.target.closest('button[data-city]');
+            if (forget) { // remove a saved-city shortcut
+                savedCities.splice(+forget.dataset.city, 1);
+                saveJSON(LS_CITIES, savedCities);
+                renderSettings();
+            }
+        });
+
+        // --- Semantic zoom: pinch / trackpad-pinch / ± keys --------------
+        // Zooming in narrows focus — fewer days, fewer hours centered on
+        // now, slightly larger type. Default (zoom 0) is always the full
+        // glanceable week; zoom is never persisted.
+        const setZoom = z => {
+            const clamped = Math.max(0, Math.min(ZOOM_DAYS.length - 1, z));
+            if (clamped === zoom) return;
+            zoom = clamped;
+            const container = document.querySelector('.container');
+            if (zoom) container.dataset.zoom = zoom; else delete container.dataset.zoom;
+            applyPrefs();
+        };
+        const chart = document.querySelector('.chart');
+        let pinchDist = null;
+        chart.addEventListener('touchstart', e => {
+            if (e.touches.length === 2) {
+                pinchDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY);
+            }
+        }, { passive: true });
+        chart.addEventListener('touchmove', e => {
+            if (e.touches.length !== 2 || pinchDist == null) return;
+            e.preventDefault(); // grid pinch = semantic zoom, not page zoom
+            const d = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY);
+            if (d > pinchDist * 1.3) { setZoom(zoom + 1); pinchDist = d; }
+            else if (d < pinchDist * 0.77) { setZoom(zoom - 1); pinchDist = d; }
+        }, { passive: false });
+        chart.addEventListener('touchend', e => {
+            if (e.touches.length < 2) pinchDist = null;
+        });
+        // One-finger horizontal swipe on the grid flips rain ↔ temp view.
+        // Vertical stays scroll, two fingers stay zoom; the toggle buttons
+        // remain the visible state indicator. Guarded (>60px, mostly
+        // horizontal, single finger) so taps and sloppy scrolls never flip.
+        let swipeStart = null;
+        chart.addEventListener('touchstart', e => {
+            swipeStart = e.touches.length === 1
+                ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+        }, { passive: true });
+        chart.addEventListener('touchend', e => {
+            if (!swipeStart || e.touches.length) { if (e.touches.length) swipeStart = null; return; }
+            const t = e.changedTouches[0];
+            const dx = t.clientX - swipeStart.x, dy = t.clientY - swipeStart.y;
+            swipeStart = null;
+            if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
+                setView(view === 'rain' ? 'temp' : 'rain');
+            }
+        });
+        // macOS trackpad pinch arrives as ctrl+wheel.
+        let wheelAcc = 0;
+        chart.addEventListener('wheel', e => {
+            if (!e.ctrlKey) return;
+            e.preventDefault();
+            wheelAcc += e.deltaY;
+            if (wheelAcc < -60) { setZoom(zoom + 1); wheelAcc = 0; }
+            else if (wheelAcc > 60) { setZoom(zoom - 1); wheelAcc = 0; }
+        }, { passive: false });
+
+        document.addEventListener('keydown', e => {
+            if ((e.target.tagName || '') === 'INPUT') return; // don't hijack typing
+            if (e.key === '+' || e.key === '=') setZoom(zoom + 1);
+            else if (e.key === '-') setZoom(zoom - 1);
+            else if (e.key === 'Escape') {
+                closeSearch();
+                toggleSettings(false);
+                hideTooltip();
+            }
+        });
+
+        // --- View toggle: rain ↔ temperature grid -------------------------
+        $('viewToggle').addEventListener('click', e => {
+            const b = e.target.closest('button[data-view]');
+            if (b) setView(b.dataset.view);
+        });
+
+        let searchTimeout;
+        $('searchInput').addEventListener('input', e => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => renderSuggestions(e.target.value), 250);
+        });
+
+        $('searchResults').addEventListener('click', e => {
+            if (e.target.closest('.geo')) { closeSearch(); useMyLocation(); return; }
+            const forget = e.target.closest('.forget');
+            if (forget) { // ✕ removes the shortcut, panel stays open
+                const gone = state.suggestions[+forget.dataset.i];
+                savedCities = savedCities.filter(c => placeKey(c) !== placeKey(gone));
+                saveJSON(LS_CITIES, savedCities);
+                renderSuggestions($('searchInput').value);
+                return;
+            }
+            const row = e.target.closest('.search-result');
+            if (row) {
+                const { saved, ...place } = state.suggestions[+row.dataset.i];
+                changeCity(place);
+            }
+        });
+
+        document.addEventListener('click', e => {
+            // A settings click re-renders the panel, detaching the clicked
+            // button before this handler runs — a detached target has no
+            // ancestors, which would falsely read as an outside click.
+            if (!e.target.isConnected) return;
+            if (!e.target.closest('.location-wrapper')) {
+                $('searchContainer').classList.remove('active');
+                document.querySelector('.container').classList.remove('search-active');
+                toggleSettings(false);
+            }
+        });
+
+        // Auto-refresh every 30 minutes
+        setInterval(() => {
+            if (!document.hidden && !state.loading) fetchWeather();
+        }, 30 * 60 * 1000);
+
+        // --- Init: render last known data instantly, then refresh ---------
+        applyBand();   // --band from the current hours setting
+        setView(view); // paints the rain/temp toggle + matching legend
+
+        const savedPlace = loadJSON(LS_PLACE);
+        if (savedPlace?.name && savedPlace.latitude != null) state.place = savedPlace;
+        renderLocation();
+
+        const savedForecast = loadJSON(LS_FORECAST);
+        if (savedForecast?.payload && savedForecast.placeKey === placeKey(state.place)) {
+            state.fetchedAt = savedForecast.timestamp;
+            try {
+                processData(savedForecast.payload);
+                updateDisplay();
+            } catch { state.data = []; state.fetchedAt = 0; }
+        }
+        fetchWeather(); // refresh in background (skips network if data < 10 min old)
+
+        // Service worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(() => {});
+            });
+        }
+    </script>
+</body>
+</html>

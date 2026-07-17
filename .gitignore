@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Working docs & prototypes (local only, not published)
+SPEC.md
+research/
+archive/
+
+# Design source files
+icons/Logo.afdesign
