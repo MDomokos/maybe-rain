@@ -2,7 +2,7 @@
 <title>Maybe Rain</title>
 <!-- Full-bleed, no baked corners. The OS (iOS squircle / Android maskable) supplies the shape. -->
 <!-- Grid scaled to 0.76 about center so all tile content stays inside the 80% maskable safe circle. -->
-<rect width="512" height="512" fill="#0B0E13"/>
+<rect width="512" height="512" fill="#000000"/>
 <g transform="translate(256 256) scale(0.76) translate(-256 -256)">
 <rect x="64" y="64" width="64" height="64" rx="13" fill="#141C29" stroke="rgba(150,180,225,0.10)" stroke-width="1.5"/>
 <rect x="144" y="64" width="64" height="64" rx="13" fill="#92A8CE"/>
