@@ -4,6 +4,9 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 
 ## unreleased
 
+## v18 (2026-07-22)
+- add new logo based on grid view
+
 ## v17 (2026-07-17)
 - sunset time
 - tooltip showing when the forecast last updated

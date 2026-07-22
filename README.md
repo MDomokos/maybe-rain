@@ -1,4 +1,4 @@
-# maybe rain
+# Maybe Rain?
 
 A weather app that answers one question at a glance: will it rain, and when?
 

@@ -1,5 +1,5 @@
 // Bump this version on every deploy so installed PWAs pick up changes.
-const CACHE_NAME = 'maybe-rain-v17';
+const CACHE_NAME = 'maybe-rain-v18';
 // Base path of wherever the app is served from (works at a domain root
 // or under a subpath like GitHub Pages' /repo-name/).
 const BASE = new URL('./', self.location).pathname;
@@ -27,9 +27,11 @@ self.addEventListener('fetch', event => {
   // Cross-origin (weather/geocoding APIs): network only, never cached here.
   if (url.origin !== location.origin) return;
 
-  // App shell: network-first so deploys reach installed PWAs immediately;
-  // cache fallback keeps offline open working.
-  if (event.request.mode === 'navigate' || url.pathname === BASE + 'index.html' || url.pathname === BASE) {
+  // App shell + manifest: network-first so deploys reach installed PWAs
+  // immediately. Keeping the manifest network-first means new (content-hashed)
+  // icon URLs are seen right away instead of being pinned to a cached copy.
+  // Cache fallback keeps offline open working.
+  if (event.request.mode === 'navigate' || url.pathname === BASE + 'index.html' || url.pathname === BASE || url.pathname === BASE + 'manifest.json') {
     event.respondWith(
       fetch(event.request)
         .then(response => {
@@ -44,7 +46,8 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Static assets (manifest, icons): cache-first.
+  // Static assets (content-hashed icons, etc.): cache-first. Safe because the
+  // filename changes when the bytes change, so a new icon = a new URL = a miss.
   event.respondWith(
     caches.match(event.request).then(cached =>
       cached || fetch(event.request).then(response => {

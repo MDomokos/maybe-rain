@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Maybe Rain">
+<title>Maybe Rain</title>
+<style>
+svg{ --tile:#EDEFEA; --frame:rgba(0,0,0,0.08); --empty:#E2E5DE; --estroke:rgba(0,0,0,0.06); --emptyR:#D9E0EA; --estrokeR:rgba(40,70,120,0.12); --body:#7E95C0; --hiA:#AEC2E0; --hiB:#C2D3ED; --shA:#5E76A8; --shB:#6E84B0; --sun:#E9A100; --rainA:#2C4EB8; --rainB:#21306B }
+@media (prefers-color-scheme:dark){ svg{ --tile:#0B0E13; --frame:rgba(255,255,255,0.08); --empty:#141C29; --estroke:rgba(150,180,225,0.10); --emptyR:#1C2A44; --estrokeR:rgba(155,185,230,0.18); --body:#92A8CE; --hiA:#CBDBF2; --hiB:#DCE8F8; --shA:#6E86B4; --shB:#8296BE; --sun:#FFD700; --rainA:#2F51BE; --rainB:#223E86 } }
+.tile{fill:var(--tile)} .frame{fill:none;stroke:var(--frame);stroke-width:2}
+.e{fill:var(--empty);stroke:var(--estroke);stroke-width:1.5}
+.er{fill:var(--emptyR);stroke:var(--estrokeR);stroke-width:1.5}
+.body{fill:var(--body)}.hiA{fill:var(--hiA)}.hiB{fill:var(--hiB)}.shA{fill:var(--shA)}.shB{fill:var(--shB)}.sun{fill:var(--sun)}.rainA{fill:var(--rainA)}.rainB{fill:var(--rainB)}
+</style>
+<rect class="tile" x="4" y="4" width="504" height="504" rx="112"/>
+<rect class="frame" x="5" y="5" width="502" height="502" rx="111"/>
+<rect class="e" x="64" y="64" width="64" height="64" rx="13"/>
+<rect class="body" x="144" y="64" width="64" height="64" rx="13"/>
+<rect class="hiA" x="224" y="64" width="64" height="64" rx="13"/>
+<rect class="e" x="304" y="64" width="64" height="64" rx="13"/>
+<rect class="sun" x="384" y="64" width="64" height="64" rx="13"/>
+<rect class="body" x="64" y="144" width="64" height="64" rx="13"/>
+<rect class="body" x="144" y="144" width="64" height="64" rx="13"/>
+<rect class="body" x="224" y="144" width="64" height="64" rx="13"/>
+<rect class="hiB" x="304" y="144" width="64" height="64" rx="13"/>
+<rect class="e" x="384" y="144" width="64" height="64" rx="13"/>
+<rect class="shA" x="64" y="224" width="64" height="64" rx="13"/>
+<rect class="shB" x="144" y="224" width="64" height="64" rx="13"/>
+<rect class="body" x="224" y="224" width="64" height="64" rx="13"/>
+<rect class="body" x="304" y="224" width="64" height="64" rx="13"/>
+<rect class="body" x="384" y="224" width="64" height="64" rx="13"/>
+<rect class="er" x="64" y="304" width="64" height="64" rx="13"/>
+<rect class="rainA" x="144" y="304" width="64" height="64" rx="13"/>
+<rect class="er" x="224" y="304" width="64" height="64" rx="13"/>
+<rect class="rainA" x="304" y="304" width="64" height="64" rx="13"/>
+<rect class="er" x="384" y="304" width="64" height="64" rx="13"/>
+<rect class="er" x="64" y="384" width="64" height="64" rx="13"/>
+<rect class="rainB" x="144" y="384" width="64" height="64" rx="13"/>
+<rect class="rainA" x="224" y="384" width="64" height="64" rx="13"/>
+<rect class="er" x="304" y="384" width="64" height="64" rx="13"/>
+<rect class="rainA" x="384" y="384" width="64" height="64" rx="13"/>
+</svg>
