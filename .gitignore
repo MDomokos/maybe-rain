@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Build tooling output
+node_modules/
+dist/
+
 # Working docs & prototypes (local only, not published)
 SPEC.md
 DEPLOY.md

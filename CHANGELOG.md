@@ -4,6 +4,13 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 
 ## unreleased
 
+## v19 (2026-07-22)
+- no tap-highlight flash, no double-tap zoom, no long-press selection on the ui
+- crossfade when switching rain/temp/wind
+- keyboard: ⌘/ctrl+k search, 1–5 for saved cities
+- desktop: relaunch focuses the open window
+- desktop: app draws into the title bar (window controls overlay)
+
 ## v18 (2026-07-22)
 - add new logo based on grid view
 

@@ -20,9 +20,9 @@
             --block-gap: 4px;  /* vertical gap between blocks in a column */
             --overhang: 14px;  /* how far gridlines extend past the grid on the right */
             --band: 6.25%;     /* height of one hour band = 100 / displayed rows (set from JS) */
-            --radius: 2px;     /* the one corner radius, everywhere — the grid's */
+            --radius: 2px;     /* the one corner radius, used everywhere */
             --line: rgba(255,255,255,0.25); /* one hairline for panels & controls
-                                               (gridlines stay 0.3 — deliberately stronger) */
+                                               (gridlines stay at 0.3, intentionally stronger) */
             /* vertical rhythm, 8px scale */
             --sp-1: 8px; --sp-2: 16px; --sp-3: 24px; --sp-4: 32px;
         }
@@ -37,6 +37,17 @@
             min-height: 100vh;
             min-height: -webkit-fill-available;
             min-height: 100dvh;
+            /* no grey tap flash; no double-tap zoom (pinch zoom still works) */
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            /* no long-press selection popups on the UI chrome */
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* keep the tooltip values and the search field selectable */
+        .tooltip, input {
+            -webkit-user-select: text;
+            user-select: text;
         }
         /* Width follows viewport height so the grid keeps its portrait
            proportions: larger screens get a larger grid, capped at 540px. */
@@ -85,7 +96,7 @@
         .btn:hover, .btn:focus { border-color: rgba(255,255,255,0.6); outline: none; }
         .btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-        /* Settings — the only menu in the app. */
+        /* Settings: the only menu in the app. */
         .gear {
             margin-left: auto;
             border: none;    /* quiet: no outline, just the glyph */
@@ -154,7 +165,7 @@
         .seg button.active { background: #fff; color: #000; }
         .seg button:focus-visible { outline: 1px solid #FFD700; outline-offset: -2px; }
 
-        /* Rain/temperature view toggle — one tap, near the grid.
+        /* Rain/temperature view toggle: one tap, near the grid.
            Right margin = --overhang, so it aligns with the last column,
            not the gridline overhang. */
         .view-toggle {
@@ -174,7 +185,7 @@
             position: relative;
         }
 
-        /* Loading states — skeleton grid, no spinner: the placeholder IS the grid */
+        /* Loading states: skeleton grid, no spinner. The placeholder is the grid. */
         .weather-block.skeleton {
             background: #1c1c1c;
             cursor: default;
@@ -188,8 +199,8 @@
             color: #888;
             animation: skeletonPulse 1.6s ease-in-out infinite;
         }
-        /* Pixelated reveal when forecast data arrives: no fades — each
-           block snaps on (dim for a beat, then full) at its own discrete
+        /* Pixelated reveal when forecast data arrives: no fades. Each
+           block snaps on (dim briefly, then full) at its own discrete
            tick, in dithered order across the grid. `backwards` fill keeps
            a block invisible until its delay elapses; afterwards it returns
            to natural styles, so the hover opacity transition keeps working. */
@@ -225,14 +236,14 @@
             padding-left: var(--gutter);
             padding-right: var(--overhang);
         }
-        /* One-line temps "18/9": ° dropped — the unit
-           lives in settings, tooltips, and the temp-view legend. Max leads
-           in white-medium, min recedes to axis grey. */
+        /* One-line temps "18/9": the ° is dropped here; the unit shows in
+           settings, tooltips, and the temp-view legend. Max is white-medium,
+           min is the lighter axis grey. */
         .temp-item { flex: 1; text-align: center; white-space: nowrap; }
         .temp-max { font-weight: 500; font-size: calc(14px * var(--ui, 1)); }
         .temp-sep { color: #666; font-size: calc(12px * var(--ui, 1)); }
         .temp-min { color: #888; font-size: calc(12px * var(--ui, 1)); }
-        /* Day identity anchors the column, directly above its temps. */
+        /* Day label sits directly above its temps. */
         .day-labels {
             display: flex;
             gap: var(--gap);
@@ -255,8 +266,8 @@
         .chart {
             position: relative;
             /* pinch on the grid is semantic zoom (fewer columns), handled in
-               JS — pan-y keeps one-finger scroll while blocking browser
-               pinch here; page-level pinch-zoom stays enabled elsewhere */
+               JS; pan-y keeps one-finger scroll while blocking browser pinch
+               here. Page-level pinch-zoom stays enabled elsewhere. */
             touch-action: pan-y;
             height: clamp(260px, 52vh, 640px);
             padding-left: var(--gutter);
@@ -277,8 +288,8 @@
             font-size: calc(11px * var(--ui, 1));
             color: #888;
             right: 0;
-            /* label is positioned at the vertical middle of its hour band,
-               translateY centers the text on that point — so each label
+            /* label is positioned at the vertical middle of its hour band;
+               translateY centers the text on that point so each label
                lines up with its row of blocks */
             transform: translateY(-50%);
             font-weight: 300;
@@ -288,9 +299,8 @@
             gap: var(--gap);
             height: 100%;
         }
-        /* Gapped "pixel" grid: no column outline — each block is
-           a discrete rounded pixel; the block gaps and gridlines carry all
-           the structure. */
+        /* Gapped "pixel" grid: no column outline. Each block is a discrete
+           rounded pixel; the gaps and gridlines provide the structure. */
         .day-column {
             flex: 1;
             height: 100%;
@@ -301,9 +311,9 @@
         /* Each hour band is exactly --band = 100% / displayed rows. A block
            fills its band minus a fixed top gap where the gridline shows through.
            (px, not %, for the gap: percentage vertical margins resolve
-           against the column WIDTH — that was the old misalignment bug.)
-           Colors come inline from the JS CONDITIONS array — no condition
-           data in CSS; flex centering + inline color draw the hazard glyph. */
+           against the column width, which was the old misalignment bug.)
+           Colors come inline from the JS CONDITIONS array, so no condition
+           data lives in CSS; flex centering plus inline color draw the glyph. */
         .weather-block {
             width: 100%;
             height: calc(var(--band) - var(--block-gap));
@@ -322,18 +332,17 @@
         .weather-block:hover {
             opacity: 0.8;
         }
-        /* Current hour: two-tone inset ring — outer black band
-           shows on light blocks (sunny gold), inner white band on dark
-           blocks (navy, overcast). Static: the "now" attention-getter is
-           the axis marker below. */
+        /* Current hour: two-tone inset ring. Outer black band shows on light
+           blocks (sunny gold), inner white band on dark blocks (navy,
+           overcast). Static; the "now" cue is the axis marker below. */
         .weather-block.current {
             z-index: 1;
             position: relative;
             box-shadow: inset 0 0 0 2px #000, inset 0 0 0 4px #fff;
         }
-        /* Side "now" indicator: at the current hour, the axis label
-           becomes a gold current-temp marker with a ▶ pointing at today's
-           row. Static — gold + weight carry the emphasis, nothing moves. */
+        /* Side "now" indicator: at the current hour, the axis label becomes
+           a gold current-temp marker with a ▶ pointing at today's row.
+           Static; gold and weight provide the emphasis, nothing moves. */
         .time-label.now {
             color: #FFD700;
             font-weight: 600;
@@ -345,8 +354,8 @@
         }
 
         /* Sunrise/sunset: one straight gold hairline across the full chart
-           width (same span as the gridlines) at TODAY's exact minute,
-           BEHIND the blocks — it peeks out in the gaps (negative z-index
+           width (same span as the gridlines) at today's exact minute,
+           behind the blocks, so it peeks out in the gaps (negative z-index
            keeps the data pixels on top). Starts at the column field, clear
            of the time labels; keeps the gridlines' right overhang. Per-day
            exact times live in each covering block's tooltip. */
@@ -360,7 +369,7 @@
             pointer-events: none;
         }
 
-        /* Grid lines — one 1px line at the TOP of each hour band, where the
+        /* Grid lines: one 1px line at the top of each hour band, where the
            2px block gap is. Lines span the full chart width (left: 0), so
            they extend through the label gutter beyond the grid itself. */
         .chart::before {
@@ -382,10 +391,10 @@
         }
 
         /* Legend and tooltip.
-           Spectrum legend: both views render the same one-line
-           strip of blocks — conditions ordered sun → cloud → rain → storm →
-           snow (group labels beneath), or the heat scale in temp view.
-           2px gaps + per-block radius, so the strip rhymes with the grid. */
+           Spectrum legend: both views render the same one-line strip of
+           blocks; conditions ordered sun → cloud → rain → storm → snow
+           (group labels beneath), or the heat scale in temp view. 2px gaps
+           and per-block radius match the grid. */
         .legend {
             display: flex;
             justify-content: center;
@@ -443,8 +452,9 @@
         .tooltip div { white-space: nowrap; line-height: 1.5; }
 
         /* Status and animations. Centered on the column field like the
-           legend. No hue of its own: gold stays reserved for now/today/sun,
-           the rationalised palette for conditions — words carry the state. */
+           legend. No hue of its own: gold is reserved for now/today/sun and
+           the palette for conditions, so the status text carries the state
+           in words. */
         .status {
             font-size: 11px;
             color: #666;
@@ -467,7 +477,7 @@
             display: none;
         }
 
-        /* Install banner — bottom-center pill, dismissible, remembered.
+        /* Install banner: bottom-center pill, dismissible, remembered.
            Shown once per device until installed or dismissed. */
         .install-banner {
             position: fixed;
@@ -650,9 +660,9 @@
             }
         }
 
-        /* Installed PWA on a phone: the app IS the screen. Lock the
-           viewport — no scroll, no rubber-banding — and pad into the
-           safe areas (viewport-fit=cover + translucent status bar mean
+        /* Installed PWA on a phone: the app fills the screen. Lock the
+           viewport (no scroll, no rubber-banding) and pad into the safe
+           areas (viewport-fit=cover plus a translucent status bar mean
            content otherwise runs under the notch/home bar). The .standalone
            class is set from JS (display-mode media query + iOS legacy). */
         @media (max-width: 480px) {
@@ -672,9 +682,39 @@
             html.standalone .container { height: 100%; }
             html.standalone .chart { min-height: 0; }
         }
+
+        /* desktop keyboard-shortcut hint in the settings pane */
+        .shortcuts-hint { color: #666; font-size: 11px; }
+        .shortcuts-hint span:last-child { letter-spacing: 0.02em; }
+
+        /* Window Controls Overlay: on Chromium desktop the black background
+           extends into the OS title bar. The drag strip keeps the window
+           movable; content is padded below it. display:none outside this
+           display mode, so mobile, standalone, and browser are unaffected. */
+        .titlebar-drag { display: none; }
+        @media (display-mode: window-controls-overlay) {
+            .titlebar-drag {
+                display: block;
+                position: fixed;
+                top: 0;
+                left: env(titlebar-area-x, 0);
+                width: env(titlebar-area-width, 100%);
+                height: env(titlebar-area-height, 33px);
+                -webkit-app-region: drag;
+                app-region: drag;
+                z-index: 40;
+            }
+            body { padding-top: calc(env(titlebar-area-height, 33px) + 8px); }
+            /* keep controls clickable if any reaches the bar */
+            .location, .gear, .btn, .search-container {
+                -webkit-app-region: no-drag;
+                app-region: no-drag;
+            }
+        }
     </style>
 </head>
 <body>
+    <div class="titlebar-drag" aria-hidden="true"></div>
     <div class="container fade-in">
         <div class="location-wrapper">
             <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"></div>
@@ -725,7 +765,7 @@
 
     <script>
         // ---------------------------------------------------------------
-        // Maybe Rain? — single-file weather app.
+        // Maybe Rain? A single-file weather app.
         // Data: Open-Meteo (keyless, true hourly, 7 days, city-local time).
         // ---------------------------------------------------------------
         const FRESH_TIME = 10 * 60 * 1000;   // consider data fresh for 10 min
@@ -741,12 +781,14 @@
         const LS_VIEW = 'mr-view';       // 'rain' | 'temp' | 'wind' grid mode
         const LS_INSTALL = 'mr-install-dismissed';
         const MAX_CITIES = 5;
+        // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
+        const MOD = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';
 
         // --- Preferences (the app's only menu) ---------------------------
         // settings + view are initialised below, after loadJSON is defined.
         let settings, view;
-        let zoom = 0; // semantic zoom (pinch/±): 0 = full week — never persisted,
-                      // the app always opens on the glanceable whole picture
+        let zoom = 0; // semantic zoom (pinch/±): 0 = full week, never persisted;
+                      // the app always opens on the full week
 
         const ZOOM_DAYS = [7, 5, 3];      // columns per zoom level
         const ZOOM_HOUR_FRAC = [1, 0.75, 0.5]; // share of the hour range shown
@@ -802,18 +844,18 @@
         // red, anchored in km/h (≈ Beaufort 0 / 3 / 5 / 7 / 9+).
         const WIND_STOPS = [[0, [58, 58, 58]], [12, [72, 143, 138]], [29, [80, 200, 120]], [50, [255, 215, 0]], [75, [229, 72, 77]]];
         const windRGB = v => scaleRGB(WIND_STOPS, v);
-        // Open-Meteo reports the bearing the wind comes FROM; the block
-        // arrow points where it blows TO (wind from N → ↓). 8 octants.
+        // Open-Meteo reports the bearing the wind comes from; the block
+        // arrow points where it blows to (wind from N → ↓). 8 octants.
         const WIND_ARROWS = ['↓', '↙', '←', '↖', '↑', '↗', '→', '↘'];
         const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
         const windOctant = d => Math.round(d / 45) % 8;
 
-        // --- Conditions: the single source of truth -----------------------
+        // --- Conditions: defined in one place -----------------------------
         // Ordered scales: gold sun; 3-step grey for cloud cover (fog folds
         // into the lightest grey, marked by its ≡ glyph); 3-step blue for
         // rain intensity; violet storm; white snow. Grid colors, legend
-        // strip, and tooltip labels ALL derive from this array — condition
-        // data lives nowhere else (not in CSS, not in HTML).
+        // strip, and tooltip labels all derive from this array; condition
+        // data is defined only here, not in CSS or HTML.
         const CONDITIONS = [
             { key: 'sunny',         color: '#FFD700', label: 'Sunny',         group: 'sun' },
             { key: 'partly-cloudy', color: '#B0B0B0', label: 'Partly cloudy', group: 'cloud' },
@@ -828,18 +870,17 @@
         const COND = Object.fromEntries(CONDITIONS.map(c => [c.key, c]));
         const PRECIP = new Set(['rain', 'storm', 'snow']); // probability fade applies
 
-        // Hazard glyphs: redundant non-color
-        // markers, hazards only — never ordinary data. Max one per block;
-        // vocabulary capped at four: ⚡ lightning incl. hail, ≡ fog,
-        // ❆ freezing rain/drizzle, ⚠ extreme heat / very-high UV (applied
-        // in processData — threshold-, not code-based). U+FE0E keeps the
-        // glyphs non-emoji.
+        // Hazard glyphs: redundant non-color markers for hazards only,
+        // never ordinary data. Max one per block; vocabulary capped at
+        // four: ⚡ lightning incl. hail, ≡ fog, ❆ freezing rain/drizzle,
+        // ⚠ extreme heat / very-high UV (applied in processData, by
+        // threshold not code). U+FE0E keeps the glyphs non-emoji.
         const HAZARD_GLYPH = {
             95: '⚡︎', 96: '⚡︎', 99: '⚡︎',       // thunderstorm / hail
-            45: '≡', 48: '≡',                  // fog — visibility hazard
+            45: '≡', 48: '≡',                  // fog, visibility hazard
             56: '❆', 57: '❆', 66: '❆', 67: '❆' // freezing precipitation
         };
-        // A legend cell carries a glyph only when EVERY code mapping to it
+        // A legend cell carries a glyph only when every code mapping to it
         // has the same one (⚡ on storm); exceptional hazards (fog, freezing
         // rain) mark blocks, not legend cells.
         const glyphFor = key => {
@@ -859,9 +900,9 @@
             (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255 > 0.55 ? '#000' : '#fff';
 
         // --- Rain probability fade ---------------------------------------
-        // Precipitation blocks fade toward a dark NAVY (not black) as the
+        // Precipitation blocks fade toward a dark navy (not black) as the
         // probability drops, so a 30%-chance shower stays clearly blue and
-        // never reads as one of the cloudy grays. Solid hue = certain rain.
+        // is not mistaken for the cloudy greys. Solid hue = certain rain.
         const NAVY = [13, 32, 77];
         const fadeRGB = (hex, pop) => {
             const w = 0.35 + 0.65 * Math.max(0, Math.min(100, pop)) / 100;
@@ -876,7 +917,7 @@
         let state = {
             place: DEFAULT_PLACE,
             tz: 'Pacific/Auckland', // overwritten by every forecast response
-            data: [],     // [day][{hour, temp, pop, condition, description}] — all real hours
+            data: [],     // [day][{hour, temp, pop, condition, description}], all real hours
             days: [],     // [{text, isToday, date}]
             sun: {},      // date → { rise: {h, m}, set: {h, m} } (city-local)
             fetchedAt: 0, // timestamp of the forecast currently displayed
@@ -893,7 +934,7 @@
         const saveJSON = (key, value) => {
             try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* full/blocked: non-fatal */ }
         };
-        // heatWarn is anchored in °C; uvWarn is a UV index — ⚠ thresholds,
+        // heatWarn is anchored in °C; uvWarn is a UV index; ⚠ thresholds,
         // user-settable in the ⚙ menu because regions differ.
         const VIEWS = ['rain', 'temp', 'wind'];
         const enabledViews = () => VIEWS.filter(v => settings.views[v]);
@@ -962,10 +1003,10 @@
         // Shared time-axis labels (real grid and skeleton alike).
         // (i + 0.5) * band% = vertical middle of hour band i, so each label
         // sits level with its row of blocks. In the 24h view every 3rd hour
-        // is labelled — 24 labels don't fit the axis.
+        // is labelled, since 24 labels don't fit the axis.
         // Side "now" indicator: when today's column and the current
         // hour are both on screen, that hour's label becomes a gold marker
-        // with the CURRENT temp — no temp data, arrow only (never a guess).
+        // with the current temp; no temp data, arrow only (never a guess).
         const renderTimes = () => {
             const { start, end, days } = visibleWindow();
             const rows = end - start + 1;
@@ -987,8 +1028,8 @@
         };
 
         // Placeholder grid while no forecast is available yet.
-        // Deliberately colorless (no fake weather) — a dim pulse that
-        // sweeps across the week, replaced in place by real data.
+        // Colorless by design (no fake weather): a dim pulse across the
+        // week, replaced in place by real data.
         const renderSkeleton = () => {
             const { start, end, days } = visibleWindow();
             const rows = end - start + 1;
@@ -1011,7 +1052,7 @@
             if (!loading) return;
             show($('error'), false);
             if (!state.data.length) {
-                // Nothing to show yet — skeleton grid + explicit indicator.
+                // Nothing to show yet: skeleton grid + explicit indicator.
                 renderSkeleton();
                 setStatus('Loading forecast…', 'updating');
             } else {
@@ -1076,7 +1117,7 @@
             } catch (error) {
                 if (error.name === 'AbortError') return;
                 if (state.data.length) {
-                    // Stale data already on screen — no banner, status says "outdated".
+                    // Stale data already on screen: no banner, status says "outdated".
                     setLoading(false);
                     updateStatus();
                 } else {
@@ -1101,7 +1142,7 @@
             }
 
             // Group by city-local date (Open-Meteo returns local ISO strings).
-            // ALL hours are kept in state (temps in °C); the displayed
+            // All hours are kept in state (temps in °C); the displayed
             // hour window and unit are applied at render time, so settings
             // and zoom changes never need a refetch.
             const byDate = {};
@@ -1114,7 +1155,7 @@
                     pop: precipitation_probability?.[i] ?? null, // null = unknown, never faked
                     uv: uv_index?.[i] ?? null,
                     wind: wind_speed_10m?.[i] ?? null,        // km/h; converted at render
-                    windDir: wind_direction_10m?.[i] ?? null, // bearing wind comes FROM
+                    windDir: wind_direction_10m?.[i] ?? null, // bearing the wind comes from
                     gust: wind_gusts_10m?.[i] ?? null,        // km/h
                     ...conditionFor(weather_code[i], cloud_cover?.[i] ?? 0)
                 };
@@ -1123,7 +1164,7 @@
                 (byDate[date] = byDate[date] || []).push(h);
             }
 
-            // Only days that actually have data — no fabricated columns.
+            // Only days that actually have data; no fabricated columns.
             const today = cityNow().date;
             state.data = []; state.days = [];
             for (const date of Object.keys(byDate).sort()) {
@@ -1144,7 +1185,7 @@
             ).join('');
 
             // Min/max over the displayed hour window as a one-line "18/9"
-            // pair, in the chosen unit (° implied — see .temp-item CSS).
+            // pair, in the chosen unit (° implied; see .temp-item CSS).
             $('temps').className = `temp-row${settings.unit === 'F' ? ' unit-f' : ''}`;
             $('temps').innerHTML = shownDays.map(dayData => {
                 const t = dayData.filter(h => h.hour >= start && h.hour <= end).map(h => h.temp);
@@ -1157,7 +1198,7 @@
             const currentHour = cityNow().hour;
 
             // Sun hairlines: one straight line across the whole grid at
-            // TODAY's sunrise/sunset minute (⚙ Sun → hide turns them off).
+            // today's sunrise/sunset minute (⚙ Sun → hide turns them off).
             // Neighbouring days drift only minutes; each day's exact times
             // are in its blocks' tooltips.
             const todayMeta = dayMeta.find(d => d.isToday) || dayMeta[0];
@@ -1176,23 +1217,22 @@
                 const blocks = [];
                 for (let hour = start; hour <= end; hour++) {
                     const h = dayData.find(x => x.hour === hour);
-                    if (!h) { // honest gap — no interpolated block
+                    if (!h) { // honest gap, no interpolated block
                         blocks.push('<div class="weather-block empty"></div>');
                         continue;
                     }
                     const current = isToday && hour === currentHour ? ' current' : '';
                     // Dithered pixel order: a Knuth multiplicative hash
-                    // (top 3 bits, so it's genuinely scattered — low bits
-                    // would degenerate into a sweep) assigns each block one
-                    // of 8 discrete 45ms ticks.
-                    // Worst case 315ms + 120ms flicker ≈ 0.44s total.
+                    // (top 3 bits, so it scatters; low bits would degenerate
+                    // into a sweep) assigns each block one of 8 discrete
+                    // 45ms ticks. Worst case 315ms + 120ms flicker ≈ 0.44s.
                     const cell = dayIndex * rows + (hour - start) + 1;
                     const tick = Math.imul(cell, 2654435761) >>> 29;
                     const delay = tick * 45;
                     // Temperature view: heat-scale recolor.
-                    // Rain view: probability fade — no probability
-                    // data → full hue, no invented number. Color always
-                    // derives from CONDITIONS; glyph contrast by luminance.
+                    // Rain view: probability fade. No probability data means
+                    // full hue, with no invented number. Color always derives
+                    // from CONDITIONS; glyph contrast by luminance.
                     const cond = COND[h.condition];
                     const rgb = view === 'temp' ? heatRGB(h.temp)
                         : view === 'wind'
@@ -1201,10 +1241,10 @@
                                 ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
                     // Heat/UV warning glyph: ⚠ at or above the user's
                     // ⚙-menu thresholds. Weather hazards (⚡ ≡ ❆) take
-                    // precedence — never more than one glyph per block.
+                    // precedence; never more than one glyph per block.
                     const hot = h.temp >= settings.heatWarn;
                     const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
-                    // Wind view: the arrow IS the data — it points where the
+                    // Wind view: the arrow is the data, pointing where the
                     // wind blows; hazard glyphs stay on the other two views.
                     const glyph = view === 'wind'
                         ? (h.windDir != null && h.wind != null ? WIND_ARROWS[windOctant(h.windDir)] : '')
@@ -1234,10 +1274,10 @@
         };
 
         // --- Legend: spectrum strip or heat strip -------------------------
-        // One line, fixed order — sun → cloud → rain → storm → snow, group
-        // labels beneath: reads as a scale ("darker = more"). Exact
+        // One line, fixed order: sun → cloud → rain → storm → snow, group
+        // labels beneath, so it reads as a scale ("darker = more"). Exact
         // condition names on tap via the shared tooltip, derived from the
-        // WMO table so legend and grid can never drift.
+        // WMO table so legend and grid stay in sync.
         const namesFor = key => {
             const names = Object.values(WMO).filter(([k]) => k === key).map(([, d]) => d);
             if (key === 'cloudy') names.unshift('Cloudy');     // WMO 3, thinner cover
@@ -1285,7 +1325,7 @@
         };
 
         // Toggle shows only the views enabled in ⚙; hidden entirely when
-        // just one view is left — nothing to switch to.
+        // just one view is left, since there is nothing to switch to.
         const renderViewToggle = () => {
             document.querySelectorAll('#viewToggle button').forEach(b => {
                 b.style.display = settings.views[b.dataset.view] ? '' : 'none';
@@ -1296,9 +1336,18 @@
         const setView = v => {
             view = v;
             saveJSON(LS_VIEW, v);
-            renderViewToggle();
-            renderLegend();
-            if (state.data.length) updateDisplay();
+            const paint = () => {
+                renderViewToggle();
+                renderLegend();
+                if (state.data.length) updateDisplay();
+            };
+            // Crossfade the grid on a view swap where the API exists. Skip
+            // the initial paint (no data yet) and honour reduced motion.
+            const animate = document.startViewTransition
+                && state.data.length
+                && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (animate) document.startViewTransition(paint);
+            else paint();
         };
 
         // Re-render everything that depends on a preference or zoom level.
@@ -1308,7 +1357,7 @@
             if (state.data.length) updateDisplay(); else renderSkeleton();
         };
 
-        // --- Tooltip — shared by grid blocks and legend cells -------------
+        // --- Tooltip: shared by grid blocks and legend cells --------------
         const TIP_SEL = '.weather-block[data-info], .legend-swatch';
         const showTooltip = el => {
             const tooltip = $('tooltip');
@@ -1316,7 +1365,7 @@
                 const c = CONDITIONS[+el.dataset.cond];
                 tooltip.innerHTML =
                     `<div><strong>${esc(c.label)}</strong></div><div>${namesFor(c.key).map(esc).join(' · ')}</div>`;
-            } else { // grid block: structured lines from state — one fact per line
+            } else { // grid block: structured lines from state, one fact per line
                 const di = +el.dataset.day;
                 const day = state.days[di];
                 const h = state.data[di]?.find(x => x.hour === +el.dataset.hour);
@@ -1329,7 +1378,7 @@
                 if (h.wind != null) {
                     let w = `wind ${displayWind(h.wind)} ${windUnitLabel()}`
                         + (h.windDir != null ? ` ${COMPASS[windOctant(h.windDir)]}` : '');
-                    // Gusts: wind view only — that's where they matter.
+                    // Gusts: wind view only, where they matter.
                     if (view === 'wind' && h.gust != null) w += `, gusts ${displayWind(h.gust)}`;
                     lines.push(w);
                 }
@@ -1399,7 +1448,7 @@
         };
 
         // Saved matches rank first, then geocoding hits (deduped).
-        // Zero saved cities: list is just geocoding hits — exactly as before.
+        // Zero saved cities: the list is just geocoding hits.
         let suggestToken = 0;
         const renderSuggestions = async query => {
             const token = ++suggestToken;
@@ -1430,8 +1479,8 @@
             setStatus('Locating…', 'updating');
             navigator.geolocation.getCurrentPosition(async pos => {
                 const { latitude, longitude } = pos.coords;
-                // Keyless reverse geocode for a display name; honest
-                // "My location" fallback — never a guessed city name.
+                // Keyless reverse geocode for a display name; fall back to
+                // "My location" rather than guessing a city name.
                 const place = { name: 'My location', country: '', admin1: '', latitude, longitude };
                 try {
                     const r = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client' +
@@ -1465,7 +1514,7 @@
         document.addEventListener('focusout', e => {
             if (e.target.matches(TIP_SEL)) hideTooltip();
         });
-        // Tap toggles the tooltip — hover-only left mobile without
+        // Tap toggles the tooltip, since hover-only left mobile without
         // hourly detail. Tapping the same element or anywhere else dismisses.
         document.addEventListener('click', e => {
             const el = e.target.closest(TIP_SEL);
@@ -1493,7 +1542,7 @@
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('location').click(); }
         });
 
-        // --- Settings menu — the app's only menu --------------------------
+        // --- Settings menu: the app's only menu ---------------------------
         const renderSettings = () => {
             const seg = (key, options) => `<div class="seg">${options.map(([val, label]) =>
                 `<button data-key="${key}" data-val="${val}"
@@ -1513,6 +1562,9 @@
                 `<div class="setting-row"><span>⚠ UV ≥</span>${seg('uvWarn',
                     [['8', '8'], ['10', '10'], ['11', '11']])}</div>` +
                 installSettingsRow() +
+                (matchMedia('(pointer: fine)').matches
+                    ? `<div class="setting-row shortcuts-hint"><span>Keys</span><span>${MOD}K search · 1–5 cities</span></div>`
+                    : '') +
                 (savedCities.length
                     ? `<div class="setting-row"><span>Saved cities</span></div>` +
                       savedCities.map((c, i) =>
@@ -1560,9 +1612,9 @@
         });
 
         // --- Semantic zoom: pinch / trackpad-pinch / ± keys --------------
-        // Zooming in narrows focus — fewer days, fewer hours centered on
+        // Zooming in narrows focus: fewer days, fewer hours centered on
         // now, slightly larger type. Default (zoom 0) is always the full
-        // glanceable week; zoom is never persisted.
+        // week; zoom is never persisted.
         const setZoom = z => {
             const clamped = Math.max(0, Math.min(ZOOM_DAYS.length - 1, z));
             if (clamped === zoom) return;
@@ -1624,7 +1676,22 @@
         }, { passive: false });
 
         document.addEventListener('keydown', e => {
+            // ⌘/Ctrl+K opens city search from anywhere.
+            if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+                e.preventDefault();
+                if ($('searchContainer').classList.contains('active')) $('searchInput').focus();
+                else $('location').click();
+                return;
+            }
             if ((e.target.tagName || '') === 'INPUT') return; // don't hijack typing
+            // Number keys 1-5 switch to a saved city. Plain digits only, so
+            // ⌘/Ctrl+number still switches browser tabs. savedCities[0] is the
+            // current place, so 1 is a no-op.
+            if (/^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                const c = savedCities[+e.key - 1];
+                if (c && placeKey(c) !== placeKey(state.place)) changeCity(c);
+                return;
+            }
             if (e.key === '+' || e.key === '=') setZoom(zoom + 1);
             else if (e.key === '-') setZoom(zoom - 1);
             else if (e.key === 'Escape') {
@@ -1665,7 +1732,7 @@
 
         document.addEventListener('click', e => {
             // A settings click re-renders the panel, detaching the clicked
-            // button before this handler runs — a detached target has no
+            // button before this handler runs; a detached target has no
             // ancestors, which would falsely read as an outside click.
             if (!e.target.isConnected) return;
             if (!e.target.closest('.location-wrapper')) {
@@ -1676,9 +1743,9 @@
         });
 
         // --- PWA install: banner + ⚙ row ----------------------------------
-        // Chrome/Edge (desktop & Android) fire beforeinstallprompt — deferred
-        // for a native prompt on demand. iOS Safari never fires it, so it
-        // gets share-sheet instructions instead. Already installed
+        // Chrome/Edge (desktop & Android) fire beforeinstallprompt; it's
+        // deferred for a native prompt on demand. iOS Safari never fires it,
+        // so it gets share-sheet instructions instead. Already installed
         // (standalone) hides everything.
         const isStandalone = () =>
             matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -1730,11 +1797,12 @@
 
         // --- Init: render last known data instantly, then refresh ---------
         // Installed PWA (mobile): .standalone locks the viewport to exactly
-        // one screen — no scroll (see the standalone CSS block).
+        // one screen, no scroll (see the standalone CSS block).
         if (isStandalone()) document.documentElement.classList.add('standalone');
-        showInstallBanner(); // iOS path — beforeinstallprompt never fires there
+        showInstallBanner(); // iOS path; beforeinstallprompt never fires there
         applyBand();   // --band from the current hours setting
         setView(view); // paints the view toggle + matching legend
+        if (matchMedia('(pointer: fine)').matches) $('location').title = `Search (${MOD}K)`;
 
         const savedPlace = loadJSON(LS_PLACE);
         if (savedPlace?.name && savedPlace.latitude != null) state.place = savedPlace;
