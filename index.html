@@ -6,6 +6,23 @@
     <title>Maybe Rain?</title>
     <meta name="theme-color" content="#000000">
     <meta name="description" content="Glanceable weekly weather — should I expect rain, and when?">
+    <!-- Link-preview card (Open Graph / Twitter). Static, so the same branded
+         card shows for every place: a per-city preview would need a server to
+         render per-place tags, and there's no backend (principle 5). Absolute
+         URLs — crawlers don't resolve relative ones. -->
+    <meta property="og:title" content="Maybe Rain?">
+    <meta property="og:description" content="Glanceable weekly weather — should I expect rain, and when?">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mdomokos.github.io/maybe-rain/">
+    <meta property="og:site_name" content="Maybe Rain?">
+    <meta property="og:image" content="https://mdomokos.github.io/maybe-rain/og.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Maybe Rain? — glanceable weekly weather">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Maybe Rain?">
+    <meta name="twitter:description" content="Glanceable weekly weather — should I expect rain, and when?">
+    <meta name="twitter:image" content="https://mdomokos.github.io/maybe-rain/og.png">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.5f244688.png">
@@ -68,12 +85,24 @@
             align-items: center;
             gap: 6px;
             transition: color 0.2s ease;
+            /* Safeguard: a long place name ellipsizes instead of pushing the
+               gear or wrapping. min-width:0 lets the flex item shrink below
+               its content; max-width caps it well short of the row. */
+            min-width: 0;
+            max-width: 70%;
+        }
+        .location-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
         }
         .location::after {
             content: '↓';
             font-size: 16px;
             opacity: 0.6;
             transition: transform 0.2s ease;
+            flex-shrink: 0;   /* the arrow is never truncated */
         }
         .location:hover {
             color: #FFD700;
@@ -129,23 +158,6 @@
             gap: 12px;
             color: #ccc;
         }
-        .saved-city {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            color: #fff;
-        }
-        .saved-city .forget {
-            background: none;
-            border: none;
-            color: #666;
-            font-family: inherit;
-            font-size: 13px;
-            cursor: pointer;
-            padding: 4px 6px;
-        }
-        .saved-city .forget:hover, .saved-city .forget:focus-visible { color: #fff; outline: none; }
-
         /* Segmented control (settings rows + view toggle) */
         .seg {
             display: flex;
@@ -509,10 +521,17 @@
         }
         .install-banner .dismiss:hover { color: #fff; }
 
-        /* Search functionality */
+        /* Search functionality.
+           When active the field overlays the whole header (absolute, filling
+           the wrapper minus the gear on the right) rather than sitting beside
+           the city name. This decouples the search width from the place-name
+           length: a long name can never squeeze the field on a narrow screen.
+           The opaque panel covers the name it replaced; the gear stays clear. */
         .search-container {
-            flex: 1;
-            max-width: 300px;
+            position: absolute;
+            inset: 0 40px 0 0;   /* cover the wrapper, leave room for ⚙ */
+            display: flex;
+            align-items: center;
             background: #111;
             border: 1px solid var(--line);
             border-radius: var(--radius);
@@ -521,7 +540,6 @@
             transform: translateX(-20px);
             transition: all 0.3s ease;
             pointer-events: none;
-            position: relative;
         }
         .search-container.active {
             opacity: 1;
@@ -550,9 +568,31 @@
             background: #111;
             border: 1px solid var(--line);
             border-radius: var(--radius);
-            max-height: 200px;
+            /* Longer list: scale with the viewport so it fills more of the
+               screen, instead of a fixed 200px. dvh overrides vh where
+               supported (accurate under mobile browser chrome). */
+            max-height: 60vh;
+            max-height: 60dvh;
             overflow-y: auto;
             z-index: 1000;
+            /* Themed scrollbar: a hairline-thin gold thumb on a dark track,
+               matching the app's sunshine accent and the UI's thin lines.
+               Firefox uses the standard props; Chromium/Safari use the
+               ::-webkit-scrollbar pseudo-elements. */
+            scrollbar-width: thin;
+            scrollbar-color: #FFD700 transparent;
+        }
+        .search-results::-webkit-scrollbar { width: 6px; }
+        .search-results::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .search-results::-webkit-scrollbar-thumb {
+            /* 2px #111 border + padding-box clip leaves a ~2px gold hairline,
+               floating clear of the panel edges */
+            background: #FFD700;
+            border: 2px solid #111;
+            background-clip: padding-box;
+            border-radius: var(--radius);
         }
         .search-result {
             padding: 8px 12px;
@@ -576,7 +616,22 @@
             padding: 4px 6px;
         }
         .search-result .forget:hover { color: #fff; }
-        .search-result:hover {
+        /* Row actions: ★ favorite toggle + ✕ dismiss, right-aligned. */
+        .result-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+        .search-result .fav {
+            background: none;
+            border: none;
+            color: #555;              /* muted outline star when not a favorite */
+            font-family: inherit;
+            font-size: 14px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 4px 6px;
+        }
+        .search-result .fav.on { color: #FFD700; }   /* gold when favorited */
+        .search-result .fav:hover { color: #FFD700; }
+        .search-result:hover,
+        .search-result.highlighted {
             background: rgba(255,255,255,0.1);
         }
         .search-result + .search-result {
@@ -683,9 +738,19 @@
             html.standalone .chart { min-height: 0; }
         }
 
-        /* desktop keyboard-shortcut hint in the settings pane */
-        .shortcuts-hint { color: #666; font-size: 11px; }
-        .shortcuts-hint span:last-child { letter-spacing: 0.02em; }
+        /* desktop keyboard-shortcut reference in the settings pane */
+        .shortcuts-hint {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            color: #666;
+            font-size: 11px;
+            border-top: 1px solid var(--line);
+            padding-top: 10px;
+            margin-top: 2px;
+        }
+        .shortcuts-hint .sc { display: flex; justify-content: space-between; gap: 12px; }
+        .shortcuts-hint .sc span:last-child { color: #888; letter-spacing: 0.04em; }
 
         /* Window Controls Overlay: on Chromium desktop the black background
            extends into the OS title bar. The drag strip keeps the window
@@ -717,7 +782,7 @@
     <div class="titlebar-drag" aria-hidden="true"></div>
     <div class="container fade-in">
         <div class="location-wrapper">
-            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"></div>
+            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span></div>
             <div class="search-container" id="searchContainer">
                 <input type="text"
                        class="search-input"
@@ -776,11 +841,12 @@
         };
         const LS_PLACE = 'mr-place';
         const LS_FORECAST = 'mr-forecast';
-        const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 5
+        const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 9
         const LS_SETTINGS = 'mr-settings';
         const LS_VIEW = 'mr-view';       // 'rain' | 'temp' | 'wind' grid mode
         const LS_INSTALL = 'mr-install-dismissed';
-        const MAX_CITIES = 5;
+        const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (uncapped, user-curated)
+        const MAX_CITIES = 9; // cap on recent cities (MRU-evicted); favorites are separate
         // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
         const MOD = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';
 
@@ -1083,7 +1149,9 @@
 
         const renderLocation = () => {
             document.title = state.place.name;
-            $('location').textContent = state.place.name;
+            // Set the inner span (not .location itself) so the ellipsis rule
+            // applies and the ↓ arrow pseudo-element is preserved.
+            $('locationName').textContent = state.place.name;
         };
 
         // --- Fetch forecast (Open-Meteo, no API key) ----------------------
@@ -1416,59 +1484,147 @@
             }
         };
 
+        // Index of the arrow-key-highlighted search row (-1 = none). Reset
+        // whenever the results list is rebuilt or the panel closes.
+        let searchHighlight = -1;
         const closeSearch = () => {
             $('searchContainer').classList.remove('active');
             document.querySelector('.container').classList.remove('search-active');
             $('searchInput').value = '';
             $('searchResults').innerHTML = '';
+            searchHighlight = -1;
+            // Drop focus off the (now hidden) input so the global keydown
+            // guard stops treating keystrokes as typing — arrows work at once.
+            $('searchInput').blur();
         };
 
-        // --- Saved cities as search shortcuts -----------------------------
-        // Selecting a city saves it (MRU order, capped). No management view:
-        // saved cities only ever appear as search suggestions, removable ✕.
-        let savedCities = (() => {
-            const list = loadJSON(LS_CITIES);
+        // --- Recents + favorites (search shortcuts) -----------------------
+        // Two lists surface in the search panel. Recents: opening a city
+        // auto-saves it (MRU order, capped), ✕-removable. Favorites: cities
+        // the user explicitly ★-stars (uncapped) — these sit at the top of
+        // the resting list and are the set ↑/↓ / swipe cycle between.
+        const loadCities = key => {
+            const list = loadJSON(key);
             return Array.isArray(list) ? list.filter(c => c?.name && c.latitude != null) : [];
-        })();
+        };
+        let savedCities = loadCities(LS_CITIES);   // recents (MRU)
+        let favorites = loadCities(LS_FAVORITES);  // explicit ★
 
         const rememberCity = place => {
             savedCities = [place, ...savedCities.filter(c => placeKey(c) !== placeKey(place))]
                 .slice(0, MAX_CITIES);
             saveJSON(LS_CITIES, savedCities);
         };
+        const isFav = p => favorites.some(f => placeKey(f) === placeKey(p));
+        const isRecent = p => savedCities.some(c => placeKey(c) === placeKey(p));
+        // Star toggles favorite; appended (not prepended) so cycle order stays
+        // stable. Unfavoriting a city that's also a recent leaves it in recents.
+        const toggleFavorite = place => {
+            favorites = isFav(place)
+                ? favorites.filter(f => placeKey(f) !== placeKey(place))
+                : [...favorites, place];
+            saveJSON(LS_FAVORITES, favorites);
+        };
 
-        const changeCity = place => {
+        // --- Shareable place: deep-link URL + branded card ---------------
+        // The place lives in the URL, so any view is a link someone can send.
+        // Coords are the source of truth (the fetch needs only lat/lon);
+        // name/admin1/country are cosmetic. Coords round to 3 dp (~110 m), so
+        // a shared "my location" link never carries pinpoint GPS.
+        const placeFromURL = () => {
+            const q = new URLSearchParams(location.search);
+            const lat = parseFloat(q.get('lat')), lon = parseFloat(q.get('lon'));
+            if (!isFinite(lat) || !isFinite(lon)) return null;
+            return {
+                name: q.get('name') || 'Shared location',
+                admin1: q.get('admin1') || '', country: q.get('country') || '',
+                latitude: lat, longitude: lon
+            };
+        };
+        const shareURL = p => {
+            const q = new URLSearchParams({
+                lat: (+p.latitude).toFixed(3), lon: (+p.longitude).toFixed(3), name: p.name
+            });
+            if (p.admin1) q.set('admin1', p.admin1);
+            if (p.country) q.set('country', p.country);
+            return `${location.origin}${location.pathname}?${q}`;
+        };
+        // Keep the address bar shareable, without stacking history entries.
+        const syncURL = p => {
+            try { history.replaceState(null, '', shareURL(p)); } catch { /* non-fatal */ }
+        };
+
+        // Native share sheet only on touch devices. On desktop, Web Share is
+        // redundant and some Chromium builds *kill the tab*
+        // (RESULT_CODE_KILLED_BAD_MESSAGE) when navigator.share is invoked — a
+        // renderer crash no try/catch can catch — so desktop copies the link.
+        const nativeShareOK = () =>
+            !!navigator.share && matchMedia('(pointer: coarse)').matches;
+
+        // Share the place link. Its preview (Open Graph tags in <head> +
+        // og.png) is what renders when it's pasted into a messenger.
+        const sharePlace = async () => {
+            const url = shareURL(state.place);
+            if (nativeShareOK()) {
+                try { await navigator.share({ title: `Maybe Rain? — ${state.place.name}`, url }); return; }
+                catch (e) { if (e?.name === 'AbortError') return; /* else fall through to copy */ }
+            }
+            try {
+                await navigator.clipboard.writeText(url);
+                setStatus('Link copied', 'fresh');
+            } catch { setStatus('Copy failed — copy from the address bar', 'stale'); }
+        };
+
+        // remember=false keeps savedCities order stable, so ↑/↓ cycling
+        // steps through the whole list instead of toggling the top two.
+        const changeCity = (place, remember = true) => {
             state.place = place;
             saveJSON(LS_PLACE, place);
-            rememberCity(place);
+            if (remember) rememberCity(place);
             state.data = []; state.days = []; state.fetchedAt = 0;
             renderLocation();
+            syncURL(place);
             closeSearch();
             fetchWeather(true);
         };
 
-        // Saved matches rank first, then geocoding hits (deduped).
-        // Zero saved cities: the list is just geocoding hits.
+        // Ordering: ★ favorites first (always, filtered by the query), then —
+        // only in the resting list — recents, then live geocoding hits.
+        // Typing collapses recents but keeps matching favorites above the
+        // geocoding results, so a starred city is always one keystroke away.
         let suggestToken = 0;
         const renderSuggestions = async query => {
             const token = ++suggestToken;
             const q = query.trim().toLowerCase();
-            const saved = q ? savedCities.filter(c => c.name.toLowerCase().includes(q)) : savedCities;
+            const match = c => c.name.toLowerCase().includes(q);
+            const favs = q ? favorites.filter(match) : favorites;
+            const recents = q ? [] : savedCities.filter(c => !isFav(c));
+            const shown = new Set([...favs, ...recents].map(placeKey));
             let hits = [];
             if (q.length >= 2) {
                 hits = (await searchCity(query)).map(h => ({
                     name: h.name, country: h.country_code || h.country || '',
                     admin1: h.admin1 || '', latitude: h.latitude, longitude: h.longitude
-                })).filter(p => !saved.some(s => placeKey(s) === placeKey(p)));
+                })).filter(p => !shown.has(placeKey(p)));
             }
             if (token !== suggestToken) return; // superseded by a newer query
-            state.suggestions = [...saved.map(p => ({ ...p, saved: true })), ...hits];
+            state.suggestions = [
+                ...favs.map(p => ({ ...p, saved: true, fav: true })),
+                ...recents.map(p => ({ ...p, saved: true, fav: false })),
+                ...hits.map(p => ({ ...p, saved: isRecent(p), fav: false }))
+            ];
+            searchHighlight = -1; // list rebuilt: drop any arrow-key highlight
             $('searchResults').innerHTML =
                 '<div class="search-result geo">⌖ Use my location</div>' +
                 state.suggestions.map((p, i) =>
                     `<div class="search-result" data-i="${i}">
                         <span>${esc(p.name)}${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>
-                        ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
+                        <span class="result-actions">
+                            <button class="fav${p.fav ? ' on' : ''}" data-i="${i}"
+                                    aria-label="${p.fav ? 'Unfavorite' : 'Favorite'} ${esc(p.name)}"
+                                    aria-pressed="${p.fav}">${p.fav ? '★︎' : '☆︎'}</button>
+                            ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
+                        </span>
                     </div>`
                 ).join('');
         };
@@ -1562,15 +1718,14 @@
                 `<div class="setting-row"><span>⚠ UV ≥</span>${seg('uvWarn',
                     [['8', '8'], ['10', '10'], ['11', '11']])}</div>` +
                 installSettingsRow() +
+                `<div class="setting-row"><span>Share</span>` +
+                `<button class="btn" id="shareBtn" style="padding:5px 10px;font-size:12px;">${nativeShareOK() ? 'Share' : 'Copy link'}</button></div>` +
                 (matchMedia('(pointer: fine)').matches
-                    ? `<div class="setting-row shortcuts-hint"><span>Keys</span><span>${MOD}K search · 1–5 cities</span></div>`
-                    : '') +
-                (savedCities.length
-                    ? `<div class="setting-row"><span>Saved cities</span></div>` +
-                      savedCities.map((c, i) =>
-                        `<div class="saved-city"><span>${esc(c.name)}</span>
-                         <button class="forget" data-city="${i}" aria-label="Remove ${esc(c.name)}">✕</button></div>`
-                      ).join('')
+                    ? `<div class="shortcuts-hint">
+                         <div class="sc"><span>Search</span><span>${MOD}K</span></div>
+                         <div class="sc"><span>Switch city</span><span>↑ ↓</span></div>
+                         <div class="sc"><span>Switch view</span><span>← →</span></div>
+                       </div>`
                     : '');
         };
         const toggleSettings = open => {
@@ -1603,12 +1758,7 @@
                 return;
             }
             if (e.target.id === 'installBtn') { promptInstall(); return; }
-            const forget = e.target.closest('button[data-city]');
-            if (forget) { // remove a saved-city shortcut
-                savedCities.splice(+forget.dataset.city, 1);
-                saveJSON(LS_CITIES, savedCities);
-                renderSettings();
-            }
+            if (e.target.id === 'shareBtn') { sharePlace(); return; }
         });
 
         // --- Semantic zoom: pinch / trackpad-pinch / ± keys --------------
@@ -1644,10 +1794,32 @@
         chart.addEventListener('touchend', e => {
             if (e.touches.length < 2) pinchDist = null;
         });
-        // One-finger horizontal swipe on the grid cycles the enabled views.
-        // Vertical stays scroll, two fingers stay zoom; the toggle buttons
-        // remain the visible state indicator. Guarded (>60px, mostly
-        // horizontal, single finger) so taps and sloppy scrolls never flip.
+        // Shared navigation steps so swipe and arrow-key gestures stay in
+        // lockstep. dir +1 = next (↓ / → / swipe down / swipe right);
+        // dir -1 = previous (↑ / ← / swipe up / swipe left).
+        // Cycles ★ favorites only (recents are not part of the quick-swap set).
+        const stepCity = dir => {
+            if (!favorites.length) return;
+            const n = favorites.length;
+            const cur = favorites.findIndex(c => placeKey(c) === placeKey(state.place));
+            const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
+            const c = favorites[(base + dir + n) % n];
+            // stable order (no MRU reorder) so it cycles the whole list
+            if (c && placeKey(c) !== placeKey(state.place)) changeCity(c, false);
+        };
+        const stepView = dir => {
+            const enabled = enabledViews();
+            if (enabled.length < 2) return;
+            const i = enabled.indexOf(view);
+            setView(enabled[(i + dir + enabled.length) % enabled.length]);
+        };
+
+        // One-finger swipe on the grid: horizontal cycles views (swipe
+        // left = next, carousel-style), vertical steps ★ favorites (up =
+        // previous, down = next, matching ↑/↓). Two fingers stay zoom; the
+        // toggle buttons remain the visible state indicator. Guarded (>60px,
+        // one axis clearly dominant, single finger) so taps and sloppy
+        // scrolls never flip.
         let swipeStart = null;
         chart.addEventListener('touchstart', e => {
             swipeStart = e.touches.length === 1
@@ -1659,10 +1831,9 @@
             const dx = t.clientX - swipeStart.x, dy = t.clientY - swipeStart.y;
             swipeStart = null;
             if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
-                const enabled = enabledViews();
-                if (enabled.length < 2) return;
-                const i = enabled.indexOf(view);
-                setView(enabled[(i + (dx < 0 ? 1 : enabled.length - 1)) % enabled.length]);
+                stepView(dx < 0 ? 1 : -1);        // swipe left = next view, right = previous
+            } else if (Math.abs(dy) > 60 && Math.abs(dy) > 2 * Math.abs(dx)) {
+                stepCity(dy < 0 ? -1 : 1);        // swipe up = previous city, down = next
             }
         });
         // macOS trackpad pinch arrives as ctrl+wheel.
@@ -1684,12 +1855,18 @@
                 return;
             }
             if ((e.target.tagName || '') === 'INPUT') return; // don't hijack typing
-            // Number keys 1-5 switch to a saved city. Plain digits only, so
-            // ⌘/Ctrl+number still switches browser tabs. savedCities[0] is the
-            // current place, so 1 is a no-op.
-            if (/^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                const c = savedCities[+e.key - 1];
-                if (c && placeKey(c) !== placeKey(state.place)) changeCity(c);
+            // ↑/↓ step the location through ★ favorites (same as a
+            // vertical swipe); ←/→ cycle views (same as a horizontal swipe).
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                if (!favorites.length) return;
+                e.preventDefault();
+                stepCity(e.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                if (enabledViews().length < 2) return;
+                e.preventDefault();
+                stepView(e.key === 'ArrowRight' ? 1 : -1);
                 return;
             }
             if (e.key === '+' || e.key === '=') setZoom(zoom + 1);
@@ -1713,19 +1890,51 @@
             searchTimeout = setTimeout(() => renderSuggestions(e.target.value), 250);
         });
 
+        // Arrow keys walk the results list (incl. "Use my location"); Enter
+        // picks the highlighted row, or the first city if none is highlighted.
+        $('searchInput').addEventListener('keydown', e => {
+            const rows = [...$('searchResults').querySelectorAll('.search-result')];
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (!rows.length) return;
+                e.preventDefault();
+                const n = rows.length;
+                searchHighlight = e.key === 'ArrowDown'
+                    ? (searchHighlight < 0 ? 0 : (searchHighlight + 1) % n)
+                    : (searchHighlight <= 0 ? n - 1 : searchHighlight - 1);
+                rows.forEach((r, i) => r.classList.toggle('highlighted', i === searchHighlight));
+                rows[searchHighlight].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter') {
+                if (!rows.length) return;
+                e.preventDefault();
+                const target = searchHighlight >= 0
+                    ? rows[searchHighlight]
+                    : rows.find(r => !r.classList.contains('geo'));
+                target?.click();
+            }
+        });
+
         $('searchResults').addEventListener('click', e => {
             if (e.target.closest('.geo')) { closeSearch(); useMyLocation(); return; }
+            const star = e.target.closest('.fav');
+            if (star) { // ★ toggles favorite; panel stays open, list re-sorts
+                const { saved, fav, ...place } = state.suggestions[+star.dataset.i];
+                toggleFavorite(place);
+                renderSuggestions($('searchInput').value);
+                return;
+            }
             const forget = e.target.closest('.forget');
-            if (forget) { // ✕ removes the shortcut, panel stays open
+            if (forget) { // ✕ dismisses from both recents and favorites
                 const gone = state.suggestions[+forget.dataset.i];
                 savedCities = savedCities.filter(c => placeKey(c) !== placeKey(gone));
+                favorites = favorites.filter(c => placeKey(c) !== placeKey(gone));
                 saveJSON(LS_CITIES, savedCities);
+                saveJSON(LS_FAVORITES, favorites);
                 renderSuggestions($('searchInput').value);
                 return;
             }
             const row = e.target.closest('.search-result');
             if (row) {
-                const { saved, ...place } = state.suggestions[+row.dataset.i];
+                const { saved, fav, ...place } = state.suggestions[+row.dataset.i];
                 changeCity(place);
             }
         });
@@ -1804,8 +2013,14 @@
         setView(view); // paints the view toggle + matching legend
         if (matchMedia('(pointer: fine)').matches) $('location').title = `Search (${MOD}K)`;
 
+        // Precedence: a shared ?lat/lon link wins, else the last saved place,
+        // else the built-in default. A shared place is also remembered, so it
+        // joins the visitor's saved-city shortcuts.
+        const urlPlace = placeFromURL();
         const savedPlace = loadJSON(LS_PLACE);
-        if (savedPlace?.name && savedPlace.latitude != null) state.place = savedPlace;
+        if (urlPlace) { state.place = urlPlace; saveJSON(LS_PLACE, urlPlace); rememberCity(urlPlace); }
+        else if (savedPlace?.name && savedPlace.latitude != null) state.place = savedPlace;
+        syncURL(state.place);
         renderLocation();
 
         const savedForecast = loadJSON(LS_FORECAST);
