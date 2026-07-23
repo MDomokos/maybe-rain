@@ -7,6 +7,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 ### code cleanup
 - the legend's three views (rain conditions, temperature scale, wind scale) now render through one shared code path instead of three separate blocks. each view describes its swatches as a simple list and one renderer draws them. no visible change
 - the two city-time helpers (current time, and time-of-any-instant) share one date formatter, built once and reused until the city changes, instead of each rebuilding its own. no visible change
+- the grid's day letters and the status line's weekday stamp now compute the day-of-week through one shared helper instead of repeating the same date math. no visible change
 
 ## V30 (2026-07-23)
 

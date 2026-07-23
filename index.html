@@ -1900,8 +1900,13 @@
         // --- City-local date helpers (weekday + date label) -------------
         // (cityParts / cityNow, which read the forecast timezone, live just
         // below with the shared city formatter.)
+        // Weekday index (0 = Sun) for a "YYYY-MM-DD" date, read at UTC midnight
+        // so the calendar day never shifts by local offset. The two label sets
+        // (the grid's single letters here, the status line's 3-letter stamp
+        // below) both index into it.
+        const dowOf = dateStr => new Date(dateStr + 'T00:00:00Z').getUTCDay();
         const DAY_ABBR = ['SU', 'M', 'T', 'W', 'TH', 'F', 'S'];
-        const weekdayOf = dateStr => DAY_ABBR[new Date(dateStr + 'T00:00:00Z').getUTCDay()];
+        const weekdayOf = dateStr => DAY_ABBR[dowOf(dateStr)];
         const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const dateLabel = dateStr => {
             const d = new Date(dateStr + 'T00:00:00Z');
@@ -2059,8 +2064,7 @@
         const WEEKDAY_3 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const staleStamp = ms => {
             const p = cityParts(ms);
-            const wd = WEEKDAY_3[new Date(p.date + 'T00:00:00Z').getUTCDay()];
-            return `${wd} ${timeLabel(p.h, p.m)}`;
+            return `${WEEKDAY_3[dowOf(p.date)]} ${timeLabel(p.h, p.m)}`;
         };
 
         // DR-7 resting layer: updateStatus computes the line's home state and is
