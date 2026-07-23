@@ -1,4 +1,5 @@
 # Maybe Rain?
+![maybe rain? logo a squre grid of colored pixels in the shape of a rain cloud](https://github.com/MDomokos/maybe-rain/blob/main/icons/icon-192.d5c01ea6.png "Maybe Rain? Logo")
 
 A weather app that answers one question at a glance: will it rain, and when?
 
