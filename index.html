@@ -1897,15 +1897,9 @@
             return { condition, description, glyph: HAZARD_GLYPH[code] || '' };
         };
 
-        // --- City-local date/time via the forecast's IANA timezone -----
-        const cityNow = () => {
-            const parts = new Intl.DateTimeFormat('en-CA', {
-                timeZone: state.tz, year: 'numeric', month: '2-digit',
-                day: '2-digit', hour: '2-digit', hourCycle: 'h23'
-            }).formatToParts(new Date());
-            const get = type => parts.find(p => p.type === type).value;
-            return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: +get('hour') };
-        };
+        // --- City-local date helpers (weekday + date label) -------------
+        // (cityParts / cityNow, which read the forecast timezone, live just
+        // below with the shared city formatter.)
         const DAY_ABBR = ['SU', 'M', 'T', 'W', 'TH', 'F', 'S'];
         const weekdayOf = dateStr => DAY_ABBR[new Date(dateStr + 'T00:00:00Z').getUTCDay()];
         const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -2021,15 +2015,27 @@
         };
 
         // City-local calendar parts for any instant (date + hour + minute),
-        // using the forecast's IANA timezone so times match the grid.
+        // using the forecast's IANA timezone so times match the grid. One
+        // cached formatter, rebuilt only when the timezone changes (every
+        // forecast response may overwrite state.tz), serves both this and
+        // cityNow instead of each rebuilding its own.
+        let cityFmt = null, cityFmtTz = null;
         const cityParts = ms => {
-            const parts = new Intl.DateTimeFormat('en-CA', {
-                timeZone: state.tz, year: 'numeric', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-            }).formatToParts(new Date(ms));
+            if (cityFmtTz !== state.tz) {
+                cityFmt = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: state.tz, year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+                });
+                cityFmtTz = state.tz;
+            }
+            const parts = cityFmt.formatToParts(new Date(ms));
             const g = t => parts.find(p => p.type === t).value;
             return { date: `${g('year')}-${g('month')}-${g('day')}`, h: +g('hour'), m: +g('minute') };
         };
+        // "Now" in the city's timezone: date + hour only (the grid keys the
+        // current block on cityNow().hour). Folded onto cityParts so there is
+        // one city formatter, not two.
+        const cityNow = () => { const p = cityParts(Date.now()); return { date: p.date, hour: p.h }; };
         // Clock time of an instant, in the user's 12/24h style (reuses timeLabel
         // so it matches the grid's own axis labels).
         const runClockLabel = ms => { const p = cityParts(ms); return timeLabel(p.h, p.m); };
