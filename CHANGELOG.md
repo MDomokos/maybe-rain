@@ -6,6 +6,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## V30 (2026-07-23)
 
+### header layout
+- the city name now lines up with the grid columns instead of floating at the left edge
+- the current temperature shows on the same line, giving you the "right now" answer at a glance without reading the grid
+- the temperature hides while searching, and when there's no reading for the current hour (e.g. late at night outside the shown hours)
+- a hairline now caps the top of the grid, so the header no longer feels detached from it
+
 ### search
 - one unified search look on phone, tablet, and desktop: a single compact field size and row density everywhere, instead of scaling up on tablet and matching the large city-name heading
 - removed the search field's gold underline
@@ -13,6 +19,9 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 - the ★ favourite and ✕ remove buttons line up under the locate and gear icons in the header above them
 - the selected result is marked by a gold underline beneath it
 - unified every gold line to one weight (1px)
+
+### grid lines
+- the separator under the header, the hour gridlines, and the line above the legend key are unified, driven by a single style token
 
 ## v29 (2026-07-23)
 

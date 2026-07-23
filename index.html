@@ -45,8 +45,12 @@
             --overhang: 14px;  /* how far gridlines extend past the grid on the right */
             --band: 6.25%;     /* height of one hour band = 100 / displayed rows (set from JS) */
             --radius: 2px;     /* the one corner radius, used everywhere */
-            --line: rgba(255,255,255,0.25); /* one hairline for panels & controls
-                                               (gridlines stay at 0.3, intentionally stronger) */
+            --line: rgba(255,255,255,0.25); /* one hairline for panels & controls */
+            /* The structural hairline: the chart gridlines and the header
+               separator both draw from this one token (0.3, stronger than
+               --line), so every full-width rule in the app reads as one system.
+               Change the line weight/colour here and both move together. */
+            --gridline: rgba(255,255,255,0.3);
             /* vertical rhythm, 8px scale */
             --sp-1: 8px; --sp-2: 16px; --sp-3: 24px; --sp-4: 32px;
             /* Colour tokens. The gold accent with its two shades, the three
@@ -117,12 +121,29 @@
                location button (as padding) so it's part of the hover/tap
                target, with no dead sliver between the button and the gear. */
             gap: 0;
-            margin-bottom: var(--sp-4);
+            /* Anchored to the grid, not floating above it: the header shares
+               the grid's left spine (gutter) and right edge (overhang), so the
+               city name lines up with the day columns and the ⚙ with the last
+               column. A hairline (::after) caps the strip; the gap to the grid
+               is tightened from --sp-4 so the title stops feeling stranded. */
+            padding: 0 var(--overhang) 10px var(--gutter);
+            margin-bottom: var(--sp-2);
             /* Right inset shared by the search field and its results panel:
                the field stops this far short of the right edge to clear the
                ⚙, while the results panel cancels it out to span the full
                grid width below. Change once, both stay in sync. */
             --search-right: 44px;
+        }
+        /* Hairline cap spanning the full app area (left:0/right:0, the same
+           span as the chart gridlines) and drawn with the shared --gridline
+           colour, so the header separator and the gridlines read as one system. */
+        .location-wrapper::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-top: 1px solid var(--gridline);
         }
         /* Type hierarchy: city name and temps lead, the rest recedes */
         .location {
@@ -165,6 +186,24 @@
         /* First-visit "Locating…" state: hide the change-city caret (there's
            no place to change yet); the header can still be tapped to search. */
         .location.locating .location-caret { display: none; }
+        /* Current-hour temperature, inline on the city name's baseline in the
+           former dead space before the ⚙. Same size/weight as the name (both
+           lead the hierarchy); gold ties it to the grid's now-marker. Answers
+           "what is it right now?" without spending a second header row. */
+        .location-now {
+            flex-shrink: 0;
+            font-size: 24px;
+            font-weight: 600;
+            line-height: 1;
+            color: var(--accent);
+            padding-left: 8px;
+        }
+        /* No reading (locating, or no data for the current hour): collapse it,
+           so nothing floats where a value would be. */
+        .location-now:empty { display: none; }
+        /* While searching, the field owns the strip: hide the readout so it
+           never sits stranded beside the input. */
+        .search-container.active ~ .location-now { display: none; }
 
         /* Button styles */
         .btn {
@@ -531,8 +570,8 @@
             bottom: 0;
             background-image: repeating-linear-gradient(
                 to bottom,
-                rgba(255,255,255,0.3) 0,
-                rgba(255,255,255,0.3) 1px,
+                var(--gridline) 0,
+                var(--gridline) 1px,
                 transparent 1px,
                 transparent var(--band)
             );
@@ -554,7 +593,9 @@
             /* same gutter/overhang as the grid: the strip centers on the
                column field, not the container */
             padding: var(--sp-2) var(--overhang) 0 var(--gutter);
-            border-top: 1px solid var(--line);
+            /* full-width separator, shared with the chart gridlines and the
+               header cap (one --gridline token drives all three) */
+            border-top: 1px solid var(--gridline);
         }
         .legend-step {
             flex: 1;
@@ -1103,9 +1144,10 @@
                 margin-top: var(--sp-1);
             }
             .location-wrapper {
-                margin-bottom: var(--sp-2);
+                margin-bottom: var(--sp-1);
+                padding-bottom: 6px;
             }
-            .location {
+            .location, .location-now {
                 font-size: 18px;
             }
             .location-caret svg {
@@ -1213,7 +1255,7 @@
             }
             /* larger lead type for the bigger canvas (grid cells scale with
                the chart height on their own; these are the text elements) */
-            .location { font-size: 28px; }
+            .location, .location-now { font-size: 28px; }
             .location-caret svg { width: 18px; height: 18px; }
             .time-label { font-size: calc(12px * var(--ui, 1)); }
             .day-label { font-size: calc(13px * var(--ui, 1)); }
@@ -1304,6 +1346,7 @@
                         aria-label="Use my location" title="Use my location"></button>
                 <div class="search-results" id="searchResults"></div>
             </div>
+            <span class="location-now" id="locationNow" aria-label="Current temperature"></span>
             <button class="btn gear" id="gear" aria-label="Settings" aria-expanded="false"></button>
             <div class="settings hidden" id="settings"></div>
         </div>
@@ -1945,6 +1988,7 @@
                 `<div class="temp-item"><span class="temp-max">–</span><span class="temp-sep">/</span><span class="temp-min">–</span></div>`
             ).join('');
             renderTimes();
+            $('locationNow').textContent = ''; // no data yet, no readout
             $('sunLines').innerHTML = ''; // no data, no lines
             $('grid').innerHTML = Array(days).fill().map((_, d) =>
                 `<div class="day-column">${
@@ -2142,6 +2186,16 @@
             // applies and the ↓ arrow pseudo-element is preserved.
             $('locationName').textContent = state.place.name;
         };
+        // Current-hour temperature shown inline in the header. Independent of
+        // the grid's visible hour window (all hours live in state.data), so it
+        // still answers "what is it right now?" at night when the current hour
+        // sits outside the 06:00–21:00 grid. Empty when there's no today column
+        // or no reading for this hour; :empty CSS then collapses the node.
+        const renderNowTemp = () => {
+            const ti = state.days.findIndex(d => d.isToday);
+            const t = ti >= 0 ? state.data[ti]?.find(x => x.hour === cityNow().hour)?.temp : null;
+            $('locationNow').textContent = t != null ? `${displayTemp(t)}°` : '';
+        };
         // First-visit holding state, shown while the timezone guess resolves so
         // the hardcoded default never flashes before the real nearby city. The
         // .locating class hides the ↓ arrow; the title stays generic (no city).
@@ -2149,6 +2203,7 @@
             document.title = 'Maybe Rain?';
             $('location').classList.add('locating');
             $('locationName').textContent = 'Locating…';
+            $('locationNow').textContent = '';   // no reading yet
         };
 
         // --- Fetch forecast (Open-Meteo, no API key) ----------------------
@@ -2504,6 +2559,7 @@
             // and the animation can never re-fire on identical DOM.
             state.pulsePending = false;
 
+            renderNowTemp();
             updateStatus();
 
             // First real data paint: now it's safe to arm the install banner
