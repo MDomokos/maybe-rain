@@ -540,6 +540,69 @@
         .tooltip a { color: #FFD700; text-decoration: underline; }
         .tooltip a:hover { color: #fff; }
 
+        /* Changelog ("What's new"): a modal over a scrim, opened only from the
+           settings menu so it never steals attention on its own. The body is a
+           <pre> that shows CHANGELOG.md as-is in the app's monospace; version
+           headers are gilded, code backticks dropped, no real parser. */
+        .changelog-scrim {
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.72);
+            padding: max(20px, env(safe-area-inset-top))
+                     max(20px, env(safe-area-inset-right))
+                     max(20px, env(safe-area-inset-bottom))
+                     max(20px, env(safe-area-inset-left));
+        }
+        .changelog-scrim.hidden { display: none; }
+        .changelog-panel {
+            display: flex;
+            flex-direction: column;
+            width: min(460px, 100%);
+            max-height: min(80vh, 720px);
+            background: #111;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            font-size: 12px;
+        }
+        .changelog-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex: none;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+        }
+        .changelog-head strong { font-size: 13px; color: #fff; }
+        .changelog-close {
+            background: transparent;
+            border: none;
+            color: #ccc;
+            font-family: inherit;
+            font-size: 15px;
+            line-height: 1;
+            padding: 4px 6px;
+            cursor: pointer;
+        }
+        .changelog-close:hover, .changelog-close:focus-visible { color: #FFD700; }
+        .changelog-body {
+            overflow-y: auto;
+            margin: 0;
+            padding: 8px 14px 16px;
+            color: #ccc;
+            font-family: inherit;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+            scrollbar-width: thin;
+        }
+        /* Version and section headers, gilded straight out of the raw text. */
+        .changelog-body b { color: #FFD700; font-weight: 600; }
+
         /* Status and animations. Centered on the column field like the
            legend. No hue of its own: gold is reserved for now/today/sun and
            the palette for conditions, so the status text carries the state
@@ -1124,6 +1187,16 @@
 
     <div class="tooltip" id="tooltip"></div>
 
+    <div class="changelog-scrim hidden" id="changelog" role="dialog" aria-modal="true" aria-label="What's new">
+        <div class="changelog-panel">
+            <div class="changelog-head">
+                <strong>What's new</strong>
+                <button class="changelog-close" id="changelogClose" aria-label="Close">✕</button>
+            </div>
+            <pre class="changelog-body" id="changelogBody"></pre>
+        </div>
+    </div>
+
     <script>
         // ---------------------------------------------------------------
         // Maybe Rain? A single-file weather app.
@@ -1433,6 +1506,7 @@
             controller: null,
             online: navigator.onLine, // tracked via online/offline events (DR-7)
             swUpdate: false, // a newer app version is waiting (DR-7 reload CTA)
+            updateNote: false, // the brief "New version" note is up (tap opens the changelog), vs the resting reload CTA
             lastError: '',   // last no-data error text, so updateStatus can restate it
             changed: null,   // DR-6: "date|hour" → {pop|temp|wind: [was, now]} vs the previous model run
             pulsePending: false, // DR-6: the next render pulses changed cells, then consumes this
@@ -1758,6 +1832,9 @@
         const forecastStampMs = () => state.modelRun ? state.modelRun.init : state.fetchedAt;
 
         const updateStatus = () => {
+            // A resting repaint means the brief "New version" note is no longer
+            // up, so its tap-opens-changelog mode ends here.
+            state.updateNote = false;
             // (1) No data at all: the retry CTA holds. While actively loading,
             // "Loading forecast…" owns the line, so leave it be.
             if (!state.data.length) {
@@ -2696,12 +2773,14 @@
             const hold = () => { clearTimeout(hideTimer); hideTimer = null; };
             const drop = () => { hideTimer = setTimeout(hideTooltip, 250); };
             const explain = () => { hold(); showTooltip(info); };
-            // The label is one button with two jobs: when a new app version is
-            // waiting it reads "New version. Tap to reload" and a tap reloads;
+            // The label is one button with several jobs: while the brief "New
+            // version" note is up, a tap opens the changelog ("What's new"); once
+            // it settles to the resting "↻ Update app" CTA, a tap reloads;
             // otherwise a tap refetches the forecast. The explanation lives on
             // the separate ⓘ so refreshing never triggers the tooltip.
             const refresh = () => {
                 hideTooltip();
+                if (state.updateNote) { openChangelog(); return; }
                 if (state.swUpdate) { location.reload(); return; }
                 fetchWeather(true);
             };
@@ -2813,6 +2892,8 @@
                 `<button class="btn" id="shareBtn" style="padding:5px 10px;font-size:12px;" title="${nativeShareOK() ? 'Share' : 'Copy'} a link to this place">${nativeShareOK() ? 'Place' : 'Copy place'}</button>` +
                 `<button class="btn" id="shareSiteBtn" style="padding:5px 10px;font-size:12px;" title="${nativeShareOK() ? 'Share' : 'Copy'} the website link">${nativeShareOK() ? 'Link' : 'Copy link'}</button>` +
                 `</div></div>` +
+                `<div class="setting-row"><span>What's new</span>` +
+                `<button class="btn" id="whatsNewBtn" style="padding:5px 10px;font-size:12px;" title="See what changed in recent versions">view</button></div>` +
                 (matchMedia('(pointer: fine)').matches
                     ? `<div class="shortcuts-hint">
                          <div class="sc"><span>Search</span><span>${MOD}K</span></div>
@@ -2853,7 +2934,56 @@
             if (e.target.id === 'installBtn') { promptInstall(); return; }
             if (e.target.id === 'shareBtn') { sharePlace(); return; }
             if (e.target.id === 'shareSiteBtn') { shareSite(); return; }
+            if (e.target.id === 'whatsNewBtn') { openChangelog(); return; }
         });
+
+        // --- Changelog ("What's new") -----------------------------------
+        // Shows CHANGELOG.md as-is in a <pre>: the file is already laid out for a
+        // monospace read, so there's no parser. Three passes clean it up: drop the
+        // file's own title, gild the version/section headers (## / ###), and unwrap
+        // `code` backticks. build.mjs ships the file, so it stays the single source
+        // of truth. Fetched fresh when online (a just-deployed version's notes show
+        // before the reload), with the SW's cached copy as the offline fallback.
+        let changelogHTML = null;
+        let changelogReturnFocus = null;
+
+        const renderChangelog = md => esc(md)
+            .replace(/^#\s.*\n+/, '')                      // drop the file's own "# changelog" title
+            .replace(/^#{2,3}\s+(.*)$/gm, '<b>$1</b>')     // version + section headers, gold (marker removed)
+            .replace(/`([^`]+)`/g, '$1');                  // unwrap `code` spans; the backticks read as noise
+
+        const openChangelog = async () => {
+            toggleSettings(false);
+            const body = $('changelogBody');
+            changelogReturnFocus = document.activeElement;
+            show($('changelog'), true);
+            $('changelogClose').focus();
+            if (changelogHTML != null) { body.innerHTML = changelogHTML; body.scrollTop = 0; return; }
+            body.textContent = 'Loading…';
+            const load = async bust => {
+                // Cache-bust so the SW's cache-first rule can't hand back a stale
+                // copy; that's what surfaces a just-deployed version's notes
+                // before the app reloads onto it.
+                const url = bust ? `CHANGELOG.md?_=${Date.now()}` : 'CHANGELOG.md';
+                const res = await fetch(url, bust ? { cache: 'no-store' } : {});
+                if (!res.ok) throw new Error(res.status);
+                return res.text();
+            };
+            try {
+                changelogHTML = renderChangelog(await load(true).catch(() => load(false)));
+                body.innerHTML = changelogHTML;
+                body.scrollTop = 0;
+            } catch {
+                body.textContent = 'Couldn’t load the changelog. Check your connection and try again.';
+            }
+        };
+        const closeChangelog = () => {
+            show($('changelog'), false);
+            if (changelogReturnFocus && changelogReturnFocus.focus) changelogReturnFocus.focus();
+        };
+        $('changelogClose').onclick = closeChangelog;
+        // Tap the scrim (outside the panel) to dismiss.
+        $('changelog').addEventListener('click', e => { if (e.target.id === 'changelog') closeChangelog(); });
 
         // --- Semantic zoom: pinch / trackpad-pinch / ± keys --------------
         // Zooming in narrows focus: fewer days, fewer hours centered on
@@ -2950,6 +3080,9 @@
             // Escape closes search/settings/tooltip, handled before the INPUT
             // guard below so it still fires while the search field has focus.
             if (e.key === 'Escape') {
+                // The changelog modal is the topmost layer: dismiss it first and
+                // leave everything else alone.
+                if (!$('changelog').classList.contains('hidden')) { closeChangelog(); return; }
                 closeSearch();
                 toggleSettings(false);
                 hideTooltip();
@@ -3293,10 +3426,23 @@
         // handler above; here we just flip state.swUpdate and repaint the line.
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                const announceUpdate = () => {
+                // flash: a fresh update arriving mid-session gets one brief,
+                // self-clearing note that taps through to the changelog, then the
+                // line settles to the standard "↻ Update app" CTA. A version
+                // already waiting at load (returning visit) skips the note and
+                // shows the CTA straight away. All update signalling stays in the
+                // status line (DR-7: one status channel, no second indicator).
+                const announceUpdate = (flash = false) => {
                     if (state.swUpdate) return;
                     state.swUpdate = true;
-                    if (!state.loading) updateStatus();
+                    if (state.loading) return; // updateStatus will show the CTA once data loads
+                    if (flash) {
+                        state.updateNote = true;
+                        setStatus('New version ↗', 'outdated', { transient: true });
+                        $('status').setAttribute('aria-label', 'New version available. Open the changelog');
+                    } else {
+                        updateStatus();
+                    }
                 };
                 navigator.serviceWorker.register('sw.js').then(reg => {
                     // Already waiting at register time (installed on a prior visit).
@@ -3308,7 +3454,7 @@
                         const w = reg.installing;
                         if (!w) return;
                         w.addEventListener('statechange', () => {
-                            if (w.state === 'installed' && navigator.serviceWorker.controller) announceUpdate();
+                            if (w.state === 'installed' && navigator.serviceWorker.controller) announceUpdate(true);
                         });
                     });
                 }).catch(() => {});
