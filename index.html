@@ -212,7 +212,9 @@
             margin-right: var(--overhang);
         }
         .view-toggle .seg { flex: none; }
-        .view-toggle .seg button { padding: 3px 10px; font-size: 11px; }
+        /* Slightly tighter than the base seg so the freshness line to its left
+           keeps its full text on narrow phones without ellipsis. */
+        .view-toggle .seg button { padding: 3px 8px; font-size: 11px; }
 
         /* Keyboard focus */
         .location:focus-visible { color: #FFD700; outline: none; }
@@ -377,9 +379,24 @@
             justify-content: center;
             font-size: calc(10px * var(--ui, 1));
             line-height: 1;
+            position: relative;   /* anchors the corner markers */
             -webkit-user-select: none;
             user-select: none;
         }
+        /* Corner markers: hazard glyphs bottom-right (⚡ ≡ ❆ ♨ ☀), sky event
+           bottom-left (moon phase / eclipse). Both are bare glyphs in the
+           block's luminance-picked contrast colour; absolute so they never
+           disturb a centred wind arrow, and two can coexist on the 21:00
+           block without overlapping. */
+        .block-mark {
+            position: absolute;
+            bottom: 0;
+            right: 2px;
+            font-size: calc(9px * var(--ui, 1));
+            line-height: 1;
+            pointer-events: none;
+        }
+        .block-mark.sky { right: auto; left: 2px; }
         .weather-block:hover {
             opacity: 0.8;
         }
@@ -558,40 +575,40 @@
         }
         .status:hover { color: #999; }
         .status:focus-visible { outline: 1px solid #FFD700; outline-offset: 2px; border-radius: 2px; }
-        /* Info affordance for the freshness explanation. Drawn as a bordered
-           circle with an italic "i" so it reads clearly on the dark theme and
-           never depends on a font glyph. Muted so it doesn't compete with the
-           state text. */
+        /* Info affordance for the freshness explanation. A small down chevron
+           (inline SVG, hairline) reads as "reveal details" and stays muted so
+           it doesn't compete with the state text. The SVG inherits colour via
+           currentColor, so hover just brightens it. */
         .status-info {
             flex: none;
-            width: 15px;
-            height: 15px;
+            width: 16px;
+            height: 16px;
             padding: 0;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-family: Georgia, 'Times New Roman', serif;
-            font-size: 10px;
-            font-style: italic;
-            font-weight: 700;
             line-height: 1;
-            color: #999;
+            color: #777;
             background: none;
-            border: 1px solid #777;
-            border-radius: 50%;
+            border: none;
             cursor: help;
         }
-        .status-info:hover { color: #fff; border-color: #aaa; }
-        .status-info:focus-visible { outline: 1px solid #FFD700; outline-offset: 1px; border-radius: 50%; }
+        .status-info svg { display: block; width: 12px; height: 12px; }
+        .status-info:hover { color: #fff; }
+        .status-info:focus-visible { outline: 1px solid #FFD700; outline-offset: 1px; border-radius: 3px; }
         .status.stale {
             color: #B0B0B0;
         }
         /* Out of date: the run is past its expected refresh. The label becomes
            an explicit amber "update" button (bordered pill) prompting a manual
-           refresh; the ↻ glyph reads as refresh for colour-blind users too. */
+           refresh; the ↻ glyph reads as refresh for colour-blind users too.
+           Like the resting line it may shrink and ellipsize (flex 0 1 auto,
+           min-width 0) so a long state never overlaps or pushes the
+           rain/temp/wind buttons out of the row on a narrow phone. */
         .status.outdated {
             color: #E0A83E;
-            flex: none;
+            flex: 0 1 auto;
+            min-width: 0;
             border: 1px solid currentColor;
             border-radius: var(--radius);
             padding: 2px 8px;
@@ -691,7 +708,13 @@
                the field is just that text made editable. */
             font-size: 24px;
             font-weight: 600;
+            /* type="search" adds native chrome (clear button, inner spin);
+               strip it so the field renders like the plain text input it replaced. */
+            -webkit-appearance: none;
+            appearance: none;
         }
+        .search-input::-webkit-search-cancel-button,
+        .search-input::-webkit-search-decoration { -webkit-appearance: none; }
         .search-input:focus {
             outline: none;
         }
@@ -1048,11 +1071,20 @@
         <div class="location-wrapper">
             <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span></div>
             <div class="search-container" id="searchContainer">
-                <input type="text"
+                <input type="search"
                        class="search-input"
                        id="searchInput"
+                       name="q"
                        placeholder="Search city..."
-                       autocomplete="off">
+                       inputmode="search"
+                       enterkeyhint="search"
+                       autocomplete="off"
+                       autocorrect="off"
+                       autocapitalize="off"
+                       spellcheck="false"
+                       data-lpignore="true"
+                       data-1p-ignore
+                       data-form-type="other">
                 <button type="button" class="geo-btn" id="geoBtn"
                         aria-label="Use my location" title="Use my location">⌖</button>
                 <div class="search-results" id="searchResults"></div>
@@ -1072,7 +1104,7 @@
             <div class="view-toggle" id="viewToggle">
                 <div class="status-wrap">
                     <div id="status" class="status" tabindex="0" role="button"></div>
-                    <button class="status-info" id="statusInfo" aria-label="About forecast freshness">i</button>
+                    <button class="status-info" id="statusInfo" aria-label="About forecast freshness"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
                 </div>
                 <div class="seg">
                     <button data-view="rain">rain</button>
@@ -1262,10 +1294,12 @@
         const PRECIP = new Set(['rain', 'storm', 'snow']); // probability fade applies
 
         // Hazard glyphs: redundant non-color markers for hazards only,
-        // never ordinary data. Max one per block; vocabulary capped at
-        // four: ⚡ lightning incl. hail, ≡ fog, ❆ freezing rain/drizzle,
-        // ⚠ extreme heat / very-high UV (applied in processData, by
-        // threshold not code). U+FE0E keeps the glyphs non-emoji.
+        // never ordinary data. Vocabulary of five (DR-10): ⚡ lightning incl.
+        // hail, ≡ fog, ❆ freezing rain/drizzle (weather-coded, below), plus
+        // ♨ extreme heat and ☀ very-high UV (threshold hazards, applied at
+        // render time by value not code). Every applicable one shows, packed
+        // into the block corner (rarely more than two). U+FE0E keeps the
+        // glyphs non-emoji.
         const HAZARD_GLYPH = {
             95: '⚡︎', 96: '⚡︎', 99: '⚡︎',       // thunderstorm / hail
             45: '≡', 48: '≡',                  // fog, visibility hazard
@@ -1298,6 +1332,87 @@
         const fadeRGB = (hex, pop) => {
             const w = 0.35 + 0.65 * Math.max(0, Math.min(100, pop)) / 100;
             return hexRGB(hex).map((c, i) => Math.round(NAVY[i] + (c - NAVY[i]) * w));
+        };
+
+        // --- Sky events: moon phase + notable lunar eclipses -------------
+        // Marked as a bare glyph on each day's 21:00 block (bottom-left, so
+        // it never collides with a bottom-right hazard). Text glyphs match
+        // the hazard vocabulary; custom SVG icons are a planned follow-up.
+        //
+        // Phase instants come from Meeus' "Astronomical Algorithms" ch.49
+        // (principal periodic terms only): a mean-synodic model drifts up to
+        // a day by the 2020s, but this stays within minutes, so a phase
+        // always lands on the right night. ΔT (<2 min) and planetary terms
+        // (<0.001 d) are dropped as far below a day boundary. `k` counts
+        // quarter-phases from the 2000 new moon: integer = new, +.25 first
+        // quarter, +.5 full, +.75 last.
+        const D2R = Math.PI / 180;
+        const phaseInstantMs = k => {
+            const p = k - Math.floor(k);            // .00/.25/.50/.75
+            const T = k / 1236.85;
+            let J = 2451550.09766 + 29.530588861 * k
+                + 0.00015437 * T*T - 0.000000150 * T*T*T + 0.00000000073 * T*T*T*T;
+            const M  = (2.5534   + 29.10535670 * k - 0.0000014 * T*T - 0.00000011 * T*T*T) * D2R;
+            const Mp = (201.5643 + 385.81693528 * k + 0.0107582 * T*T + 0.00001238 * T*T*T - 0.000000058 * T*T*T*T) * D2R;
+            const F  = (160.7108 + 390.67050284 * k - 0.0016118 * T*T - 0.00000227 * T*T*T + 0.000000011 * T*T*T*T) * D2R;
+            const Om = (124.7746 - 1.56375588 * k + 0.0020672 * T*T + 0.00000215 * T*T*T) * D2R;
+            const E = 1 - 0.002516 * T - 0.0000074 * T*T;
+            const s = Math.sin;
+            if (p < 1e-6 || Math.abs(p - 0.5) < 1e-6) { // new / full share the term set
+                J += -0.40720*s(Mp) + 0.17241*E*s(M) + 0.01608*s(2*Mp) + 0.01039*s(2*F)
+                    + 0.00739*E*s(Mp-M) - 0.00514*E*s(Mp+M) + 0.00208*E*E*s(2*M)
+                    - 0.00111*s(Mp-2*F) - 0.00057*s(Mp+2*F) + 0.00056*E*s(2*Mp+M)
+                    - 0.00042*s(3*Mp) + 0.00042*E*s(M+2*F) + 0.00038*E*s(M-2*F)
+                    - 0.00024*E*s(2*Mp-M) - 0.00017*s(Om) - 0.00007*s(Mp+2*M)
+                    + 0.00004*s(2*Mp-2*F) + 0.00004*s(3*M) + 0.00003*s(Mp+M-2*F)
+                    + 0.00003*s(2*Mp+2*F) - 0.00003*s(Mp+M+2*F) + 0.00003*s(Mp-M+2*F)
+                    - 0.00002*s(Mp-M-2*F) - 0.00002*s(3*Mp+M) + 0.00002*s(4*Mp);
+            } else {                                  // first / last quarter
+                J += -0.62801*s(Mp) + 0.17172*E*s(M) - 0.01183*E*s(Mp+M) + 0.00862*s(2*Mp)
+                    + 0.00804*s(2*F) + 0.00454*E*s(Mp-M) + 0.00204*E*E*s(2*M)
+                    - 0.00180*s(Mp-2*F) - 0.00070*s(Mp+2*F) - 0.00040*s(3*Mp)
+                    - 0.00034*E*s(2*Mp-M) + 0.00032*E*s(M+2*F) + 0.00032*E*s(M-2*F)
+                    - 0.00028*E*E*s(Mp+2*M) + 0.00027*E*s(2*Mp+M) - 0.00017*s(Om)
+                    - 0.00005*s(Mp-M-2*F) + 0.00004*s(2*Mp+2*F) - 0.00004*s(Mp+M+2*F)
+                    + 0.00004*s(Mp-2*M) + 0.00003*s(Mp+M-2*F) + 0.00003*s(3*M)
+                    + 0.00002*s(2*Mp-2*F) + 0.00002*s(Mp-M+2*F) - 0.00002*s(3*Mp+M);
+                const W = 0.00306 - 0.00038*E*Math.cos(M) + 0.00026*Math.cos(Mp)
+                    - 0.00002*Math.cos(Mp-M) + 0.00002*Math.cos(Mp+M) + 0.00002*Math.cos(2*F);
+                J += p < 0.5 ? W : -W;                // first quarter +W, last quarter -W
+            }
+            return (J - 2440587.5) * 86400000;        // Julian Day → Unix ms (UTC)
+        };
+        const PHASE_MARK = { 0: ['○', 'New moon'], 0.25: ['◐', 'First quarter'],
+                             0.5: ['●', 'Full moon'], 0.75: ['◑', 'Last quarter'] };
+        // total/partial lunar eclipses only (penumbral are barely perceptible);
+        // greatest eclipse in UTC. A 7-day forecast only ever reaches a few.
+        const LUNAR_ECLIPSES = [
+            { t: Date.UTC(2026, 2, 3, 11, 34),   kind: 'total'   },
+            { t: Date.UTC(2026, 7, 28, 4, 14),   kind: 'partial' },
+            { t: Date.UTC(2028, 0, 12, 4, 14),   kind: 'partial' },
+            { t: Date.UTC(2028, 6, 6, 18, 20),   kind: 'partial' },
+            { t: Date.UTC(2028, 11, 31, 16, 52), kind: 'total'   }
+        ];
+        // Sky event for a city-local date ("YYYY-MM-DD"), or null. The local
+        // day becomes a UTC window via the forecast's utc offset, so the mark
+        // lands on the right calendar day for the city. An eclipse (always at
+        // full moon) outranks the plain full-moon mark.
+        const skyEventFor = date => {
+            const dayStart = Date.parse(date + 'T00:00:00Z') - (state.utcOffset || 0) * 1000;
+            const dayEnd = dayStart + 86400000;
+            const ecl = LUNAR_ECLIPSES.find(e => e.t >= dayStart && e.t < dayEnd);
+            if (ecl) return { glyph: '◉', label: `Lunar eclipse (${ecl.kind})` };
+            // scan the quarter-phases around this date for one landing today
+            const approxK = (dayStart / 86400000 / 365.25 + 1970 - 2000) * 12.3685;
+            const base = Math.round(approxK);
+            for (let k = base - 1; k <= base + 1; k += 0.25) {
+                const t = phaseInstantMs(k);
+                if (t >= dayStart && t < dayEnd) {
+                    const mark = PHASE_MARK[Math.round((k - Math.floor(k)) * 4) / 4];
+                    return { glyph: mark[0], label: mark[1] };
+                }
+            }
+            return null;
         };
 
         const $ = id => document.getElementById(id);
@@ -1424,7 +1539,7 @@
             }
             if (legacy) { try { localStorage.removeItem(LS_FORECAST); } catch { /* non-fatal */ } }
         }
-        // heatWarn is anchored in °C; uvWarn is a UV index; ⚠ thresholds,
+        // heatWarn is anchored in °C; uvWarn is a UV index; ♨/☀ thresholds,
         // user-settable in the ⚙ menu because regions differ.
         const VIEWS = ['rain', 'temp', 'wind'];
         const enabledViews = () => VIEWS.filter(v => settings.views[v]);
@@ -1577,7 +1692,7 @@
         // and doubles as the retry button (tap/click to refetch). The message
         // is remembered so updateStatus can restate it (it holds until a fetch
         // succeeds, since nothing else can render). Resting layer, no timer.
-        const showError = (msg = 'No forecast. Tap to retry') => {
+        const showError = (msg = 'No data. Tap to retry') => {
             state.loading = false;
             state.lastError = msg;
             updateStatus();
@@ -1647,7 +1762,7 @@
             // "Loading forecast…" owns the line, so leave it be.
             if (!state.data.length) {
                 if (state.loading) return;
-                setStatus(state.lastError || 'No forecast. Tap to retry', 'stale');
+                setStatus(state.lastError || 'No data. Tap to retry', 'stale');
                 return;
             }
             const overdue = forecastOverdue();
@@ -1659,18 +1774,22 @@
                 const stampMs = forecastStampMs();
                 if (overdue && stampMs) {
                     const stamp = staleStamp(stampMs);
-                    setStatus(`Offline. Stale, updated ${stamp}`, 'outdated');
+                    // Show *when* the shown data is from: offline for a long
+                    // time, the stamp is the real signal of how stale it is.
+                    // The amber pill already reads as the warning; the stamp
+                    // carries the age. Fits a phone row in 12h and 24h forms.
+                    setStatus(`Offline · from ${stamp}`, 'outdated');
                     $('status').setAttribute('aria-label',
                         `Offline. The forecast is stale, from ${stamp}; a newer model run is due. It will refresh when the connection returns.`);
                 } else {
-                    setStatus('Offline. Showing last forecast', 'stale');
+                    setStatus('Offline · last forecast', 'stale');
                 }
                 return;
             }
             // (3) A newer app version is waiting: one reload CTA, styled like the
             // outdated pill, in this same line instead of a separate banner.
             if (state.swUpdate) {
-                setStatus('New app version. Tap to reload', 'outdated');
+                setStatus('↻ Update app', 'outdated');
                 $('status').setAttribute('aria-label',
                     'A new version of the app is available. Tap to reload.');
                 return;
@@ -1704,7 +1823,7 @@
                         (toNext > 0 ? ` (next ~${nextTimeLabel(m.nextUpdate)})` : ' (update due)') +
                         '. Click to refresh.');
                 } else {
-                    const tail = toNext > 0 ? `next update ~${nextTimeLabel(m.nextUpdate)}` : 'update due';
+                    const tail = toNext > 0 ? `next ~${nextTimeLabel(m.nextUpdate)}` : 'update due';
                     setStatus(`Run ${runClockLabel(m.init)} · ${tail}`, '');
                     $('status').setAttribute('aria-label',
                         `Forecast freshness: weather model last run at ${runClockLabel(m.init)}; ` +
@@ -1725,7 +1844,7 @@
                 setStatus('Data is fresh', 'fresh');
             } else if (overdue) {
                 const stamp = staleStamp(state.fetchedAt);
-                setStatus(`Stale. Updated ${stamp}, tap to refresh`, 'outdated');
+                setStatus('↻ Update forecast', 'outdated');
                 $('status').setAttribute('aria-label',
                     `Forecast is stale, last updated ${stamp}. Tap to refresh.`);
             } else if (age > FRESH_TIME) {
@@ -1837,6 +1956,13 @@
 
         const fetchWeather = async (force = false) => {
             if (state.loading && !force) return;
+            // Pin the place this fetch is for. A mid-flight city switch aborts
+            // our controller, but if the response already resolved in the gap
+            // before the abort lands, the continuation would otherwise read the
+            // *new* state.place and save this payload under the wrong city. Pin
+            // it, fetch/load/save against the pin, and bail after the awaits if
+            // the user has since moved on.
+            const place = state.place;
             fetchModelMeta(); // parallel, non-blocking; self-guards on cadence
             fetchLocalMeta(); // regional run time for this place; self-guards too
             if (!force && state.data.length && (Date.now() - state.fetchedAt) < FRESH_TIME) {
@@ -1852,9 +1978,13 @@
                 // Abort a connection that stalls: a hung socket would otherwise
                 // spin on "Loading forecast…" forever with no way out.
                 timer = setTimeout(() => { timedOut = true; state.controller.abort(); }, FETCH_TIMEOUT);
-                const response = await fetch(forecastURL(state.place), { signal: state.controller.signal });
+                const response = await fetch(forecastURL(place), { signal: state.controller.signal });
                 if (!response.ok) throw new Error(`API error: ${response.status}`);
                 const payload = await response.json();
+                // Superseded by a city switch while we awaited: drop this result
+                // so it can't render under, or be saved against, the place now on
+                // screen. The newer fetch owns the loading state, so just return.
+                if (place !== state.place) return;
                 if (!payload.hourly?.time?.length) throw new Error('Invalid data received');
 
                 state.fetchedAt = Date.now();
@@ -1867,24 +1997,24 @@
                 // and post-switch revalidations. Different: the old current
                 // rotates into prev (the last payload that actually differed)
                 // and qualifying cells pulse once on the render that follows.
-                const entry = loadForecast(state.place);
+                const entry = loadForecast(place);
                 const same = entry?.payload && hourlySnapshot(entry.payload) === hourlySnapshot(payload);
                 if (same && state.data.length) {
-                    saveForecast(state.place, { ...entry, timestamp: state.fetchedAt });
+                    saveForecast(place, { ...entry, timestamp: state.fetchedAt });
                     setLoading(false);
                     updateStatus();
                 } else {
                     if (entry?.payload && !same) {
                         state.changed = diffHourly(entry.payload, payload);
                         state.pulsePending = Object.keys(state.changed).length > 0;
-                        saveForecast(state.place, {
+                        saveForecast(place, {
                             timestamp: state.fetchedAt, payload,
                             prev: { timestamp: entry.timestamp, payload: entry.payload }
                         });
                     } else {
                         // First payload for this place (or a recovered paint):
                         // nothing differed, so any existing prev stands.
-                        saveForecast(state.place, entry?.prev
+                        saveForecast(place, entry?.prev
                             ? { timestamp: state.fetchedAt, payload, prev: entry.prev }
                             : { timestamp: state.fetchedAt, payload });
                     }
@@ -1907,7 +2037,7 @@
                     // Timeout or network failure → friendly "can't reach" wording;
                     // API/parse errors keep the generic retry label.
                     const unreachable = timedOut || error.name === 'TypeError';
-                    showError(unreachable ? "Can't reach weather service. Tap to retry" : undefined);
+                    showError(unreachable ? "Can't reach service. Retry" : undefined);
                 }
             } finally {
                 clearTimeout(timer);
@@ -1917,6 +2047,7 @@
         // --- Process Open-Meteo payload (real hours only) -----------------
         const processData = payload => {
             state.tz = payload.timezone || state.tz;
+            state.utcOffset = payload.utc_offset_seconds || 0; // for city-local sky-event day windows
             const { time, temperature_2m, weather_code, cloud_cover, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
 
             // Daily sunrise/sunset (local ISO strings) → per-date {h, m}.
@@ -1947,7 +2078,7 @@
                     gust: wind_gusts_10m?.[i] ?? null,        // km/h
                     ...conditionFor(weather_code[i], cloud_cover?.[i] ?? 0)
                 };
-                // (⚠ heat/UV glyphs are applied at render time, so the
+                // (♨ heat / ☀ UV glyphs are applied at render time, so the
                 // user's thresholds take effect without a refetch.)
                 (byDate[date] = byDate[date] || []).push(h);
             }
@@ -2031,16 +2162,26 @@
                             ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
                             : (PRECIP.has(cond.group) && h.pop != null
                                 ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
-                    // Heat/UV warning glyph: ⚠ at or above the user's
-                    // ⚙-menu thresholds. Weather hazards (⚡ ≡ ❆) take
-                    // precedence; never more than one glyph per block.
+                    // Hazard glyphs (DR-10): every applicable hazard shows,
+                    // packed into the bottom-right corner in a fixed order so
+                    // two never swap places: the weather-coded hazard first
+                    // (⚡ storm, ≡ fog, ❆ freezing rain, mutually exclusive),
+                    // then ♨ extreme heat, then ☀ very-high UV (the two
+                    // threshold hazards, from the ⚙-menu thresholds). Rarely
+                    // more than two at once (usually heat + UV, or a storm on
+                    // a hot day).
                     const hot = h.temp >= settings.heatWarn;
                     const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
-                    // Wind view: the arrow is the data, pointing where the
-                    // wind blows; hazard glyphs stay on the other two views.
-                    const glyph = view === 'wind'
-                        ? (h.windDir != null && h.wind != null ? WIND_ARROWS[windOctant(h.windDir)] : '')
-                        : h.glyph || (hot || uvHigh ? '⚠︎' : '');
+                    // Wind view: the arrow is the data, centred, pointing
+                    // where the wind blows. Hazard glyphs stay on the other
+                    // two views, tucked into the bottom-right corner (B1).
+                    const arrow = view === 'wind' && h.windDir != null && h.wind != null
+                        ? WIND_ARROWS[windOctant(h.windDir)] : '';
+                    const hazGlyph = view === 'wind' ? ''
+                        : (h.glyph || '') + (hot ? '♨︎' : '') + (uvHigh ? '☀︎' : '');
+                    // Sky event (moon phase / lunar eclipse): a night fact, so
+                    // it rides the day's 21:00 block, bottom-left, in all views.
+                    const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
                     const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
                     const windText = h.wind != null
                         ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
@@ -2049,6 +2190,7 @@
                         + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '');
                     const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
                         + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
+                    const skyText = sky ? ` · ${sky.label}` : '';
                     // DR-6: a cell whose forecast meaningfully moved since the
                     // previous model run. The pulse is view-gated (a temp move
                     // pulses in temp view, not rain view) and armed only while
@@ -2058,7 +2200,12 @@
                     const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
                     const pulse = state.pulsePending && movedInView ? ' changed' : '';
                     const chText = changeLines(ch).map(l => ` · ${l}`).join('');
-                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}${sunText}${chText}`);
+                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}${sunText}${skyText}${chText}`);
+                    // Marks: centred wind arrow (wind view) + bottom-right
+                    // hazard glyph + bottom-left sky glyph. Any may be empty.
+                    const marks = arrow
+                        + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
+                        + (sky ? `<span class="block-mark sky">${esc(sky.glyph)}</span>` : '');
                     blocks.push(
                         `<div class="weather-block reveal${current}${pulse}"
                               style="animation-delay:${delay}ms;background:rgb(${rgb});color:${textOn(rgb)}"
@@ -2066,7 +2213,7 @@
                               aria-label="${info}"
                               data-day="${dayIndex}"
                               data-hour="${h.hour}"
-                              data-info="${info}">${glyph}</div>`);
+                              data-info="${info}">${marks}</div>`);
                 }
                 return `<div class="day-column">${blocks.join('')}</div>`;
             }).join('');
@@ -2080,7 +2227,9 @@
 
             // First real data paint: now it's safe to arm the install banner
             // (any beforeinstallprompt that fired earlier, or the iOS hint).
-            if (!firstPaintDone) {
+            // Gate on real data so an empty render (e.g. a stale payload whose
+            // days have all elapsed) can never arm it off a blank grid.
+            if (!firstPaintDone && state.data.length) {
                 firstPaintDone = true;
                 maybeScheduleInstallBanner();
             }
@@ -2213,11 +2362,12 @@
                     if (view === 'wind' && h.gust != null) w += `, gusts ${displayWind(h.gust)}`;
                     lines.push(w);
                 }
-                if (h.temp >= settings.heatWarn) lines.push('⚠︎ extreme heat');
-                if (h.uv != null && h.uv >= settings.uvWarn) lines.push(`⚠︎ very high UV (${Math.round(h.uv)})`);
+                if (h.temp >= settings.heatWarn) lines.push('♨︎ extreme heat');
+                if (h.uv != null && h.uv >= settings.uvWarn) lines.push(`☀︎ very high UV (${Math.round(h.uv)})`);
                 const sun = state.sun[day.date] || {};
                 if (sun.rise?.h === h.hour) lines.push(`☀︎ sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`);
                 if (sun.set?.h === h.hour) lines.push(`☀︎ sunset ${timeLabel(sun.set.h, sun.set.m)}`);
+                if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) lines.push(`${sky.glyph} ${sky.label}`); }
                 // DR-6: was/now detail for a cell the previous model run
                 // disagreed with (works with reduced motion, which skips the
                 // pulse but keeps this).
@@ -2384,7 +2534,11 @@
         // corrupt entry resets state so the skeleton path takes over.
         const paintCachedForecast = () => {
             const entry = loadForecast(state.place);
-            if (!entry?.payload) return false;
+            // A fully-expired entry (every hour already in the past) is no
+            // better than a miss: the past-day filter would drop all its days
+            // and paint an empty grid. Skip it so the skeleton/fetch path takes
+            // over cleanly; the startup sweep drops it from storage shortly after.
+            if (!entry?.payload || forecastExpired(entry)) return false;
             try {
                 state.fetchedAt = entry.timestamp;
                 processData(entry.payload);
@@ -2649,9 +2803,9 @@
                     `<button data-viewkey="${v}" class="${settings.views[v] ? 'active' : ''}">${v}</button>`).join('')}</div></div>` +
                 `<div class="setting-row"><span>Key</span>${seg('legend', [['true', 'show'], ['false', 'hide']])}</div>` +
                 `<div class="setting-row"><span>Sun</span>${seg('sunLines', [['true', 'show'], ['false', 'hide']])}</div>` +
-                `<div class="setting-row"><span>⚠ heat ≥</span>${seg('heatWarn',
+                `<div class="setting-row"><span>♨ heat ≥</span>${seg('heatWarn',
                     [30, 35, 40].map(t => [String(t), `${displayTemp(t)}°`]))}</div>` +
-                `<div class="setting-row"><span>⚠ UV ≥</span>${seg('uvWarn',
+                `<div class="setting-row"><span>☀ UV ≥</span>${seg('uvWarn',
                     [['8', '8'], ['10', '10'], ['11', '11']])}</div>` +
                 installSettingsRow() +
                 `<div class="setting-row"><span>Share</span>` +

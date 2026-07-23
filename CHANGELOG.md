@@ -4,6 +4,30 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 
 ## unreleased
 
+### v25 (2026-07-23)
+
+### search autofill fix
+- the city search field is now a `search` input, not `text`: chrome on android was reading the word "city" as an address field and popping up autofill for passwords, payment, and addresses over the keyboard. a search field is left out of that guess
+- added search-keyboard hints (`inputmode`/`enterkeyhint`), renamed the field to `q` so nothing address-like is inferred
+- stripped the native `search` clear button and appearance so the field looks unchanged
+
+### mobile status line
+- the freshness/status line no longer overlaps or hides the rain/temp/wind buttons on a narrow phone
+- trimmed each state's wording so it fits the phone row in full instead of clipping behind the buttons
+- the ⓘ beside the line is now a small, quiet down chevron instead of the bordered "i", so it draws less attention
+
+### edge cases
+- switching cities quickly no longer risks saving one city's forecast under another's cache: a fetch that resolves just as you switch away is now discarded
+- reopening after a week away no longer flashes an empty grid: a cached forecast whose hours have all elapsed is skipped and the loading skeleton shows instead
+
+### hazard + sky-event markers
+- hazard glyphs moved from the middle of a block to its bottom-right corner. quieter, and it leaves room for a second mark
+- extreme heat and very-high uv are now two separate icons (♨ and ☀) instead of one shared ⚠
+- a block shows every hazard that applies, not just one
+- each day's 21:00 block can now carry a moon marker in the bottom-left corner: ○ new, ◐ first quarter, ● full, ◑ last quarter, and ◉ for a lunar eclipse
+- moon phases are computed accurately and shown on the right night for the city's own timezone
+- lunar eclipses (total and partial) come from a built-in date table and replace the full-moon dot on that night
+
 ## v24 (2026-07-23)
 
 ### local + global model times
