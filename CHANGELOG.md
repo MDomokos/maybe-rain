@@ -4,6 +4,20 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 
 ## unreleased
 
+## v23 (2026-07-23)
+
+### per-city cache
+- each city now keeps its last forecast on the device, so switching cities paints instantly and updates in the background
+- offline, every saved city still shows its last forecast, labeled with how old it is
+- old data is never deleted just for being old: a cached forecast leaves only when a fresh one replaces it, when its city is removed from favorites/recents, or when no future hours remain (about a week)
+- days fully in the past drop off the grid, so an old forecast shows a shorter week instead of pretending yesterday is today
+- the cache can't grow past favorites + recent cities; removing a city removes its stored forecast too
+
+### change highlighting
+- when a new model run meaningfully moves the forecast (rain chance ±30 pts, temp ±3°, wind ±15 km/h), the affected blocks pulse briefly, once, in the view the change belongs to
+- tap or long-press a changed block to see what moved: "rain 20% → 60%"
+- polls that bring nothing new no longer redraw the grid at all (less jank, less battery)
+
 ## v22 (2026-07-23)
 
 ### status indicator

@@ -250,9 +250,31 @@
             5%, 60% { opacity: 0.45; }
             65%, 100% { opacity: 1; }
         }
+        /* DR-6: one-shot ~2s pulse on cells whose forecast meaningfully
+           moved since the previous model run. Lives on a pseudo-element so
+           it composes with the reveal animation and its inline dither
+           delay; currentColor is the block's luminance-picked glyph color,
+           so the ring reads on any hue. Fires once: the class is set only
+           on the first render after a new model run. */
+        .weather-block.changed { position: relative; }
+        .weather-block.changed::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            box-shadow: inset 0 0 0 2px currentColor;
+            animation: changePulse 2s ease-out forwards;
+        }
+        @keyframes changePulse {
+            0%, 55% { opacity: 1; }
+            100% { opacity: 0; }
+        }
         @media (prefers-reduced-motion: reduce) {
             .weather-block.skeleton, .status.updating { animation: none; opacity: 0.7; }
             .weather-block.reveal { animation: none; }
+            /* No pulse; the was/now tooltip detail still works. */
+            .weather-block.changed::after { display: none; }
         }
         /* Temperature and day labels.
            All three rows (temps, day labels, grid columns) share the same
@@ -586,7 +608,7 @@
             position: absolute;
             /* Extend 8px below the wrapper and pad the bottom by the same, so
                the typed text stays vertically aligned with the city name it
-               replaced while the gold underline drops clear of it — no cramp. */
+               replaced while the gold underline drops clear of it: no cramp. */
             inset: 0 var(--search-right) -8px 0;   /* leave room for ⚙ on the right */
             display: flex;
             align-items: center;
@@ -661,7 +683,7 @@
                where the field does. */
             right: calc(-1 * var(--search-right));
             margin-top: 5px;
-            /* Floats over the dimmed grid on the app's own black — no outline
+            /* Floats over the dimmed grid on the app's own black: no outline
                box, just the list. */
             background: #000;
             border: none;
@@ -739,7 +761,7 @@
         .search-result .fav:hover { color: #FFD700; }
         /* One active row at a time. Hover and the keyboard both drive this
            single .highlighted class (see the mouseover sync in JS), so the
-           pointer and the Enter target never disagree — and there's only ever
+           pointer and the Enter target never disagree, and there's only ever
            one gold row, including the first-result preselect. */
         .search-result.highlighted {
             color: #FFD700;   /* highlight by tinting the text, not the row */
@@ -1048,11 +1070,21 @@
         // about cadence, so a day-old forecast still escalates to the amber
         // dated warning instead of the calm grey "outdated".
         const DEEP_STALE_TIME = 24 * 60 * 60 * 1000;
+        // DR-6 layer 2: per-view "meaningfully moved" thresholds. A cell
+        // whose forecast moved at least this much since the previous model
+        // run pulses once in the matching view; the was/now detail rides
+        // the tooltip. Per-view because a single pop-based rule would leave
+        // the temp and wind views inert.
+        const CHANGE_POP = 30;  // percentage points of rain probability
+        const CHANGE_TEMP = 3;  // °C
+        const CHANGE_WIND = 15; // km/h
         const DEFAULT_PLACE = {
             name: 'Whakatane', country: 'New Zealand', admin1: 'Bay of Plenty',
             latitude: -37.9586, longitude: 176.9854
         };
         const LS_PLACE = 'mr-place';
+        // DR-6: per-place cache prefix. Entries live at mr-forecast:<placeKey>
+        // → {timestamp, payload}, so switching cities paints instantly.
         const LS_FORECAST = 'mr-forecast';
         const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 12
         const LS_SETTINGS = 'mr-settings';
@@ -1208,6 +1240,8 @@
             online: navigator.onLine, // tracked via online/offline events (DR-7)
             swUpdate: false, // a newer app version is waiting (DR-7 reload CTA)
             lastError: '',   // last no-data error text, so updateStatus can restate it
+            changed: null,   // DR-6: "date|hour" → {pop|temp|wind: [was, now]} vs the previous model run
+            pulsePending: false, // DR-6: the next render pulses changed cells, then consumes this
             suggestions: [] // saved cities + geocoding hits, in display order
         };
 
@@ -1219,6 +1253,98 @@
         const saveJSON = (key, value) => {
             try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* full/blocked: non-fatal */ }
         };
+
+        // --- DR-6: per-place forecast cache -------------------------------
+        // One entry per place, keyed by placeKey. An entry leaves the cache
+        // three ways only, never by wall-clock age: superseded (a fetch
+        // overwrites it), orphaned (its place leaves favorites ∪ recents ∪
+        // the place on screen, so no UI path reaches it), or fully expired
+        // (its last forecast hour is in the past, place-local, so nothing
+        // honest can be rendered). Old-but-labeled data answers something;
+        // a purged cache answers nothing.
+        const forecastCacheKey = p => `${LS_FORECAST}:${placeKey(p)}`;
+        const loadForecast = p => loadJSON(forecastCacheKey(p));
+        const saveForecast = (p, entry) => saveJSON(forecastCacheKey(p), entry);
+        // Fully expired: the payload's hourly times are place-local ISO
+        // strings and it carries utc_offset_seconds, so "is the last hour in
+        // the past?" is a string compare against place-local now. For a
+        // 7-day payload this fires ~7 days after fetch.
+        const forecastExpired = entry => {
+            const t = entry?.payload?.hourly?.time;
+            if (!t?.length) return true;
+            const offset = entry.payload.utc_offset_seconds || 0;
+            const localNow = new Date(Date.now() + offset * 1000).toISOString().slice(0, 16);
+            return t[t.length - 1] < localNow;
+        };
+        // Sweep: drop every entry that is orphaned or fully expired. The
+        // keep-set includes the current place even when it is in neither
+        // list (a timezone guess or favorite cycling arrives with
+        // remember=false), since it is on screen and its cache serves the
+        // next open. Called at startup (off the critical path) and at the
+        // membership-removal points: ✕ dismiss, MRU eviction, unfavorite.
+        const sweepForecasts = () => {
+            const keep = new Set([...favorites, ...savedCities, state.place].map(placeKey));
+            const prefix = `${LS_FORECAST}:`;
+            try {
+                for (let i = localStorage.length - 1; i >= 0; i--) {
+                    const k = localStorage.key(i);
+                    if (!k || !k.startsWith(prefix)) continue;
+                    if (!keep.has(k.slice(prefix.length)) || forecastExpired(loadJSON(k))) {
+                        localStorage.removeItem(k);
+                    }
+                }
+            } catch { /* blocked storage: non-fatal */ }
+        };
+        // DR-6 layer 2: history is keyed by model run, not by poll. Two
+        // payloads count as the same run when the hourly arrays that drive
+        // the grid are identical; string equality on ~9 KB is microseconds,
+        // so no hash function (principle 5: less code).
+        const hourlySnapshot = p => JSON.stringify([
+            p.hourly.time, p.hourly.temperature_2m, p.hourly.weather_code,
+            p.hourly.precipitation_probability, p.hourly.wind_speed_10m
+        ]);
+        // Cells present in both payloads whose delta crosses a per-view
+        // threshold, as "date|hour" → {pop|temp|wind: [was, now]}.
+        const diffHourly = (oldP, newP) => {
+            const o = oldP.hourly, n = newP.hourly;
+            const at = new Map(o.time.map((t, i) => [t, i]));
+            const moved = (a, b, min) => a != null && b != null && Math.abs(a - b) >= min;
+            const out = {};
+            for (let i = 0; i < n.time.length; i++) {
+                const j = at.get(n.time[i]);
+                if (j == null) continue;
+                const d = {};
+                if (moved(n.precipitation_probability?.[i], o.precipitation_probability?.[j], CHANGE_POP))
+                    d.pop = [o.precipitation_probability[j], n.precipitation_probability[i]];
+                if (moved(n.temperature_2m?.[i], o.temperature_2m?.[j], CHANGE_TEMP))
+                    d.temp = [o.temperature_2m[j], n.temperature_2m[i]];
+                if (moved(n.wind_speed_10m?.[i], o.wind_speed_10m?.[j], CHANGE_WIND))
+                    d.wind = [o.wind_speed_10m[j], n.wind_speed_10m[i]];
+                if (d.pop || d.temp || d.wind)
+                    out[`${n.time[i].slice(0, 10)}|${+n.time[i].slice(11, 13)}`] = d;
+            }
+            return out;
+        };
+        // Was/now tooltip lines for a changed cell, in the user's units.
+        const changeLines = ch => {
+            if (!ch) return [];
+            const lines = [];
+            if (ch.pop) lines.push(`rain ${ch.pop[0]}% → ${ch.pop[1]}%`);
+            if (ch.temp) lines.push(`${displayTemp(Math.round(ch.temp[0]))}° → ${displayTemp(Math.round(ch.temp[1]))}°`);
+            if (ch.wind) lines.push(`wind ${displayWind(ch.wind[0])} → ${displayWind(ch.wind[1])} ${windUnitLabel()}`);
+            return lines;
+        };
+
+        // One-time migration: the legacy single mr-forecast slot becomes the
+        // keyed entry for its own place, then the old key goes.
+        {
+            const legacy = loadJSON(LS_FORECAST);
+            if (legacy?.placeKey && legacy.payload) {
+                saveJSON(`${LS_FORECAST}:${legacy.placeKey}`,
+                    { timestamp: legacy.timestamp, payload: legacy.payload });
+            }
+            if (legacy) { try { localStorage.removeItem(LS_FORECAST); } catch { /* non-fatal */ } }
+        }
         // heatWarn is anchored in °C; uvWarn is a UV index; ⚠ thresholds,
         // user-settable in the ⚙ menu because regions differ.
         const VIEWS = ['rain', 'temp', 'wind'];
@@ -1601,10 +1727,38 @@
                 state.fetchedAt = Date.now();
                 state.lastError = '';   // a good fetch clears any held error
                 state.online = true;    // it reached the network, so we're online
-                saveJSON(LS_FORECAST, { placeKey: placeKey(state.place), timestamp: state.fetchedAt, payload });
-                processData(payload);
-                updateDisplay();
-                setLoading(false);
+                // DR-6 layer 2: compare against the cached payload. Identical
+                // (most 30-min polls, the models update ~6-hourly): the fetch
+                // was real so freshness advances, but the render is skipped
+                // entirely; that removes the render burst from no-change polls
+                // and post-switch revalidations. Different: the old current
+                // rotates into prev (the last payload that actually differed)
+                // and qualifying cells pulse once on the render that follows.
+                const entry = loadForecast(state.place);
+                const same = entry?.payload && hourlySnapshot(entry.payload) === hourlySnapshot(payload);
+                if (same && state.data.length) {
+                    saveForecast(state.place, { ...entry, timestamp: state.fetchedAt });
+                    setLoading(false);
+                    updateStatus();
+                } else {
+                    if (entry?.payload && !same) {
+                        state.changed = diffHourly(entry.payload, payload);
+                        state.pulsePending = Object.keys(state.changed).length > 0;
+                        saveForecast(state.place, {
+                            timestamp: state.fetchedAt, payload,
+                            prev: { timestamp: entry.timestamp, payload: entry.payload }
+                        });
+                    } else {
+                        // First payload for this place (or a recovered paint):
+                        // nothing differed, so any existing prev stands.
+                        saveForecast(state.place, entry?.prev
+                            ? { timestamp: state.fetchedAt, payload, prev: entry.prev }
+                            : { timestamp: state.fetchedAt, payload });
+                    }
+                    processData(payload);
+                    updateDisplay();
+                    setLoading(false);
+                }
             } catch (error) {
                 // A supersede abort (a newer fetch replaced this one) stays silent;
                 // a timeout abort is a real failure and must surface.
@@ -1666,9 +1820,13 @@
             }
 
             // Only days that actually have data; no fabricated columns.
+            // DR-6: days fully in the past drop out here, so an old cached
+            // payload renders as a shorter week (principle 4), never as a
+            // past day relabeled current.
             const today = cityNow().date;
             state.data = []; state.days = [];
             for (const date of Object.keys(byDate).sort()) {
+                if (date < today) continue;
                 state.data.push(byDate[date]);
                 state.days.push({ text: weekdayOf(date), isToday: date === today, date });
             }
@@ -1758,9 +1916,18 @@
                         + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '');
                     const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
                         + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
-                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}${sunText}`);
+                    // DR-6: a cell whose forecast meaningfully moved since the
+                    // previous model run. The pulse is view-gated (a temp move
+                    // pulses in temp view, not rain view) and armed only while
+                    // pulsePending, so it fires once per new model run; the
+                    // was/now detail stays in the tooltip either way.
+                    const ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
+                    const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
+                    const pulse = state.pulsePending && movedInView ? ' changed' : '';
+                    const chText = changeLines(ch).map(l => ` · ${l}`).join('');
+                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}${sunText}${chText}`);
                     blocks.push(
-                        `<div class="weather-block reveal${current}"
+                        `<div class="weather-block reveal${current}${pulse}"
                               style="animation-delay:${delay}ms;background:rgb(${rgb});color:${textOn(rgb)}"
                               tabindex="0"
                               aria-label="${info}"
@@ -1770,6 +1937,11 @@
                 }
                 return `<div class="day-column">${blocks.join('')}</div>`;
             }).join('');
+
+            // DR-6: the first render after a rotation consumes the pulse, so
+            // settings, zoom, and view re-renders rebuild without .changed
+            // and the animation can never re-fire on identical DOM.
+            state.pulsePending = false;
 
             updateStatus();
 
@@ -1913,6 +2085,10 @@
                 const sun = state.sun[day.date] || {};
                 if (sun.rise?.h === h.hour) lines.push(`☀︎ sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`);
                 if (sun.set?.h === h.hour) lines.push(`☀︎ sunset ${timeLabel(sun.set.h, sun.set.m)}`);
+                // DR-6: was/now detail for a cell the previous model run
+                // disagreed with (works with reduced motion, which skips the
+                // pulse but keeps this).
+                changeLines(state.changed?.[`${day.date}|${h.hour}`]).forEach(l => lines.push(l));
                 tooltip.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
             }
             tooltip.style.opacity = '1';
@@ -1974,9 +2150,12 @@
         let favorites = loadCities(LS_FAVORITES);  // explicit ★
 
         const rememberCity = place => {
+            const before = savedCities.length;
             savedCities = [place, ...savedCities.filter(c => placeKey(c) !== placeKey(place))]
                 .slice(0, MAX_CITIES);
             saveJSON(LS_CITIES, savedCities);
+            // DR-6: an MRU eviction can orphan the evicted place's cache.
+            if (before >= MAX_CITIES) sweepForecasts();
         };
         const isFav = p => favorites.some(f => placeKey(f) === placeKey(p));
         const isRecent = p => savedCities.some(c => placeKey(c) === placeKey(p));
@@ -1987,11 +2166,15 @@
         const toggleFavorite = place => {
             if (isFav(place)) {
                 favorites = favorites.filter(f => placeKey(f) !== placeKey(place));
+                saveJSON(LS_FAVORITES, favorites);
+                // DR-6: unfavoriting can orphan the place's cache (when it is
+                // not also a recent or the place on screen).
+                sweepForecasts();
             } else {
                 if (favorites.length >= MAX_FAVORITES) return false;
                 favorites = [...favorites, place];
+                saveJSON(LS_FAVORITES, favorites);
             }
-            saveJSON(LS_FAVORITES, favorites);
             return true;
         };
         // Transient advisory shown in the search panel when the favorites cap is
@@ -2063,6 +2246,23 @@
         const sharePlace = () => shareLink(shareURL(state.place), `Maybe Rain? · ${state.place.name}`, 'Place');
         const shareSite = () => shareLink(location.origin + location.pathname, 'Maybe Rain?', 'Website');
 
+        // DR-6: paint state.place's cached forecast, if any. One code path
+        // for startup and city switches alike. Returns true on a paint; a
+        // corrupt entry resets state so the skeleton path takes over.
+        const paintCachedForecast = () => {
+            const entry = loadForecast(state.place);
+            if (!entry?.payload) return false;
+            try {
+                state.fetchedAt = entry.timestamp;
+                processData(entry.payload);
+                updateDisplay();
+                return true;
+            } catch {
+                state.data = []; state.days = []; state.fetchedAt = 0;
+                return false;
+            }
+        };
+
         // remember=false keeps savedCities order stable, so ↑/↓ cycling
         // steps through the whole list instead of toggling the top two.
         const changeCity = (place, remember = true) => {
@@ -2070,9 +2270,18 @@
             saveJSON(LS_PLACE, place);
             if (remember) rememberCity(place);
             state.data = []; state.days = []; state.fetchedAt = 0;
+            // DR-6: change marks belong to the previous city; a cached paint
+            // or startup paint alone never pulses (no new model run to
+            // announce). The next differing fetch rebuilds them.
+            state.changed = null; state.pulsePending = false;
             renderLocation();
             syncURL(place);
             closeSearch();
+            // DR-6: paint this place's cached forecast in the same frame (the
+            // status line labels its age honestly), then revalidate in the
+            // background; "Updating…" replaces the skeleton path. A place
+            // with no cache keeps the skeleton-then-fetch path unchanged.
+            paintCachedForecast();
             fetchWeather(true);
         };
 
@@ -2435,7 +2644,7 @@
                 openSearch();
                 return;
             }
-            // Escape closes search/settings/tooltip — handled before the INPUT
+            // Escape closes search/settings/tooltip, handled before the INPUT
             // guard below so it still fires while the search field has focus.
             if (e.key === 'Escape') {
                 closeSearch();
@@ -2536,6 +2745,7 @@
                 favorites = favorites.filter(c => placeKey(c) !== placeKey(gone));
                 saveJSON(LS_CITIES, savedCities);
                 saveJSON(LS_FAVORITES, favorites);
+                sweepForecasts(); // DR-6: a dismissed place's cache goes with it
                 renderSuggestions($('searchInput').value);
                 return;
             }
@@ -2724,16 +2934,14 @@
         } else {
             syncURL(state.place);
             renderLocation();
-            const savedForecast = loadJSON(LS_FORECAST);
-            if (savedForecast?.payload && savedForecast.placeKey === placeKey(state.place)) {
-                state.fetchedAt = savedForecast.timestamp;
-                try {
-                    processData(savedForecast.payload);
-                    updateDisplay();
-                } catch { state.data = []; state.fetchedAt = 0; }
-            }
+            // DR-6: startup is just "paint the cache for state.place, then
+            // revalidate", the same path as a city switch.
+            paintCachedForecast();
             fetchWeather(); // refresh in background (skips network if data < 10 min old)
         }
+        // DR-6: cache lifecycle sweep, once per startup, off the critical
+        // path so it never delays the first paint.
+        setTimeout(sweepForecasts, 4000);
 
         // Service worker. DR-7: when a newer version installs while the old one
         // still controls the page, surface it as a resting CTA in the status
