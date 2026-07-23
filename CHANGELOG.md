@@ -12,6 +12,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 - opening the settings menu dims the grid behind it, the same as opening search
 - the whole interface palette moved into one set of colour tokens (the gold accent, the greys, the amber alerts, the panel and row lines, and black itself), so every surface stays in sync and a future colour theme can be one block of values instead of edits scattered through the styles
 - the install prompt draws the eye in gold: its Install button is a solid gold fill like the locate button, and on iOS the "Share → Add to Home Screen" hint is gilded to match
+- the "What's new" panel's scrollbar now matches the search results, shared from one set of rules
 
 ## v27 (2026-07-23)
 

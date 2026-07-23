@@ -641,7 +641,6 @@
             line-height: 1.5;
             white-space: pre-wrap;
             overflow-wrap: break-word;
-            scrollbar-width: thin;
         }
         /* Version and section headers, gilded straight out of the raw text. */
         .changelog-body b { color: var(--accent); font-weight: 600; }
@@ -889,19 +888,25 @@
             max-height: 60dvh;
             overflow-y: auto;
             z-index: 1000;
-            /* Themed scrollbar: a hairline-thin gold thumb on a dark track,
-               matching the app's sunshine accent and the UI's thin lines.
-               Firefox uses the standard props; Chromium/Safari use the
-               ::-webkit-scrollbar pseudo-elements. */
+        }
+        /* Themed scrollbar, shared by the search results and the changelog
+           body: a hairline-thin gold thumb on a transparent track, matching
+           the app's sunshine accent and the UI's thin lines. Firefox uses the
+           standard props; Chromium/Safari use the ::-webkit-scrollbar pseudos. */
+        .search-results,
+        .changelog-body {
             scrollbar-width: thin;
             scrollbar-color: var(--accent) transparent;
         }
-        .search-results::-webkit-scrollbar { width: 6px; }
-        .search-results::-webkit-scrollbar-track {
+        .search-results::-webkit-scrollbar,
+        .changelog-body::-webkit-scrollbar { width: 6px; }
+        .search-results::-webkit-scrollbar-track,
+        .changelog-body::-webkit-scrollbar-track {
             background: transparent;
         }
-        .search-results::-webkit-scrollbar-thumb {
-            /* 2px #000 border + padding-box clip leaves a ~2px gold hairline,
+        .search-results::-webkit-scrollbar-thumb,
+        .changelog-body::-webkit-scrollbar-thumb {
+            /* 2px bg border + padding-box clip leaves a ~2px gold hairline,
                floating clear of the panel edges */
             background: var(--accent);
             border: 2px solid var(--bg);
@@ -1439,21 +1444,22 @@
         const COND = Object.fromEntries(CONDITIONS.map(c => [c.key, c]));
         const PRECIP = new Set(['rain', 'storm', 'snow']); // probability fade applies
 
-        // Hazard glyphs: redundant non-color markers for hazards only,
-        // never ordinary data. Vocabulary of five (DR-10): ⚡ lightning incl.
-        // hail, ≡ fog, ❆ freezing rain/drizzle (weather-coded, below), plus
-        // ♨ extreme heat and ☀ very-high UV (threshold hazards, applied at
-        // render time by value not code). Every applicable one shows, packed
-        // into the block corner (rarely more than two). U+FE0E keeps the
-        // glyphs non-emoji.
+        // Hazard markers: redundant non-color icons for hazards only, never
+        // ordinary data. Vocabulary of five (DR-10): storm (lightning, incl.
+        // hail), fog, and freeze (freezing rain/drizzle) are weather-coded
+        // below; heat (extreme heat) and uv (very-high UV) are threshold
+        // hazards applied at render time by value, not code. Every applicable
+        // one shows, packed into the block corner (rarely more than two).
+        // Values are MR_ICON keys; the render turns them into inline SVGs.
         const HAZARD_GLYPH = {
-            95: '⚡︎', 96: '⚡︎', 99: '⚡︎',       // thunderstorm / hail
-            45: '≡', 48: '≡',                  // fog, visibility hazard
-            56: '❆', 57: '❆', 66: '❆', 67: '❆' // freezing precipitation
+            95: 'storm', 96: 'storm', 99: 'storm',            // thunderstorm / hail
+            45: 'fog', 48: 'fog',                             // fog, visibility hazard
+            56: 'freeze', 57: 'freeze', 66: 'freeze', 67: 'freeze' // freezing precipitation
         };
-        // A legend cell carries a glyph only when every code mapping to it
-        // has the same one (⚡ on storm); exceptional hazards (fog, freezing
-        // rain) mark blocks, not legend cells.
+        // A legend cell carries an icon only when every code mapping to it has
+        // the same one (storm on the thunderstorm cell); exceptional hazards
+        // (fog, freezing rain) mark blocks, not legend cells. Returns the
+        // shared MR_ICON key, or ''.
         const glyphFor = key => {
             const glyphs = Object.entries(WMO)
                 .filter(([, [k]]) => k === key)
@@ -1528,8 +1534,10 @@
             }
             return (J - 2440587.5) * 86400000;        // Julian Day → Unix ms (UTC)
         };
-        const PHASE_MARK = { 0: ['○', 'New moon'], 0.25: ['◐', 'First quarter'],
-                             0.5: ['●', 'Full moon'], 0.75: ['◑', 'Last quarter'] };
+        // Values are [MR_ICON key, label]; the render draws the icon, the
+        // label rides the tooltip and aria.
+        const PHASE_MARK = { 0: ['new', 'New moon'], 0.25: ['first', 'First quarter'],
+                             0.5: ['full', 'Full moon'], 0.75: ['last', 'Last quarter'] };
         // total/partial lunar eclipses only (penumbral are barely perceptible);
         // greatest eclipse in UTC. A 7-day forecast only ever reaches a few.
         const LUNAR_ECLIPSES = [
@@ -1547,7 +1555,7 @@
             const dayStart = Date.parse(date + 'T00:00:00Z') - (state.utcOffset || 0) * 1000;
             const dayEnd = dayStart + 86400000;
             const ecl = LUNAR_ECLIPSES.find(e => e.t >= dayStart && e.t < dayEnd);
-            if (ecl) return { glyph: '◉', label: `Lunar eclipse (${ecl.kind})` };
+            if (ecl) return { glyph: 'lunar', label: `Lunar eclipse (${ecl.kind})` };
             // scan the quarter-phases around this date for one landing today
             const approxK = (dayStart / 86400000 / 365.25 + 1970 - 2000) * 12.3685;
             const base = Math.round(approxK);
@@ -1565,6 +1573,43 @@
         const show = (el, visible = true) => el.classList.toggle('hidden', !visible);
         const esc = s => String(s).replace(/[&<>"']/g, c =>
             ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        // --- Custom icon set (Style A) -----------------------------------
+        // Monochrome inline SVGs that replace the app's text glyphs and the
+        // wind arrows. viewBox 0 0 24 24, sized to ~1em by CSS, coloured by
+        // currentColor so each icon inherits its context: the block's
+        // luminance-picked contrast colour, gold for now/saved, grey for
+        // chrome. One source of truth; keys map to the render slots below.
+        // Full reference: "Weather PWA/Maybe Rain Icons.md". A few marks
+        // (snow, solar, sunrise, sunset) are kept for features not built yet
+        // and need no wiring today. mrIcon(key) returns the SVG or ''.
+        const MR_ICON = {
+            storm: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M13.5 2.5 9 11.5 15 11.5 10.5 20.5\"/></svg>",
+            fog: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 8h12\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 12h13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 16h11\"/></svg>",
+            freeze: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 3C14.3 7 15.6 8.6 15.6 10.8A3.6 3.6 0 1 1 8.4 10.8C8.4 8.6 9.7 7 12 3Z\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M7 17.5h10\"/><path vector-effect=\"non-scaling-stroke\" d=\"M9 17.5v3\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 17.5v3.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M15 17.5v3\"/></g></svg>",
+            snow: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.5V20.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.6 7.75 19.4 16.25\"/><path vector-effect=\"non-scaling-stroke\" d=\"M19.4 7.75 4.6 16.25\"/></svg>",
+            heat: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"17.6\" r=\"3.4\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5V14.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 7.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 10.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 13.8h2.2\"/></g></svg>",
+            uv: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"4.8\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.4V5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 18.2V20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3.4 12H5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18.2 12H20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 6.1 7.8 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M16.2 16.2 17.9 17.9\"/><path vector-effect=\"non-scaling-stroke\" d=\"M17.9 6.1 16.2 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 17.9 7.8 16.2\"/></g></svg>",
+            new: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
+            first: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/><path d=\"M12 5A7 7 0 0 1 12 19Z\" fill=\"currentColor\" stroke=\"none\"/></svg>",
+            full: "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
+            last: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/><path d=\"M12 5A7 7 0 0 0 12 19Z\" fill=\"currentColor\" stroke=\"none\"/></svg>",
+            lunar: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3.2\" fill=\"currentColor\" stroke=\"none\"/><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
+            solar: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M12 7.2A4.8 4.8 0 1 0 12 16.8 4.8 4.8 0 1 0 12 7.2ZM15.5 4.3A4.2 4.2 0 1 0 15.5 12.7 4.2 4.2 0 1 0 15.5 4.3Z\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.4V5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 18.2V20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3.4 12H5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 6.1 7.8 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M16.2 16.2 17.9 17.9\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 17.9 7.8 16.2\"/></g></svg>",
+            sunrise: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 19A4 4 0 0 1 16 19Z\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3 19h18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 13.5V3.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M8 7.2 12 3.2 16 7.2\"/></svg>",
+            sunset: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 19A4 4 0 0 1 16 19Z\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3 19h18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.2V13.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M8 9.5 12 13.5 16 9.5\"/></svg>",
+            wind: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.5V20.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 10 12 3.5 17.5 10\"/></svg>",
+            gear: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"5.6\"/><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(45 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(90 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(135 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(180 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(225 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(270 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(315 12 12)\"/></svg>",
+            star: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5V19\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5 12H19\"/></svg>",
+            refresh: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M18.6 7.4A7 7 0 1 0 19.4 13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18.6 3V7.6H14\"/></svg>",
+            locate: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"6\"/><circle cx=\"12\" cy=\"12\" r=\"2\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 2.4V5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 19V21.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M2.4 12H5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M19 12H21.6\"/></svg>",
+            close: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 6 18 18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18 6 6 18\"/></svg>",
+            now: "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5 8 19 18 12Z\"/></svg>",
+            caret: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 9 12 15 18 9\"/></svg>",
+        };
+        // Saved favourite: the plus mark in gold with a heavier stroke.
+        const MR_ICON_STAR_SAVED = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5.5V18.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5.5 12H18.5\"/></svg>";
+        const mrIcon = key => MR_ICON[key] || '';
 
         let state = {
             place: DEFAULT_PLACE,
