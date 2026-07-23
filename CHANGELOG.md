@@ -9,6 +9,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 - the two city-time helpers (current time, and time-of-any-instant) share one date formatter, built once and reused until the city changes, instead of each rebuilding its own. no visible change
 - the grid's day letters and the status line's weekday stamp now compute the day-of-week through one shared helper instead of repeating the same date math. no visible change
 
+### removed
+- removed the grid's semantic zoom: pinch, trackpad pinch, and the +/− keys that narrowed the week to 5 or 3 days. the grid always shows the full week now. the one-finger swipe gestures (switch view / switch city) and the arrow keys are unchanged
+
+### search
+- closed a small gap between the search field and the suggestions list where the grid showed through the seam (most noticeable on android)
+
 ## V30 (2026-07-23)
 
 ### header layout

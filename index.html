@@ -87,9 +87,6 @@
             --warn-bg: rgba(224,168,62,0.12);
             --warn-bg-soft: rgba(224, 168, 62, 0.08);
         }
-        /* Semantic zoom (pinch / ±): fewer columns, slightly larger type. */
-        .container[data-zoom="1"] { --ui: 1.12; }
-        .container[data-zoom="2"] { --ui: 1.28; }
         body {
             background: var(--bg);
             color: var(--text);
@@ -375,9 +372,9 @@
            settings, tooltips, and the temp-view legend. Max is white-medium,
            min is the lighter axis grey. */
         .temp-item { flex: 1; text-align: center; white-space: nowrap; }
-        .temp-max { font-weight: 500; font-size: calc(14px * var(--ui, 1)); }
-        .temp-sep { color: var(--text-dim); font-size: calc(12px * var(--ui, 1)); }
-        .temp-min { color: var(--text-faint); font-size: calc(12px * var(--ui, 1)); }
+        .temp-max { font-weight: 500; font-size: 14px; }
+        .temp-sep { color: var(--text-dim); font-size: 12px; }
+        .temp-min { color: var(--text-faint); font-size: 12px; }
         /* Day label sits directly above its temps. */
         .day-labels {
             display: flex;
@@ -388,7 +385,7 @@
         }
         .day-label {
             flex: 1;
-            font-size: calc(12px * var(--ui, 1));
+            font-size: 12px;
             color: var(--text-muted);
             text-align: center;
         }
@@ -400,9 +397,9 @@
         /* Chart and grid */
         .chart {
             position: relative;
-            /* pinch on the grid is semantic zoom (fewer columns), handled in
-               JS; pan-y keeps one-finger scroll while blocking browser pinch
-               here. Page-level pinch-zoom stays enabled elsewhere. */
+            /* pan-y keeps one-finger vertical scroll while the grid's own
+               swipe gestures (change view / city) read horizontal ones; it
+               also blocks an accidental browser pinch on the grid itself. */
             touch-action: pan-y;
             height: clamp(260px, 52vh, 640px);
             padding-left: var(--gutter);
@@ -420,7 +417,7 @@
         }
         .time-label {
             position: absolute;
-            font-size: calc(11px * var(--ui, 1));
+            font-size: 11px;
             color: var(--text-faint);
             right: 0;
             /* label is positioned at the vertical middle of its hour band;
@@ -459,7 +456,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: calc(10px * var(--ui, 1));
+            font-size: 10px;
             line-height: 1;
             position: relative;   /* anchors the corner markers */
             -webkit-user-select: none;
@@ -477,10 +474,9 @@
             right: 2px;
             display: flex;
             align-items: center;
-            /* Corner icon size. Bumped from 9px for legibility; scales with
-               semantic zoom via --ui. Narrow phones step down (below) so three
-               stacked hazards still fit the column. */
-            font-size: calc(13px * var(--ui, 1));
+            /* Corner icon size. Bumped from 9px for legibility. Narrow phones
+               step down (below) so three stacked hazards still fit the column. */
+            font-size: 13px;
             line-height: 1;
             pointer-events: none;
         }
@@ -959,7 +955,12 @@
                width below and fully overlaps it, rather than stopping short
                where the field does. */
             right: calc(-1 * var(--search-right));
-            margin-top: 5px;
+            /* Butt flush against the opaque field container (top:100%) and keep
+               the breathing room as the panel's own opaque padding, not a
+               transparent margin. A margin here left a ~5px see-through seam
+               where the dimmed grid showed between the field and the list,
+               most visible on Android. */
+            padding-top: 5px;
             /* Floats over the dimmed grid on the app's own black: no outline
                box, just the list. */
             background: var(--bg);
@@ -1155,20 +1156,20 @@
                 height: 14px;
             }
             .time-label {
-                font-size: calc(10px * var(--ui, 1));
+                font-size: 10px;
             }
             .temp-max {
-                font-size: calc(13px * var(--ui, 1));
+                font-size: 13px;
             }
             .temp-min, .temp-sep {
-                font-size: calc(11px * var(--ui, 1));
+                font-size: 11px;
             }
             /* °F triple digits ("104/86" = 6 monospace chars) need a font
                step down to fit a ~36px phone column. °C never triggers it. */
-            .temp-row.unit-f .temp-max { font-size: calc(10px * var(--ui, 1)); }
-            .temp-row.unit-f .temp-min, .temp-row.unit-f .temp-sep { font-size: calc(9px * var(--ui, 1)); }
+            .temp-row.unit-f .temp-max { font-size: 10px; }
+            .temp-row.unit-f .temp-min, .temp-row.unit-f .temp-sep { font-size: 9px; }
             .day-label {
-                font-size: calc(11px * var(--ui, 1));
+                font-size: 11px;
             }
             .legend {
                 margin-top: var(--sp-2);
@@ -1181,7 +1182,7 @@
                hazard stack (storm + heat + UV) still fits without overrunning
                the block or the opposite corner's sky mark. */
             .block-mark {
-                font-size: calc(11px * var(--ui, 1));
+                font-size: 11px;
             }
             html {
                 height: -webkit-fill-available;
@@ -1257,10 +1258,10 @@
                the chart height on their own; these are the text elements) */
             .location, .location-now { font-size: 28px; }
             .location-caret svg { width: 18px; height: 18px; }
-            .time-label { font-size: calc(12px * var(--ui, 1)); }
-            .day-label { font-size: calc(13px * var(--ui, 1)); }
-            .temp-max { font-size: calc(15px * var(--ui, 1)); }
-            .temp-min, .temp-sep { font-size: calc(13px * var(--ui, 1)); }
+            .time-label { font-size: 12px; }
+            .day-label { font-size: 13px; }
+            .temp-max { font-size: 15px; }
+            .temp-min, .temp-sep { font-size: 13px; }
         }
 
         /* Landscape tablet (touch, tall viewport): short and wide. Don't fill
@@ -1483,24 +1484,16 @@
         // --- Preferences (the app's only menu) ---------------------------
         // settings + view are initialised below, after loadJSON is defined.
         let settings, view;
-        let zoom = 0; // semantic zoom (pinch/±): 0 = full week, never persisted;
-                      // the app always opens on the full week
-
-        const ZOOM_DAYS = [7, 5, 3];      // columns per zoom level
-        const ZOOM_HOUR_FRAC = [1, 0.75, 0.5]; // share of the hour range shown
 
         const hourRange = () => settings.allHours
             ? { start: 0, end: 23 } : { start: HOUR_START, end: HOUR_END };
 
-        // The window of days/hours actually rendered at the current zoom.
-        // Hours center on "now" (clamped to the range); days keep today first.
+        // The window rendered: the full week (up to 7 days of real data) across
+        // the whole hour range. Kept as a function so its callers still read
+        // { start, end, days } unchanged.
         const visibleWindow = () => {
             const { start, end } = hourRange();
-            const full = end - start + 1;
-            const n = Math.max(6, Math.round(full * ZOOM_HOUR_FRAC[zoom]));
-            if (n >= full) return { start, end, days: ZOOM_DAYS[zoom] };
-            const s = Math.max(start, Math.min(cityNow().hour - (n >> 1), end - n + 1));
-            return { start: s, end: s + n - 1, days: ZOOM_DAYS[zoom] };
+            return { start, end, days: 7 };
         };
         const applyBand = () => {
             const w = visibleWindow();
@@ -2409,7 +2402,7 @@
             // Group by city-local date (Open-Meteo returns local ISO strings).
             // All hours are kept in state (temps in °C); the displayed
             // hour window and unit are applied at render time, so settings
-            // and zoom changes never need a refetch.
+            // changes never need a refetch.
             const byDate = {};
             for (let i = 0; i < time.length; i++) {
                 if (temperature_2m[i] == null || weather_code[i] == null) continue; // honesty: skip missing
@@ -2446,7 +2439,7 @@
         const updateDisplay = () => {
             const { start, end, days } = visibleWindow();
             const rows = end - start + 1;
-            const shownDays = state.data.slice(0, days);   // zoomed: today-first subset
+            const shownDays = state.data.slice(0, days);   // today-first, up to 7
             const dayMeta = state.days.slice(0, days);
 
             $('days').innerHTML = dayMeta.map(day =>
@@ -2565,8 +2558,8 @@
             }).join('');
 
             // DR-6: the first render after a rotation consumes the pulse, so
-            // settings, zoom, and view re-renders rebuild without .changed
-            // and the animation can never re-fire on identical DOM.
+            // settings and view re-renders rebuild without .changed and the
+            // animation can never re-fire on identical DOM.
             state.pulsePending = false;
 
             renderNowTemp();
@@ -2669,7 +2662,7 @@
             else paint();
         };
 
-        // Re-render everything that depends on a preference or zoom level.
+        // Re-render everything that depends on a preference.
         const applyPrefs = () => {
             applyBand();
             renderLegend();
@@ -3272,39 +3265,8 @@
         // Tap the scrim (outside the panel) to dismiss.
         $('changelog').addEventListener('click', e => { if (e.target.id === 'changelog') closeChangelog(); });
 
-        // --- Semantic zoom: pinch / trackpad-pinch / ± keys --------------
-        // Zooming in narrows focus: fewer days, fewer hours centered on
-        // now, slightly larger type. Default (zoom 0) is always the full
-        // week; zoom is never persisted.
-        const setZoom = z => {
-            const clamped = Math.max(0, Math.min(ZOOM_DAYS.length - 1, z));
-            if (clamped === zoom) return;
-            zoom = clamped;
-            const container = document.querySelector('.container');
-            if (zoom) container.dataset.zoom = zoom; else delete container.dataset.zoom;
-            applyPrefs();
-        };
+        // --- Grid gestures: one-finger swipe + arrow keys ----------------
         const chart = document.querySelector('.chart');
-        let pinchDist = null;
-        chart.addEventListener('touchstart', e => {
-            if (e.touches.length === 2) {
-                pinchDist = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY);
-            }
-        }, { passive: true });
-        chart.addEventListener('touchmove', e => {
-            if (e.touches.length !== 2 || pinchDist == null) return;
-            e.preventDefault(); // grid pinch = semantic zoom, not page zoom
-            const d = Math.hypot(
-                e.touches[0].clientX - e.touches[1].clientX,
-                e.touches[0].clientY - e.touches[1].clientY);
-            if (d > pinchDist * 1.3) { setZoom(zoom + 1); pinchDist = d; }
-            else if (d < pinchDist * 0.77) { setZoom(zoom - 1); pinchDist = d; }
-        }, { passive: false });
-        chart.addEventListener('touchend', e => {
-            if (e.touches.length < 2) pinchDist = null;
-        });
         // Shared navigation steps so swipe and arrow-key gestures stay in
         // lockstep. dir +1 = next (↓ / → / swipe down / swipe right);
         // dir -1 = previous (↑ / ← / swipe up / swipe left).
@@ -3327,10 +3289,9 @@
 
         // One-finger swipe on the grid: horizontal cycles views (swipe
         // left = next, carousel-style), vertical steps ★ favorites (up =
-        // previous, down = next, matching ↑/↓). Two fingers stay zoom; the
-        // toggle buttons remain the visible state indicator. Guarded (>60px,
-        // one axis clearly dominant, single finger) so taps and sloppy
-        // scrolls never flip.
+        // previous, down = next, matching ↑/↓). The toggle buttons remain
+        // the visible state indicator. Guarded (>60px, one axis clearly
+        // dominant, single finger) so taps and sloppy scrolls never flip.
         let swipeStart = null;
         chart.addEventListener('touchstart', e => {
             swipeStart = e.touches.length === 1
@@ -3347,15 +3308,6 @@
                 stepCity(dy < 0 ? -1 : 1);        // swipe up = previous city, down = next
             }
         });
-        // macOS trackpad pinch arrives as ctrl+wheel.
-        let wheelAcc = 0;
-        chart.addEventListener('wheel', e => {
-            if (!e.ctrlKey) return;
-            e.preventDefault();
-            wheelAcc += e.deltaY;
-            if (wheelAcc < -60) { setZoom(zoom + 1); wheelAcc = 0; }
-            else if (wheelAcc > 60) { setZoom(zoom - 1); wheelAcc = 0; }
-        }, { passive: false });
 
         document.addEventListener('keydown', e => {
             // ⌘/Ctrl+K opens city search from anywhere.
@@ -3390,8 +3342,6 @@
                 stepView(e.key === 'ArrowRight' ? 1 : -1);
                 return;
             }
-            if (e.key === '+' || e.key === '=') setZoom(zoom + 1);
-            else if (e.key === '-') setZoom(zoom - 1);
         });
 
         // --- View toggle: rain ↔ temperature grid -------------------------
