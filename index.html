@@ -1275,6 +1275,11 @@
         const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (capped, user-curated)
         const LS_META = 'mr-model-meta';     // cached global model-run metadata (run time + cadence)
         const LS_META_LOCAL = 'mr-model-meta-local'; // cached regional model meta, keyed by model slug
+        const LS_VERSION = 'mr-version';     // build id last seen on this device (drives the post-update note)
+        // The running build's id. build.mjs swaps __APP_VERSION__ for sw.js's
+        // CACHE_NAME at publish, so the version lives in one place. An unbuilt dev
+        // copy keeps the literal token, so the post-update note just never fires.
+        const APP_VERSION = '__APP_VERSION__';
         const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
         const MAX_FAVORITES = 6; // cap on ★ favorites (user must unfavorite to add more)
         // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
@@ -3419,30 +3424,37 @@
         // path so it never delays the first paint.
         setTimeout(sweepForecasts, 4000);
 
-        // Service worker. DR-7: when a newer version installs while the old one
-        // still controls the page, surface it as a resting CTA in the status
-        // line ("New version. Tap to reload") instead of a separate banner or a
-        // disruptive auto-reload. The tap-to-reload is wired in the status
-        // handler above; here we just flip state.swUpdate and repaint the line.
+        // Post-update note. When the running build differs from the one last seen
+        // on this device, the update the "↻ Update app" CTA prompted has now
+        // landed, so point once at what changed. Skipped on a first-ever install
+        // (nothing to have updated from) and in unbuilt dev (APP_VERSION is still
+        // the literal token). Shown a beat after load so it overlays the settled
+        // freshness line, not "Loading…". Tapping it opens the changelog
+        // (state.updateNote, read by the status handler); it self-clears like any
+        // transient. This is the only place the "New version" note fires.
+        const seenVersion = loadJSON(LS_VERSION);
+        saveJSON(LS_VERSION, APP_VERSION);
+        if (seenVersion && seenVersion !== APP_VERSION) {
+            setTimeout(() => {
+                state.updateNote = true;
+                setStatus('New version · see ⚙', 'outdated', { transient: true });
+                $('status').setAttribute('aria-label', 'New version available. Open what\'s new, also under the settings menu');
+            }, 1200);
+        }
+
+        // Service worker. DR-7: when a newer version is installed and waiting,
+        // surface the resting "↻ Update app" CTA in the status line (updateStatus
+        // reads state.swUpdate) instead of a banner or a disruptive auto-reload.
+        // Whether the update lands mid-session or was already waiting when the app
+        // opened, the line reads the same. The "New version · see ⚙" note is not
+        // shown here: it belongs to the next load, once that update is running
+        // (see the post-update note in startup).
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                // flash: a fresh update arriving mid-session gets one brief,
-                // self-clearing note that taps through to the changelog, then the
-                // line settles to the standard "↻ Update app" CTA. A version
-                // already waiting at load (returning visit) skips the note and
-                // shows the CTA straight away. All update signalling stays in the
-                // status line (DR-7: one status channel, no second indicator).
-                const announceUpdate = (flash = false) => {
+                const announceUpdate = () => {
                     if (state.swUpdate) return;
                     state.swUpdate = true;
-                    if (state.loading) return; // updateStatus will show the CTA once data loads
-                    if (flash) {
-                        state.updateNote = true;
-                        setStatus('New version ↗', 'outdated', { transient: true });
-                        $('status').setAttribute('aria-label', 'New version available. Open the changelog');
-                    } else {
-                        updateStatus();
-                    }
+                    if (!state.loading) updateStatus(); // shows "↻ Update app"; else paints once data loads
                 };
                 navigator.serviceWorker.register('sw.js').then(reg => {
                     // Already waiting at register time (installed on a prior visit).
@@ -3454,7 +3466,7 @@
                         const w = reg.installing;
                         if (!w) return;
                         w.addEventListener('statechange', () => {
-                            if (w.state === 'installed' && navigator.serviceWorker.controller) announceUpdate(true);
+                            if (w.state === 'installed' && navigator.serviceWorker.controller) announceUpdate();
                         });
                     });
                 }).catch(() => {});

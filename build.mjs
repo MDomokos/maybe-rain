@@ -22,6 +22,10 @@ import { optimize as optimizeSvg } from 'svgo';
 const SRC = fileURLToPath(new URL('.', import.meta.url)); // repo root = this script's dir
 const OUT = join(SRC, 'dist');
 
+// The build id, read from sw.js's CACHE_NAME and injected into index.html
+// (every __APP_VERSION__ token) so the app knows its own version from one source.
+let VERSION = 'dev';
+
 // Directories we never descend into.
 const SKIP_DIRS = new Set(['.git', '.github', 'node_modules', 'dist', 'research', 'archive']);
 // Files we never publish (tooling + local-only working docs + junk).
@@ -66,7 +70,8 @@ async function process(srcPath) {
 
   try {
     if (ext === '.html') {
-      out = await minifyHtml(await readFile(srcPath, 'utf8'), HTML_OPTS);
+      const html = (await readFile(srcPath, 'utf8')).replaceAll('__APP_VERSION__', VERSION);
+      out = await minifyHtml(html, HTML_OPTS);
     } else if (ext === '.js') {
       const res = await minifyJs(await readFile(srcPath, 'utf8'), { compress: true, mangle: true });
       out = res.code;
@@ -93,6 +98,8 @@ async function process(srcPath) {
 const gz = (buf) => gzipSync(buf, { level: 9 }).length;
 
 async function main() {
+  const swSrc = await readFile(join(SRC, 'sw.js'), 'utf8');
+  VERSION = (swSrc.match(/CACHE_NAME\s*=\s*['"]([^'"]+)['"]/) || [])[1] || 'dev';
   await rm(OUT, { recursive: true, force: true });
   await mkdir(OUT, { recursive: true });
   await walk(SRC);

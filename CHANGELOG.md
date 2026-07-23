@@ -7,10 +7,9 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 ### v27 (2026-07-23)
 
 ### what's new panel
-- a "What's new" row in the settings ⚙ menu opens the changelog (this file), rendered in-app. it reads the shipped `CHANGELOG.md`, so there's nothing to keep in sync
-- when a new app version is waiting, a brief "New version ↗" note flashes in the status line. tap the note to see what changed; it clears itself after a couple seconds, leaving the usual reload prompt. update signalling stays in the one status line, nowhere else
-- the changelog is fetched fresh when online (a just-deployed version's notes show before you reload) and falls back to the offline cache
-- close with the ✕, Escape, or a tap outside
+- a "What's new" row in the settings menu opens the changelog, rendered in-app. it reads the shipped `CHANGELOG.md`
+- a waiting update shows "↻ Update app" in the status line (tap to reload). Once the new build is running, a brief "New version · see ⚙" note appears there once. Tap it for the changelog, or find "what's new" in the settings menu.
+- the changelog is fetched fresh when online and falls back to the offline cache
 
 ### v26 (2026-07-23)
 
