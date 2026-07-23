@@ -4,7 +4,13 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 
 ## unreleased
 
-### v25 (2026-07-23)
+### v26 (2026-07-23)
+
+### minified deploy
+- introduce a build step that minifies the site into `dist/` and a `deploy` workflow publishes that to the `gh-pages` branch
+- `npm run build` strips comments + whitespace from index.html and minifies its inline css/js, runs terser on sw.js, compacts manifest.json, runs svgo on the svgs. other files copied as-is
+- index.html 172kb → 66kb; whole site 285kb → 177kb, ~24kb gzipped over the wire
+- runs in ci on every push to main
 
 ### search autofill fix
 - the city search field is now a `search` input, not `text`: chrome on android was reading the word "city" as an address field and popping up autofill for passwords, payment, and addresses over the keyboard. a search field is left out of that guess
