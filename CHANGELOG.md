@@ -1,17 +1,26 @@
 # changelog
 
-what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), and each one has a git tag so I can diff between them.
+what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
-### v27 (2026-07-23)
+## v28 (2026-07-23)
+
+### unified styling
+- the settings menu, the search results, the "What's new" panel, and the install banner now share one look: flush on black with thin hairline dividers, no raised grey boxes
+- settings toggles show the active choice as gold text with a gold underline instead of a white block
+- opening the settings menu dims the grid behind it, the same as opening search
+- the whole interface palette moved into one set of colour tokens (the gold accent, the greys, the amber alerts, the panel and row lines, and black itself), so every surface stays in sync and a future colour theme can be one block of values instead of edits scattered through the styles
+- the install prompt draws the eye in gold: its Install button is a solid gold fill like the locate button, and on iOS the "Share → Add to Home Screen" hint is gilded to match
+
+## v27 (2026-07-23)
 
 ### what's new panel
 - a "What's new" row in the settings menu opens the changelog, rendered in-app. it reads the shipped `CHANGELOG.md`
 - a waiting update shows "↻ Update app" in the status line (tap to reload). Once the new build is running, a brief "New version · see ⚙" note appears there once. Tap it for the changelog, or find "what's new" in the settings menu.
 - the changelog is fetched fresh when online and falls back to the offline cache
 
-### v26 (2026-07-23)
+## v26 (2026-07-23)
 
 ### minified deploy
 - introduce a build step that minifies the site into `dist/` and a `deploy` workflow publishes that to the `gh-pages` branch
