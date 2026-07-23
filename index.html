@@ -148,22 +148,23 @@
             white-space: nowrap;
             min-width: 0;
         }
-        .location::after {
-            content: '↓';
-            font-size: 16px;
+        .location-caret {
+            flex-shrink: 0;   /* the caret is never truncated */
             opacity: 0.6;
+            display: inline-flex;
+            align-items: center;
             transition: transform 0.2s ease;
-            flex-shrink: 0;   /* the arrow is never truncated */
         }
+        .location-caret svg { width: 16px; height: 16px; display: block; }
         .location:hover {
             color: var(--accent);
         }
-        .location:hover::after {
+        .location:hover .location-caret {
             transform: translateY(2px);
         }
-        /* First-visit "Locating…" state: hide the change-city arrow (there's
+        /* First-visit "Locating…" state: hide the change-city caret (there's
            no place to change yet); the header can still be tapped to search. */
-        .location.locating::after { display: none; }
+        .location.locating .location-caret { display: none; }
 
         /* Button styles */
         .btn {
@@ -423,20 +424,52 @@
             -webkit-user-select: none;
             user-select: none;
         }
-        /* Corner markers: hazard glyphs bottom-right (⚡ ≡ ❆ ♨ ☀), sky event
-           bottom-left (moon phase / eclipse). Both are bare glyphs in the
-           block's luminance-picked contrast colour; absolute so they never
-           disturb a centred wind arrow, and two can coexist on the 21:00
-           block without overlapping. */
+        /* Corner markers: hazard icons bottom-right (storm/fog/freeze + heat/UV),
+           sky event bottom-left (moon phase / eclipse). Inline SVGs in the
+           block's luminance-picked contrast colour (currentColor); absolute so
+           they never disturb a centred wind arrow, and the two corners coexist
+           on the 21:00 block without overlapping. Flex lays stacked hazards
+           (heat + UV) in a row; anchored right, the box grows leftward. */
         .block-mark {
             position: absolute;
-            bottom: 0;
+            bottom: 1px;
             right: 2px;
-            font-size: calc(9px * var(--ui, 1));
+            display: flex;
+            align-items: center;
+            /* Corner icon size. Bumped from 9px for legibility; scales with
+               semantic zoom via --ui. Narrow phones step down (below) so three
+               stacked hazards still fit the column. */
+            font-size: calc(13px * var(--ui, 1));
             line-height: 1;
             pointer-events: none;
         }
+        .block-mark svg { width: 1em; height: 1em; display: block; }
         .block-mark.sky { right: auto; left: 2px; }
+        /* Wind view: one SVG arrow centred in the block, rotated to the wind
+           octant by an inline transform. Larger than a corner mark so the
+           direction reads at a glance. */
+        .wind-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.5em;
+            height: 1.5em;
+        }
+        .wind-arrow svg { width: 100%; height: 100%; display: block; }
+        /* Inline SVG icons inherit currentColor and size to ~1em in each
+           context (MR_ICON set). One place so the chrome, tooltip, legend, and
+           status icons stay in step. */
+        .gear svg { width: 1em; height: 1em; display: block; }
+        .geo-btn svg { width: 1em; height: 1em; display: block; }
+        .status-icon { display: inline-flex; align-items: center; vertical-align: -0.18em; margin-right: 1px; }
+        .status-icon svg { width: 1.15em; height: 1.15em; display: block; }
+        .search-result .fav svg,
+        .search-result .forget svg,
+        .install-banner .dismiss svg,
+        .changelog-close svg { width: 1em; height: 1em; display: block; }
+        .tooltip svg { width: 1em; height: 1em; vertical-align: -0.15em; }
+        .legend .swatch svg { width: 1em; height: 1em; display: block; }
+        .setting-row span svg { width: 1em; height: 1em; vertical-align: -0.15em; }
         .weather-block:hover {
             opacity: 0.8;
         }
@@ -449,13 +482,20 @@
             box-shadow: inset 0 0 0 2px var(--bg), inset 0 0 0 4px var(--marker);
         }
         /* Side "now" indicator: at the current hour, the axis label becomes
-           a gold current-temp marker with a ▶ pointing at today's row.
+           a gold current-temp marker with a triangle pointing at today's row.
            Static; gold and weight provide the emphasis, nothing moves. */
         .time-label.now {
             color: var(--accent);
             font-weight: 600;
         }
-        .time-label.now::after { content: ' ▶'; font-size: 8px; }
+        .now-mark {
+            display: inline-flex;
+            vertical-align: middle;
+            width: 8px;
+            height: 8px;
+            margin-left: 2px;
+        }
+        .now-mark svg { width: 100%; height: 100%; display: block; }
         .weather-block.empty {
             background: transparent;
             cursor: default;
@@ -1035,8 +1075,9 @@
             .search-input {
                 font-size: 18px;   /* stay matched to the heading on phones */
             }
-            .location::after {
-                font-size: 14px;
+            .location-caret svg {
+                width: 14px;
+                height: 14px;
             }
             .time-label {
                 font-size: calc(10px * var(--ui, 1));
@@ -1060,6 +1101,12 @@
             }
             .legend-step {
                 font-size: 9px;
+            }
+            /* Narrow columns: trim the corner icons a touch so a rare three-way
+               hazard stack (storm + heat + UV) still fits without overrunning
+               the block or the opposite corner's sky mark. */
+            .block-mark {
+                font-size: calc(11px * var(--ui, 1));
             }
             html {
                 height: -webkit-fill-available;
@@ -1135,7 +1182,7 @@
                the chart height on their own; these are the text elements) */
             .location { font-size: 28px; }
             .search-input { font-size: 28px; }   /* stay matched to the heading */
-            .location::after { font-size: 18px; }
+            .location-caret svg { width: 18px; height: 18px; }
             .time-label { font-size: calc(12px * var(--ui, 1)); }
             .day-label { font-size: calc(13px * var(--ui, 1)); }
             .temp-max { font-size: calc(15px * var(--ui, 1)); }
@@ -1205,7 +1252,7 @@
     <div class="titlebar-drag" aria-hidden="true"></div>
     <div class="container fade-in">
         <div class="location-wrapper">
-            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span></div>
+            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span><span class="location-caret" id="locationCaret" aria-hidden="true"></span></div>
             <div class="search-container" id="searchContainer">
                 <input type="search"
                        class="search-input"
@@ -1222,10 +1269,10 @@
                        data-1p-ignore
                        data-form-type="other">
                 <button type="button" class="geo-btn" id="geoBtn"
-                        aria-label="Use my location" title="Use my location">⌖</button>
+                        aria-label="Use my location" title="Use my location"></button>
                 <div class="search-results" id="searchResults"></div>
             </div>
-            <button class="btn gear" id="gear" aria-label="Settings" aria-expanded="false">⚙</button>
+            <button class="btn gear" id="gear" aria-label="Settings" aria-expanded="false"></button>
             <div class="settings hidden" id="settings"></div>
         </div>
 
@@ -1255,7 +1302,7 @@
     <div class="install-banner" id="installBanner">
         <span id="installText"></span>
         <button class="btn" id="installGo">Install</button>
-        <button class="dismiss" id="installDismiss" aria-label="Dismiss">✕</button>
+        <button class="dismiss" id="installDismiss" aria-label="Dismiss"></button>
     </div>
 
     <div class="tooltip" id="tooltip"></div>
@@ -1264,7 +1311,7 @@
         <div class="changelog-panel">
             <div class="changelog-head">
                 <strong>What's new</strong>
-                <button class="changelog-close" id="changelogClose" aria-label="Close">✕</button>
+                <button class="changelog-close" id="changelogClose" aria-label="Close"></button>
             </div>
             <pre class="changelog-body" id="changelogBody"></pre>
         </div>
@@ -1418,9 +1465,10 @@
         // red, anchored in km/h (≈ Beaufort 0 / 3 / 5 / 7 / 9+).
         const WIND_STOPS = [[0, [58, 58, 58]], [12, [72, 143, 138]], [29, [80, 200, 120]], [50, [255, 215, 0]], [75, [229, 72, 77]]];
         const windRGB = v => scaleRGB(WIND_STOPS, v);
-        // Open-Meteo reports the bearing the wind comes from; the block
-        // arrow points where it blows to (wind from N → ↓). 8 octants.
-        const WIND_ARROWS = ['↓', '↙', '←', '↖', '↑', '↗', '→', '↘'];
+        // Open-Meteo reports the bearing the wind comes from; the wind-view
+        // arrow (MR_ICON.wind, base points up) is rotated to point where it
+        // blows to: wind from N (octant 0) points down, so rotation is
+        // octant × 45° + 180°. 8 octants.
         const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
         const windOctant = d => Math.round(d / 45) % 8;
 
@@ -1584,31 +1632,31 @@
         // (snow, solar, sunrise, sunset) are kept for features not built yet
         // and need no wiring today. mrIcon(key) returns the SVG or ''.
         const MR_ICON = {
-            storm: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M13.5 2.5 9 11.5 15 11.5 10.5 20.5\"/></svg>",
-            fog: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 8h12\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 12h13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 16h11\"/></svg>",
-            freeze: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 3C14.3 7 15.6 8.6 15.6 10.8A3.6 3.6 0 1 1 8.4 10.8C8.4 8.6 9.7 7 12 3Z\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M7 17.5h10\"/><path vector-effect=\"non-scaling-stroke\" d=\"M9 17.5v3\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 17.5v3.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M15 17.5v3\"/></g></svg>",
-            snow: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.5V20.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.6 7.75 19.4 16.25\"/><path vector-effect=\"non-scaling-stroke\" d=\"M19.4 7.75 4.6 16.25\"/></svg>",
-            heat: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"17.6\" r=\"3.4\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5V14.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 7.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 10.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 13.8h2.2\"/></g></svg>",
-            uv: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"4.8\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.4V5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 18.2V20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3.4 12H5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18.2 12H20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 6.1 7.8 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M16.2 16.2 17.9 17.9\"/><path vector-effect=\"non-scaling-stroke\" d=\"M17.9 6.1 16.2 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 17.9 7.8 16.2\"/></g></svg>",
-            new: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
-            first: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/><path d=\"M12 5A7 7 0 0 1 12 19Z\" fill=\"currentColor\" stroke=\"none\"/></svg>",
+            storm: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M13.5 2.5 9 11.5 15 11.5 10.5 20.5\"/></svg>",
+            fog: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 8h12\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 12h13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 16h11\"/></svg>",
+            freeze: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 3C14.3 7 15.6 8.6 15.6 10.8A3.6 3.6 0 1 1 8.4 10.8C8.4 8.6 9.7 7 12 3Z\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M7 17.5h10\"/><path vector-effect=\"non-scaling-stroke\" d=\"M9 17.5v3\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 17.5v3.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M15 17.5v3\"/></g></svg>",
+            snow: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.5V20.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.6 7.75 19.4 16.25\"/><path vector-effect=\"non-scaling-stroke\" d=\"M19.4 7.75 4.6 16.25\"/></svg>",
+            heat: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"17.6\" r=\"3.4\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5V14.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 7.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 10.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 13.8h2.2\"/></g></svg>",
+            uv: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"4.8\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.4V5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 18.2V20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3.4 12H5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18.2 12H20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 6.1 7.8 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M16.2 16.2 17.9 17.9\"/><path vector-effect=\"non-scaling-stroke\" d=\"M17.9 6.1 16.2 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 17.9 7.8 16.2\"/></g></svg>",
+            new: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
+            first: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/><path d=\"M12 5A7 7 0 0 1 12 19Z\" fill=\"currentColor\" stroke=\"none\"/></svg>",
             full: "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
-            last: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/><path d=\"M12 5A7 7 0 0 0 12 19Z\" fill=\"currentColor\" stroke=\"none\"/></svg>",
-            lunar: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3.2\" fill=\"currentColor\" stroke=\"none\"/><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
-            solar: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M12 7.2A4.8 4.8 0 1 0 12 16.8 4.8 4.8 0 1 0 12 7.2ZM15.5 4.3A4.2 4.2 0 1 0 15.5 12.7 4.2 4.2 0 1 0 15.5 4.3Z\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.4V5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 18.2V20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3.4 12H5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 6.1 7.8 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M16.2 16.2 17.9 17.9\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 17.9 7.8 16.2\"/></g></svg>",
-            sunrise: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 19A4 4 0 0 1 16 19Z\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3 19h18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 13.5V3.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M8 7.2 12 3.2 16 7.2\"/></svg>",
-            sunset: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 19A4 4 0 0 1 16 19Z\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3 19h18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.2V13.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M8 9.5 12 13.5 16 9.5\"/></svg>",
-            wind: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.5V20.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 10 12 3.5 17.5 10\"/></svg>",
-            gear: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"5.6\"/><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(45 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(90 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(135 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(180 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(225 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(270 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(315 12 12)\"/></svg>",
-            star: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5V19\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5 12H19\"/></svg>",
-            refresh: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M18.6 7.4A7 7 0 1 0 19.4 13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18.6 3V7.6H14\"/></svg>",
-            locate: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"6\"/><circle cx=\"12\" cy=\"12\" r=\"2\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 2.4V5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 19V21.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M2.4 12H5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M19 12H21.6\"/></svg>",
-            close: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 6 18 18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18 6 6 18\"/></svg>",
+            last: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/><path d=\"M12 5A7 7 0 0 0 12 19Z\" fill=\"currentColor\" stroke=\"none\"/></svg>",
+            lunar: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3.2\" fill=\"currentColor\" stroke=\"none\"/><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
+            solar: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M12 7.2A4.8 4.8 0 1 0 12 16.8 4.8 4.8 0 1 0 12 7.2ZM15.5 4.3A4.2 4.2 0 1 0 15.5 12.7 4.2 4.2 0 1 0 15.5 4.3Z\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.4V5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 18.2V20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3.4 12H5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 6.1 7.8 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M16.2 16.2 17.9 17.9\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 17.9 7.8 16.2\"/></g></svg>",
+            sunrise: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 19A4 4 0 0 1 16 19Z\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3 19h18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 13.5V3.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M8 7.2 12 3.2 16 7.2\"/></svg>",
+            sunset: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 19A4 4 0 0 1 16 19Z\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3 19h18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.2V13.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M8 9.5 12 13.5 16 9.5\"/></svg>",
+            wind: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.5V20.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 10 12 3.5 17.5 10\"/></svg>",
+            gear: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"5.6\"/><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(45 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(90 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(135 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(180 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(225 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(270 12 12)\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 6.4V4.2\" transform=\"rotate(315 12 12)\"/></svg>",
+            star: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5V19\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5 12H19\"/></svg>",
+            refresh: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M18.6 7.4A7 7 0 1 0 19.4 13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18.6 3V7.6H14\"/></svg>",
+            locate: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"6\"/><circle cx=\"12\" cy=\"12\" r=\"2\" fill=\"currentColor\" stroke=\"none\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 2.4V5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 19V21.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M2.4 12H5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M19 12H21.6\"/></svg>",
+            close: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 6 18 18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18 6 6 18\"/></svg>",
             now: "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5 8 19 18 12Z\"/></svg>",
-            caret: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 9 12 15 18 9\"/></svg>",
+            caret: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 9 12 15 18 9\"/></svg>",
         };
         // Saved favourite: the plus mark in gold with a heavier stroke.
-        const MR_ICON_STAR_SAVED = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5.5V18.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5.5 12H18.5\"/></svg>";
+        const MR_ICON_STAR_SAVED = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5.5V18.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5.5 12H18.5\"/></svg>";
         const mrIcon = key => MR_ICON[key] || '';
 
         let state = {
@@ -1806,11 +1854,17 @@
             // Any new status cancels a pending auto-clear first, so transient
             // messages never stack or clear early.
             if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
-            el.textContent = text;
+            // A leading "↻ " marks the refresh/update CTA: draw it as the
+            // refresh icon, then the (escaped) label. Every other message is
+            // plain text via textContent, so no markup can slip in.
+            const cta = text.startsWith('↻ ');
+            const label = cta ? text.slice(2) : text;
+            if (cta) el.innerHTML = `<span class="status-icon">${MR_ICON.refresh}</span>${esc(label)}`;
+            else el.textContent = text;
             el.className = `status ${cls}`.trim();
             // It's a button now, so always name the refresh action; updateStatus
             // overrides with a richer description for the run line.
-            el.setAttribute('aria-label', text ? `${text}. Refresh forecast` : 'Refresh forecast');
+            el.setAttribute('aria-label', label ? `${label}. Refresh forecast` : 'Refresh forecast');
             // Transient messages (opts.transient) carry a ~2s life, after which
             // the line reverts to whatever the resting layer now says. Resting
             // states are set without the flag and persist until their own
@@ -1840,7 +1894,7 @@
                 const h = start + i;
                 if (hasNow && h === now) {
                     return `<div class="time-label now" style="top:${(i + 0.5) * band}%;"
-                                 aria-label="Now">${nowTemp != null ? `${displayTemp(nowTemp)}°` : ''}</div>`;
+                                 aria-label="Now">${nowTemp != null ? `${displayTemp(nowTemp)}°` : ''}<span class="now-mark">${MR_ICON.now}</span></div>`;
                 }
                 if (h % step) return '';
                 return `<div class="time-label" style="top:${(i + 0.5) * band}%;">${hourLabel(h)}</div>`;
@@ -2357,23 +2411,23 @@
                             ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
                             : (PRECIP.has(cond.group) && h.pop != null
                                 ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
-                    // Hazard glyphs (DR-10): every applicable hazard shows,
+                    // Hazard icons (DR-10): every applicable hazard shows,
                     // packed into the bottom-right corner in a fixed order so
                     // two never swap places: the weather-coded hazard first
-                    // (⚡ storm, ≡ fog, ❆ freezing rain, mutually exclusive),
-                    // then ♨ extreme heat, then ☀ very-high UV (the two
-                    // threshold hazards, from the ⚙-menu thresholds). Rarely
-                    // more than two at once (usually heat + UV, or a storm on
-                    // a hot day).
+                    // (storm, fog, freeze, mutually exclusive), then heat, then
+                    // UV (the two threshold hazards, from the ⚙-menu
+                    // thresholds). Rarely more than two at once (usually heat +
+                    // UV, or a storm on a hot day). h.glyph is an MR_ICON key.
                     const hot = h.temp >= settings.heatWarn;
                     const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
-                    // Wind view: the arrow is the data, centred, pointing
-                    // where the wind blows. Hazard glyphs stay on the other
-                    // two views, tucked into the bottom-right corner (B1).
+                    // Wind view: the arrow is the data, centred, pointing where
+                    // the wind blows. One SVG (base points up) rotated by the
+                    // octant; hazards stay on the other two views, tucked into
+                    // the bottom-right corner (B1).
                     const arrow = view === 'wind' && h.windDir != null && h.wind != null
-                        ? WIND_ARROWS[windOctant(h.windDir)] : '';
+                        ? `<span class="wind-arrow" style="transform:rotate(${windOctant(h.windDir) * 45 + 180}deg)">${MR_ICON.wind}</span>` : '';
                     const hazGlyph = view === 'wind' ? ''
-                        : (h.glyph || '') + (hot ? '♨︎' : '') + (uvHigh ? '☀︎' : '');
+                        : mrIcon(h.glyph) + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '');
                     // Sky event (moon phase / lunar eclipse): a night fact, so
                     // it rides the day's 21:00 block, bottom-left, in all views.
                     const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
@@ -2400,7 +2454,7 @@
                     // hazard glyph + bottom-left sky glyph. Any may be empty.
                     const marks = arrow
                         + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
-                        + (sky ? `<span class="block-mark sky">${esc(sky.glyph)}</span>` : '');
+                        + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
                     blocks.push(
                         `<div class="weather-block reveal${current}${pulse}"
                               style="animation-delay:${delay}ms;background:rgb(${rgb});color:${textOn(rgb)}"
@@ -2475,7 +2529,7 @@
                 `<div class="legend-step">
                     <div class="swatch legend-swatch" style="background:${c.color};color:${textOn(hexRGB(c.color))}"
                          tabindex="0" role="button" data-cond="${i}"
-                         aria-label="${esc(c.label)}: ${esc(namesFor(c.key).join(', '))}">${glyphFor(c.key)}</div>
+                         aria-label="${esc(c.label)}: ${esc(namesFor(c.key).join(', '))}">${mrIcon(glyphFor(c.key))}</div>
                     <span>${labelAt[i] || ''}</span>
                 </div>`
             ).join('');
@@ -2524,7 +2578,7 @@
             tooltip.style.pointerEvents = el.id === 'statusInfo' ? 'auto' : 'none';
             if (el.id === 'statusInfo') { // freshness line: what it means
                 const title = '<div class="tip-title"><strong>Forecast freshness</strong></div>';
-                const docs = '<div class="tip-link"><a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules updates ↗</a></div>';
+                const docs = '<div class="tip-link"><a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules updates</a></div>';
                 const body = state.modelRun
                     ? (state.localRun
                         ? [`<strong>Local:</strong> the ${esc(state.localRun.label)} regional model. Drives the near-term hours and refreshes often.`,
@@ -2557,12 +2611,14 @@
                     if (view === 'wind' && h.gust != null) w += `, gusts ${displayWind(h.gust)}`;
                     lines.push(w);
                 }
-                if (h.temp >= settings.heatWarn) lines.push('♨︎ extreme heat');
-                if (h.uv != null && h.uv >= settings.uvWarn) lines.push(`☀︎ very high UV (${Math.round(h.uv)})`);
+                if (h.temp >= settings.heatWarn) lines.push(`${MR_ICON.heat} extreme heat`);
+                if (h.uv != null && h.uv >= settings.uvWarn) lines.push(`${MR_ICON.uv} very high UV (${Math.round(h.uv)})`);
                 const sun = state.sun[day.date] || {};
-                if (sun.rise?.h === h.hour) lines.push(`☀︎ sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`);
-                if (sun.set?.h === h.hour) lines.push(`☀︎ sunset ${timeLabel(sun.set.h, sun.set.m)}`);
-                if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) lines.push(`${sky.glyph} ${sky.label}`); }
+                // sunrise/sunset reuse the sun (UV) icon, as the text glyph did;
+                // the dedicated sunrise/sunset icons wait on the sun-times feature.
+                if (sun.rise?.h === h.hour) lines.push(`${MR_ICON.uv} sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`);
+                if (sun.set?.h === h.hour) lines.push(`${MR_ICON.uv} sunset ${timeLabel(sun.set.h, sun.set.m)}`);
+                if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) lines.push(`${mrIcon(sky.glyph)} ${esc(sky.label)}`); }
                 // DR-6: was/now detail for a cell the previous model run
                 // disagreed with (works with reduced motion, which skips the
                 // pulse but keeps this).
@@ -2800,8 +2856,8 @@
                         <span class="result-actions">
                             <button class="fav${p.fav ? ' on' : ''}" data-i="${i}"
                                     aria-label="${p.fav ? 'Unfavorite' : 'Favorite'} ${esc(p.name)}"
-                                    aria-pressed="${p.fav}">${p.fav ? '★︎' : '☆︎'}</button>
-                            ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
+                                    aria-pressed="${p.fav}">${p.fav ? MR_ICON_STAR_SAVED : MR_ICON.star}</button>
+                            ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">${MR_ICON.close}</button>` : ''}
                         </span>
                     </div>`
                 ).join('');
@@ -3000,9 +3056,9 @@
                     `<button data-viewkey="${v}" class="${settings.views[v] ? 'active' : ''}">${v}</button>`).join('')}</div></div>` +
                 `<div class="setting-row"><span>Key</span>${seg('legend', [['true', 'show'], ['false', 'hide']])}</div>` +
                 `<div class="setting-row"><span>Sun</span>${seg('sunLines', [['true', 'show'], ['false', 'hide']])}</div>` +
-                `<div class="setting-row"><span>♨ heat ≥</span>${seg('heatWarn',
+                `<div class="setting-row"><span>${MR_ICON.heat} heat ≥</span>${seg('heatWarn',
                     [30, 35, 40].map(t => [String(t), `${displayTemp(t)}°`]))}</div>` +
-                `<div class="setting-row"><span>☀ UV ≥</span>${seg('uvWarn',
+                `<div class="setting-row"><span>${MR_ICON.uv} UV ≥</span>${seg('uvWarn',
                     [['8', '8'], ['10', '10'], ['11', '11']])}</div>` +
                 installSettingsRow() +
                 `<div class="setting-row"><span>Share</span>` +
@@ -3483,6 +3539,16 @@
         // real data paint (see updateDisplay) so it never precedes the grid.
         applyBand();   // --band from the current hours setting
         setView(view); // paints the view toggle + matching legend
+        // Chrome icons from the one MR_ICON map (single source of truth), set
+        // once at boot: the header gear and geolocation button, the location
+        // caret, and the two close controls. The favourite star, the search-row
+        // remove control, the now marker, and the status refresh glyph draw in
+        // their own render paths.
+        $('gear').innerHTML = MR_ICON.gear;
+        $('geoBtn').innerHTML = MR_ICON.locate;
+        $('locationCaret').innerHTML = MR_ICON.caret;
+        $('installDismiss').innerHTML = MR_ICON.close;
+        $('changelogClose').innerHTML = MR_ICON.close;
         if (matchMedia('(pointer: fine)').matches) $('location').title = `Search (${MOD}K)`;
 
         // Precedence: a shared ?lat/lon link wins, else the last saved place,

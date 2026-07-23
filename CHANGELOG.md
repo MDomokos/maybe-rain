@@ -4,6 +4,15 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+## v29 (2026-07-23)
+
+### custom icons
+- the small markers on the grid and the interface controls are now custom-drawn SVG icons instead of text symbols, for a consistent look
+- weather hazards, moon-phase, and eclipse marks are drawn icons; the grid's corner icons are also larger and use a thinner line, so they read more clearly at a glance
+- wind view uses one arrow that rotates to the wind direction, in place of eight separate arrow characters
+- also updated: gear, locate, favourite, remove, refresh, the change-city caret, and the "now" marker on the time axis
+- the settings menu's heat and uv rows use the same icons as the grid
+
 ## v28 (2026-07-23)
 
 ### unified styling
