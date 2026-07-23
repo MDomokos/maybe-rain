@@ -4,12 +4,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+## v31 (2026-07-23)
+
 ### app updates
 - the "update app" button no longer shows when the app is already up to date. it now appears only when a new version actually landed while the app was open and a reload is needed
 - the app re-checks for a new version when you switch back to it, so that update button shows up when there genuinely is one (not only after a full reopen)
 - the update / new-version buttons in the status line now match the buttons in the settings panel 
-
-## v31 (2026-07-23)
 
 ### code cleanup
 - the legend's three views (rain conditions, temperature scale, wind scale) now render through one shared code path instead of three separate blocks. each view describes its swatches as a simple list and one renderer draws them. no visible change
