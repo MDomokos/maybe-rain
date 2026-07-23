@@ -1,0 +1,15 @@
+{
+  "name": "maybe-rain",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Build tooling for the Maybe Rain? weather PWA (minify + gh-pages deploy).",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "html-minifier-terser": "7.2.0",
+    "svgo": "4.0.2",
+    "terser": "5.49.0"
+  }
+}
