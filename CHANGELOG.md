@@ -11,6 +11,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 - `npm run build` strips comments + whitespace from index.html and minifies its inline css/js, runs terser on sw.js, compacts manifest.json, runs svgo on the svgs. other files copied as-is
 - index.html 172kb → 66kb; whole site 285kb → 177kb, ~24kb gzipped over the wire
 - runs in ci on every push to main
+- ci runs on node 22; checkout@v5 + setup-node@v6 (node 24 runtime), off the deprecated node 20
 
 ### search autofill fix
 - the city search field is now a `search` input, not `text`: chrome on android was reading the word "city" as an address field and popping up autofill for passwords, payment, and addresses over the keyboard. a search field is left out of that guess
