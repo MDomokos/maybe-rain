@@ -1442,6 +1442,18 @@
         // message (a copy confirmation, a geolocation error, "Back online")
         // lives this long, then the line reverts to its resting freshness job.
         const STATUS_TRANSIENT_MS = 2200;
+        // How long the post-update "New version · see ⚙" note owns the status
+        // line before reverting to freshness. A touch longer than a plain
+        // confirmation, since it invites an action (open What's new).
+        const WHATS_NEW_MS = 4000;
+        // A service-worker update seen within this window of load is the cache
+        // catching up to the network-first HTML we already run, not a newer
+        // build, so it is not reload-worthy (see the SW block). Generous so a
+        // slow first install can't cross it; genuine mid-session deploys land
+        // minutes later, well past it.
+        const SW_SETTLE_MS = 10 * 1000;
+        // Don't re-check sw.js more often than this on refocus.
+        const SW_CHECK_THROTTLE = 15 * 60 * 1000;
         // DR-6/DR-7: staleness escalation is normally tied to the model's
         // cadence (a missed next-release, see forecastOverdue). This 24h age is
         // only the fallback used when no model metadata is available to reason
@@ -1739,8 +1751,9 @@
             loading: false,
             controller: null,
             online: navigator.onLine, // tracked via online/offline events (DR-7)
-            swUpdate: false, // a newer app version is waiting (DR-7 reload CTA)
+            swUpdate: false, // a newer app version is waiting a reload (DR-7 CTA); only a genuine mid-session deploy, never the load-time cache catch-up
             updateNote: false, // the brief "New version" note is up (tap opens the changelog), vs the resting reload CTA
+            whatsNewPending: false, // we're running a build not seen before: owe a one-time "see what's new" note, shown once the line first rests
             lastError: '',   // last no-data error text, so updateStatus can restate it
             changed: null,   // DR-6: "date|hour" → {pop|temp|wind: [was, now]} vs the previous model run
             pulsePending: false, // DR-6: the next render pulses changed cells, then consumes this
@@ -1916,6 +1929,10 @@
         // "copied" message never sits stranded. Every user-visible message goes
         // through here: no alert, toast, or second banner anywhere.
         let statusTimer = null;
+        // Separate from statusTimer: the post-update note re-shows itself on every
+        // repaint inside this window (so a fetch/paint can't clobber it), then
+        // clears. A shared transient timer can't express "re-show while active".
+        let whatsNewTimer = null;
         const setStatus = (text, cls = '', opts = {}) => {
             const el = $('status');
             // Any new status cancels a pending auto-clear first, so transient
@@ -2120,6 +2137,30 @@
                 setStatus('↻ Update app', 'outdated');
                 $('status').setAttribute('aria-label',
                     'A new version of the app is available. Tap to reload.');
+                return;
+            }
+            // Post-update note. A build we hadn't seen before is now running (the
+            // update already landed, via network-first HTML or a prior reload):
+            // point at what changed. Fired from here, the resting layer, so it
+            // only appears once the line is at a clean freshness state (data
+            // present, online, not overdue) and waits behind no-data / offline /
+            // reload / overdue states, which outrank it. It owns the line for
+            // WHATS_NEW_MS and is re-shown on every repaint inside that window,
+            // so a cache paint or the startup revalidation can't clobber it (the
+            // fix for it showing inconsistently); then it clears back to
+            // freshness on its own. whatsNewPending is armed once per new build.
+            if (state.whatsNewPending && !overdue) {
+                if (!whatsNewTimer) {
+                    whatsNewTimer = setTimeout(() => {
+                        whatsNewTimer = null;
+                        state.whatsNewPending = false;
+                        state.updateNote = false;
+                        updateStatus();
+                    }, WHATS_NEW_MS);
+                }
+                state.updateNote = true; // a tap now opens the changelog (What's new)
+                setStatus('New version · see ⚙', 'outdated');
+                $('status').setAttribute('aria-label', 'New version available. Open what\'s new, also under the settings menu');
                 return;
             }
             // (4) The normal freshness line reports the weather model's *run*
@@ -3633,6 +3674,22 @@
         if (startModel && savedLocal[startModel.slug]?.last_run_initialisation_time)
             setLocalRun(savedLocal[startModel.slug], startModel);
 
+        // Post-update note. When the running build differs from the one last seen
+        // on this device, an update has landed, so we owe a one-time pointer at
+        // what changed. Armed here, before any paint/fetch, so the first clean
+        // freshness repaint (cache paint or the settled revalidation, whichever
+        // comes) shows it; updateStatus keeps it up for its window so the fetch
+        // can't clobber it. Skipped on a first-ever install (seenVersion null).
+        // In unbuilt dev APP_VERSION is the literal __APP_VERSION__ token, which
+        // is saved as "seen" and so equals itself on the next load: no note, no
+        // explicit guard needed (a guard comparing to that token can't be used:
+        // build.mjs replaceAll's every copy of it, including the guard's own).
+        const seenVersion = loadJSON(LS_VERSION);
+        saveJSON(LS_VERSION, APP_VERSION);
+        if (seenVersion && seenVersion !== APP_VERSION) {
+            state.whatsNewPending = true;
+        }
+
         if (firstVisit) {
             // No shared link and no saved place. Rather than paint the hardcoded
             // default and visibly correct to the guessed city a moment later,
@@ -3666,35 +3723,28 @@
         // path so it never delays the first paint.
         setTimeout(sweepForecasts, 4000);
 
-        // Post-update note. When the running build differs from the one last seen
-        // on this device, the update the "↻ Update app" CTA prompted has now
-        // landed, so point once at what changed. Skipped on a first-ever install
-        // (nothing to have updated from) and in unbuilt dev (APP_VERSION is still
-        // the literal token). Shown a beat after load so it overlays the settled
-        // freshness line, not "Loading…". Tapping it opens the changelog
-        // (state.updateNote, read by the status handler); it self-clears like any
-        // transient. This is the only place the "New version" note fires.
-        const seenVersion = loadJSON(LS_VERSION);
-        saveJSON(LS_VERSION, APP_VERSION);
-        if (seenVersion && seenVersion !== APP_VERSION) {
-            setTimeout(() => {
-                state.updateNote = true;
-                setStatus('New version · see ⚙', 'outdated', { transient: true });
-                $('status').setAttribute('aria-label', 'New version available. Open what\'s new, also under the settings menu');
-            }, 1200);
-        }
-
-        // Service worker. DR-7: when a newer version is installed and waiting,
-        // surface the resting "↻ Update app" CTA in the status line (updateStatus
-        // reads state.swUpdate) instead of a banner or a disruptive auto-reload.
-        // Whether the update lands mid-session or was already waiting when the app
-        // opened, the line reads the same. The "New version · see ⚙" note is not
-        // shown here: it belongs to the next load, once that update is running
-        // (see the post-update note in startup).
+        // Service worker. DR-7: when a genuinely newer version is waiting, surface
+        // the resting "↻ Update app" CTA in the status line (updateStatus reads
+        // state.swUpdate) instead of a banner or a disruptive auto-reload. Tapping
+        // it reloads into the new build, which then shows the "New version · see
+        // ⚙" note (armed by the post-update block above).
+        //
+        // "Genuinely newer" is the subtle part. index.html is network-first, so an
+        // online open always runs the newest HTML; the service worker then finds
+        // the matching new sw.js and fires updatefound while installing the fresh
+        // cache. That update is the cache catching up to the build we already run,
+        // not a reason to reload, so showing the CTA there is wrong (it competed
+        // with the post-update note and appeared spuriously). The tell is timing:
+        // a load-time updatefound fires within a few seconds of registration; a
+        // deploy that lands while we sit open fires minutes later. So we only
+        // honour updates seen after a short settle window, and re-check sw.js on
+        // refocus so a resident PWA can actually notice a mid-session deploy.
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
+                let swSettled = false;
+                setTimeout(() => { swSettled = true; }, SW_SETTLE_MS);
                 const announceUpdate = () => {
-                    if (state.swUpdate) return;
+                    if (state.swUpdate || !swSettled) return; // ignore the load-time cache catch-up
                     state.swUpdate = true;
                     if (!state.loading) updateStatus(); // shows "↻ Update app"; else paints once data loads
                 };
@@ -3710,6 +3760,17 @@
                         w.addEventListener('statechange', () => {
                             if (w.state === 'installed' && navigator.serviceWorker.controller) announceUpdate();
                         });
+                    });
+                    // Re-check for a new deploy when the app returns to the
+                    // foreground (when a resident PWA most likely has one waiting),
+                    // throttled so a quick tab flip doesn't spam the network. This
+                    // is what makes the reload CTA reachable at all off navigation.
+                    let lastCheck = Date.now();
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.visibilityState !== 'visible') return;
+                        if (Date.now() - lastCheck < SW_CHECK_THROTTLE) return;
+                        lastCheck = Date.now();
+                        reg.update().catch(() => {});
                     });
                 }).catch(() => {});
             });
