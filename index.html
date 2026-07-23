@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Maybe Rain?</title>
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Glanceable weekly weather — should I expect rain, and when?">
+    <meta name="description" content="Glanceable weekly weather: should I expect rain, and when?">
     <!-- Link-preview card (Open Graph / Twitter). Static, so the same branded
          card shows for every place: a per-city preview would need a server to
          render per-place tags, and there's no backend (principle 5). Absolute
-         URLs — crawlers don't resolve relative ones. -->
+         URLs, since crawlers don't resolve relative ones. -->
     <meta property="og:title" content="Maybe Rain?">
-    <meta property="og:description" content="Glanceable weekly weather — should I expect rain, and when?">
+    <meta property="og:description" content="Glanceable weekly weather: should I expect rain, and when?">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://mdomokos.github.io/maybe-rain/">
     <meta property="og:site_name" content="Maybe Rain?">
@@ -23,12 +23,12 @@
     <meta property="og:image:alt" content="A week of Maybe Rain?'s hourly forecast grid, coloured by condition, beside the wordmark">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Maybe Rain?">
-    <meta name="twitter:description" content="Glanceable weekly weather — should I expect rain, and when?">
+    <meta name="twitter:description" content="Glanceable weekly weather: should I expect rain, and when?">
     <meta name="twitter:image" content="https://mdomokos.github.io/maybe-rain/og.png">
     <meta name="twitter:image:alt" content="A week of Maybe Rain?'s hourly forecast grid, coloured by condition, beside the wordmark">
     <!-- Warm up the TLS connection to the forecast API before the first fetch
          fires (preconnect pays off when there's a 100–300 ms gap ahead of the
-         request — here, the JS boot + geolocation resolve provide it). -->
+         request; here, the JS boot + geolocation resolve provide it). -->
     <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -80,8 +80,16 @@
             position: relative;
             display: flex;
             align-items: center;
-            gap: 10px;
+            /* No flex gap: the breathing room before the ⚙ lives inside the
+               location button (as padding) so it's part of the hover/tap
+               target, with no dead sliver between the button and the gear. */
+            gap: 0;
             margin-bottom: var(--sp-4);
+            /* Right inset shared by the search field and its results panel:
+               the field stops this far short of the right edge to clear the
+               ⚙, while the results panel cancels it out to span the full
+               grid width below. Change once, both stay in sync. */
+            --search-right: 44px;
         }
         /* Type hierarchy: city name and temps lead, the rest recedes */
         .location {
@@ -92,11 +100,14 @@
             align-items: center;
             gap: 6px;
             transition: color 0.2s ease;
-            /* Safeguard: a long place name ellipsizes instead of pushing the
-               gear or wrapping. min-width:0 lets the flex item shrink below
-               its content; max-width caps it well short of the row. */
+            /* Fill the header row so the whole strip (city name plus the empty
+               space up to the ⚙) is one large button: hover paints all of it
+               gold and the arrow dips, matching a real click target. A long
+               place name still ellipsizes (min-width:0 + the name's overflow)
+               instead of pushing the gear or wrapping. */
+            flex: 1;
             min-width: 0;
-            max-width: 70%;
+            padding-right: 10px;   /* breathing room before the gear, still tappable */
         }
         .location-name {
             overflow: hidden;
@@ -473,7 +484,7 @@
         .tooltip.explain { width: auto; max-width: min(280px, calc(100vw - 16px)); }
         .tooltip.explain div { white-space: normal; }
         /* Link inside the explanation (gold accent; the tooltip becomes
-           interactive so it can be clicked — see showTooltip). */
+           interactive so it can be clicked; see showTooltip). */
         .tooltip a { color: #FFD700; text-decoration: underline; }
         .tooltip a:hover { color: #fff; }
 
@@ -529,7 +540,7 @@
         }
 
         /* Install banner: bottom-center pill, dismissible, remembered.
-           Hidden by default in CSS — it must never pre-empt the forecast.
+           Hidden by default in CSS, since it must never pre-empt the forecast.
            JS adds .revealed only after the grid has painted real data once
            and a short read delay has elapsed (see maybeScheduleInstallBanner).
            Shown once per device until installed or dismissed. */
@@ -573,45 +584,88 @@
            The opaque panel covers the name it replaced; the gear stays clear. */
         .search-container {
             position: absolute;
-            inset: 0 40px 0 0;   /* cover the wrapper, leave room for ⚙ */
+            /* Extend 8px below the wrapper and pad the bottom by the same, so
+               the typed text stays vertically aligned with the city name it
+               replaced while the gold underline drops clear of it — no cramp. */
+            inset: 0 var(--search-right) -8px 0;   /* leave room for ⚙ on the right */
             display: flex;
             align-items: center;
-            background: #111;
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            padding: 8px;
+            /* Flush with the app: no raised #111 box. The field sits on the
+               same black as everything else, marked only by a single gold
+               hairline underline (the accent, reused). Single-sided border,
+               so radius stays 0. No horizontal padding, so the typed text
+               starts exactly where the city name did, so the field reads as the
+               same element expanded, not a new box. */
+            background: #000;
+            border: none;
+            border-bottom: 1px solid #FFD700;
+            border-radius: 0;
+            padding: 0 0 8px 0;
             opacity: 0;
-            transform: translateX(-20px);
-            transition: all 0.3s ease;
-            pointer-events: none;
+            pointer-events: none;   /* hidden until opened, no fade/slide in */
         }
         .search-container.active {
             opacity: 1;
-            transform: translateX(0);
             pointer-events: auto;
             z-index: 10;
         }
         .search-input {
-            width: 100%;
-            padding: 6px;
+            flex: 1;
+            min-width: 0;   /* let the field shrink beside the GPS button */
+            padding: 0;
             background: transparent;
             border: none;
             color: #fff;
             font-family: inherit;
-            font-size: 16px;
+            /* Match the city-name heading exactly (same size and weight) so
+               the field is just that text made editable. */
+            font-size: 24px;
+            font-weight: 600;
         }
         .search-input:focus {
             outline: none;
         }
+        /* Compact "use my location" control, inline at the right edge of the
+           search field: a solid gold square (theme accent + one corner radius)
+           with a dark GPS crosshair glyph, no label. */
+        .geo-btn {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            /* Clear the typed text on the left; the container's right inset
+               (--search-right) keeps this button clear of the ⚙ on the right. */
+            margin-left: 12px;
+            background: #FFD700;         /* solid gold, the app accent */
+            border: none;
+            border-radius: var(--radius);
+            color: #000;                 /* dark glyph on the gold fill */
+            font-family: inherit;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .geo-btn:hover { background: #FFE44D; }   /* lighter gold */
+        .geo-btn:active { background: #E6C200; }  /* darker gold */
+        .geo-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.55); }
         .search-results {
             position: absolute;
             top: 100%;
             left: 0;
-            right: 0;
+            /* Cancel the field's right inset so the panel spans the full grid
+               width below and fully overlaps it, rather than stopping short
+               where the field does. */
+            right: calc(-1 * var(--search-right));
             margin-top: 5px;
-            background: #111;
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
+            /* Floats over the dimmed grid on the app's own black — no outline
+               box, just the list. */
+            background: #000;
+            border: none;
+            border-radius: 0;
             /* Longer list: scale with the viewport so it fills more of the
                screen, instead of a fixed 200px. dvh overrides vh where
                supported (accurate under mobile browser chrome). */
@@ -631,10 +685,10 @@
             background: transparent;
         }
         .search-results::-webkit-scrollbar-thumb {
-            /* 2px #111 border + padding-box clip leaves a ~2px gold hairline,
+            /* 2px #000 border + padding-box clip leaves a ~2px gold hairline,
                floating clear of the panel edges */
             background: #FFD700;
-            border: 2px solid #111;
+            border: 2px solid #000;
             background-clip: padding-box;
             border-radius: var(--radius);
         }
@@ -648,7 +702,6 @@
             align-items: center;
             gap: 8px;
         }
-        .search-result.geo { color: #FFD700; }
         /* Favorites-cap advisory: amber, matching the app's "attention" accent,
            softer than an error. Sits above the results until it self-clears. */
         .fav-hint {
@@ -684,15 +737,27 @@
         }
         .search-result .fav.on { color: #FFD700; }   /* gold when favorited */
         .search-result .fav:hover { color: #FFD700; }
-        .search-result:hover,
+        /* One active row at a time. Hover and the keyboard both drive this
+           single .highlighted class (see the mouseover sync in JS), so the
+           pointer and the Enter target never disagree — and there's only ever
+           one gold row, including the first-result preselect. */
         .search-result.highlighted {
-            background: rgba(255,255,255,0.1);
+            color: #FFD700;   /* highlight by tinting the text, not the row */
         }
         .search-result + .search-result {
             border-top: 1px solid rgba(255,255,255,0.1);
         }
+        /* Also gold the divider just beneath the active row, to bracket it */
+        .search-result.highlighted + .search-result {
+            border-top-color: #FFD700;
+        }
         .container.search-active #content {
-            filter: brightness(0.5);
+            /* Dim the grid and disable its taps so a stray touch can't open a
+               tooltip while searching. The tap still reaches the document,
+               which reads it as an outside-click and closes search; that
+               dimmed area is the escape target. */
+            filter: brightness(0.4);
+            pointer-events: none;
             transition: filter 0.3s ease;
         }
 
@@ -737,6 +802,9 @@
             }
             .location {
                 font-size: 18px;
+            }
+            .search-input {
+                font-size: 18px;   /* stay matched to the heading on phones */
             }
             .location::after {
                 font-size: 14px;
@@ -797,7 +865,7 @@
            edge; the default rule centers a narrow ≤540px column. Between them
            an iPad got that narrow column floating in a sea of black. These
            two rules close the gap. Portrait is the intended orientation for a
-           vertical agenda grid, so it does the real work — the column widens
+           vertical agenda grid, so it does the real work: the column widens
            and the grid stretches to the bottom of the screen. Landscape (short
            and wide) just stays tidy and centered. The landscape rule is gated
            on pointer:coarse + a tall min-height so desktop/laptop browsers in
@@ -808,7 +876,7 @@
         @media (min-width: 481px) and (orientation: portrait) {
             /* A *definite* container height (not flex-grow inside a min-height
                body) is required so the grid's percentage cell heights (--band)
-               resolve — the same approach the phone rule uses. Growing the
+               resolve, the same approach the phone rule uses. Growing the
                container with flex:1 fills the screen but collapses every cell
                to ~0 height (an empty grid). calc(100dvh - 56px) accounts for
                the 28px body padding top+bottom, so it fills without overflow. */
@@ -837,6 +905,7 @@
             /* larger lead type for the bigger canvas (grid cells scale with
                the chart height on their own; these are the text elements) */
             .location { font-size: 28px; }
+            .search-input { font-size: 28px; }   /* stay matched to the heading */
             .location::after { font-size: 18px; }
             .time-label { font-size: calc(12px * var(--ui, 1)); }
             .day-label { font-size: calc(13px * var(--ui, 1)); }
@@ -845,7 +914,7 @@
         }
 
         /* Landscape tablet (touch, tall viewport): short and wide. Don't fill
-           height — center the portrait grid and cap it so it never overflows.
+           height; center the portrait grid and cap it so it never overflows.
            min-height rules out phones in landscape; pointer:coarse rules out
            desktops. */
         @media (orientation: landscape) and (min-height: 600px) and (pointer: coarse) {
@@ -914,6 +983,8 @@
                        id="searchInput"
                        placeholder="Search city..."
                        autocomplete="off">
+                <button type="button" class="geo-btn" id="geoBtn"
+                        aria-label="Use my location" title="Use my location">⌖</button>
                 <div class="search-results" id="searchResults"></div>
             </div>
             <button class="btn gear" id="gear" aria-label="Settings" aria-expanded="false">⚙</button>
@@ -959,7 +1030,7 @@
         // The forecast uses Open-Meteo "Best Match" (a different model per
         // location, whose identity the API never returns). For the freshness
         // line we read the *run* time of the global model that drives the
-        // 7-day horizon — DWD ICON, 6-hourly, hourly, 7.5 days — as an honest
+        // 7-day horizon (DWD ICON, 6-hourly, hourly, 7.5 days) as an honest
         // reference for how recent the underlying model output is. The
         // metadata endpoint is tiny and is NOT counted against rate limits.
         const META_URL = 'https://api.open-meteo.com/data/dwd_icon/static/meta.json';
@@ -967,6 +1038,16 @@
         // current run's own publish lag. Once that estimate passes by more than
         // this grace, the update is genuinely overdue → warn amber.
         const NEXT_UPDATE_GRACE = 60 * 60 * 1000;
+        // DR-7: the status line is the app's single state channel. A transient
+        // message (a copy confirmation, a geolocation error, "Back online")
+        // lives this long, then the line reverts to its resting freshness job.
+        const STATUS_TRANSIENT_MS = 2200;
+        // DR-6/DR-7: staleness escalation is normally tied to the model's
+        // cadence (a missed next-release, see forecastOverdue). This 24h age is
+        // only the fallback used when no model metadata is available to reason
+        // about cadence, so a day-old forecast still escalates to the amber
+        // dated warning instead of the calm grey "outdated".
+        const DEEP_STALE_TIME = 24 * 60 * 60 * 1000;
         const DEFAULT_PLACE = {
             name: 'Whakatane', country: 'New Zealand', admin1: 'Bay of Plenty',
             latitude: -37.9586, longitude: 176.9854
@@ -1121,9 +1202,12 @@
             days: [],     // [{text, isToday, date}]
             sun: {},      // date → { rise: {h, m}, set: {h, m} } (city-local)
             fetchedAt: 0, // timestamp of the forecast currently displayed
-            modelRun: null, // { init, interval, nextRun } ms — from the metadata API
+            modelRun: null, // { init, interval, nextRun } ms, from the metadata API
             loading: false,
             controller: null,
+            online: navigator.onLine, // tracked via online/offline events (DR-7)
+            swUpdate: false, // a newer app version is waiting (DR-7 reload CTA)
+            lastError: '',   // last no-data error text, so updateStatus can restate it
             suggestions: [] // saved cities + geocoding hits, in display order
         };
 
@@ -1196,13 +1280,32 @@
         };
 
         // --- UI state ---------------------------------------------------
-        const setStatus = (text, cls = '') => {
+        // DR-7: the freshness line under the grid (#status) is the app's one
+        // place for all app-level state. It has two layers. The *resting* layer
+        // (updateStatus) is its home state: model run + next update, or offline,
+        // outdated, deep-stale, or no-data. The *transient* layer briefly
+        // overlays it (a copy confirmation, a geolocation error, "Back online")
+        // and then clears back down on its own via one shared timer, so a
+        // "copied" message never sits stranded. Every user-visible message goes
+        // through here: no alert, toast, or second banner anywhere.
+        let statusTimer = null;
+        const setStatus = (text, cls = '', opts = {}) => {
             const el = $('status');
+            // Any new status cancels a pending auto-clear first, so transient
+            // messages never stack or clear early.
+            if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
             el.textContent = text;
             el.className = `status ${cls}`.trim();
             // It's a button now, so always name the refresh action; updateStatus
             // overrides with a richer description for the run line.
             el.setAttribute('aria-label', text ? `${text}. Refresh forecast` : 'Refresh forecast');
+            // Transient messages (opts.transient) carry a ~2s life, after which
+            // the line reverts to whatever the resting layer now says. Resting
+            // states are set without the flag and persist until their own
+            // condition changes.
+            if (opts.transient) {
+                statusTimer = setTimeout(() => { statusTimer = null; updateStatus(); }, STATUS_TRANSIENT_MS);
+            }
         };
 
         // Shared time-axis labels (real grid and skeleton alike).
@@ -1266,10 +1369,13 @@
         };
 
         // No separate error banner: the freshness label carries the failure
-        // and doubles as the retry button (tap/click to refetch).
-        const showError = (msg = 'No forecast — tap to retry') => {
+        // and doubles as the retry button (tap/click to refetch). The message
+        // is remembered so updateStatus can restate it (it holds until a fetch
+        // succeeds, since nothing else can render). Resting layer, no timer.
+        const showError = (msg = 'No forecast. Tap to retry') => {
             state.loading = false;
-            if (!state.data.length) setStatus(msg, 'stale');
+            state.lastError = msg;
+            updateStatus();
         };
 
         // City-local calendar parts for any instant (date + hour + minute),
@@ -1301,17 +1407,79 @@
             return `in ${Math.round(h / 24)}d`;
         };
 
-        // The freshness line reports the weather model's *run* time (when the
-        // forecast was computed, not when we fetched it) and the time until the
-        // next model update. When that update is overdue it warns amber. Falls
-        // back to fetch time if the metadata API hasn't answered.
+        // Absolute "Tue 14:00" stamp (city-local) for the deep-stale warning.
+        const WEEKDAY_3 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const staleStamp = ms => {
+            const p = cityParts(ms);
+            const wd = WEEKDAY_3[new Date(p.date + 'T00:00:00Z').getUTCDay()];
+            return `${wd} ${timeLabel(p.h, p.m)}`;
+        };
+
+        // DR-7 resting layer: updateStatus computes the line's home state and is
+        // the tie-break when several conditions are true. Priority, highest
+        // first: (1) no-data error (nothing can render, so it holds until a
+        // fetch succeeds); (2) offline with a forecast on screen (name the
+        // honest state, principle 4); (3) a waiting app version (reload CTA);
+        // (4) deep-stale / out-of-date CTA; (5) the normal freshness line (model
+        // run + next update, else the fetch-time fallback). In-flight notices
+        // ("Loading forecast…", "Updating…", "Locating…") outrank this layer and
+        // are set directly; they clear when their process ends, which re-runs
+        // updateStatus on success or drops to the relevant resting state.
+        // Staleness is measured against the model's own cadence, not a wall
+        // clock (owner-directed): the forecast is "overdue" once the next
+        // expected model release has come and gone (by more than the grace),
+        // i.e. a newer forecast should exist, whether or not we can reach it.
+        // With no model metadata to reason about cadence, fall back to a 24h
+        // age. stampMs dates the forecast we're showing: the model run when
+        // known, else our fetch time.
+        const forecastOverdue = () => state.modelRun
+            ? Date.now() - state.modelRun.nextUpdate > NEXT_UPDATE_GRACE
+            : !!state.fetchedAt && Date.now() - state.fetchedAt > DEEP_STALE_TIME;
+        const forecastStampMs = () => state.modelRun ? state.modelRun.init : state.fetchedAt;
+
         const updateStatus = () => {
+            // (1) No data at all: the retry CTA holds. While actively loading,
+            // "Loading forecast…" owns the line, so leave it be.
+            if (!state.data.length) {
+                if (state.loading) return;
+                setStatus(state.lastError || 'No forecast. Tap to retry', 'stale');
+                return;
+            }
+            const overdue = forecastOverdue();
+            // (2) Offline with a forecast on screen. While the data is still
+            // within its model cycle, the calm grey notice is honest enough.
+            // Once a release has been missed it escalates to amber and dates the
+            // forecast, so "how stale" is visible even with no way to refresh.
+            if (!state.online) {
+                const stampMs = forecastStampMs();
+                if (overdue && stampMs) {
+                    const stamp = staleStamp(stampMs);
+                    setStatus(`Offline. Stale, updated ${stamp}`, 'outdated');
+                    $('status').setAttribute('aria-label',
+                        `Offline. The forecast is stale, from ${stamp}; a newer model run is due. It will refresh when the connection returns.`);
+                } else {
+                    setStatus('Offline. Showing last forecast', 'stale');
+                }
+                return;
+            }
+            // (3) A newer app version is waiting: one reload CTA, styled like the
+            // outdated pill, in this same line instead of a separate banner.
+            if (state.swUpdate) {
+                setStatus('New version. Tap to reload', 'outdated');
+                $('status').setAttribute('aria-label',
+                    'A new version of the app is available. Tap to reload.');
+                return;
+            }
+            // (4) The normal freshness line reports the weather model's *run*
+            // time (when the forecast was computed, not when we fetched it) and
+            // the time until the next model update. When that update is overdue
+            // it warns amber. Falls back to fetch time if the metadata API
+            // hasn't answered.
             const m = state.modelRun;
             if (m) {
                 const toNext = m.nextUpdate - Date.now();
-                const overdue = toNext <= 0 && -toNext > NEXT_UPDATE_GRACE;
                 if (overdue) {
-                    // A newer run should be out — present an explicit refresh CTA.
+                    // A newer run should be out, so present an explicit refresh CTA.
                     setStatus('↻ Update forecast', 'outdated');
                     $('status').setAttribute('aria-label',
                         `Forecast out of date (model last run ${runClockLabel(m.init)}). Refresh to update.`);
@@ -1327,12 +1495,19 @@
                 }
                 return;
             }
-            // Fallback: no model metadata yet → old fetch-time wording.
+            // Fallback: no model metadata yet → fetch-time wording. Past the 24h
+            // fallback (overdue with no cadence), escalate to the amber dated
+            // warning, matching the model-driven path above.
             if (!state.fetchedAt) { setStatus(''); return; }
             const age = Date.now() - state.fetchedAt;
             const minutes = Math.floor(age / 60000);
             if (age < 60000) {
                 setStatus('Data is fresh', 'fresh');
+            } else if (overdue) {
+                const stamp = staleStamp(state.fetchedAt);
+                setStatus(`Stale. Updated ${stamp}, tap to refresh`, 'outdated');
+                $('status').setAttribute('aria-label',
+                    `Forecast is stale, last updated ${stamp}. Tap to refresh.`);
             } else if (age > FRESH_TIME) {
                 setStatus('Data may be outdated', 'stale');
             } else {
@@ -1424,6 +1599,8 @@
                 if (!payload.hourly?.time?.length) throw new Error('Invalid data received');
 
                 state.fetchedAt = Date.now();
+                state.lastError = '';   // a good fetch clears any held error
+                state.online = true;    // it reached the network, so we're online
                 saveJSON(LS_FORECAST, { placeKey: placeKey(state.place), timestamp: state.fetchedAt, payload });
                 processData(payload);
                 updateDisplay();
@@ -1433,14 +1610,17 @@
                 // a timeout abort is a real failure and must surface.
                 if (error.name === 'AbortError' && !timedOut) return;
                 if (state.data.length) {
-                    // Stale data already on screen: no banner, status says "outdated".
+                    // Stale data already on screen: no banner. If the device is
+                    // offline, updateStatus names it ("Offline. Showing last
+                    // forecast"); otherwise the resting line stays outdated.
+                    if (!navigator.onLine) state.online = false;
                     setLoading(false);
                     updateStatus();
                 } else {
                     // Timeout or network failure → friendly "can't reach" wording;
                     // API/parse errors keep the generic retry label.
                     const unreachable = timedOut || error.name === 'TypeError';
-                    showError(unreachable ? "Can't reach weather service — tap to retry" : undefined);
+                    showError(unreachable ? "Can't reach weather service. Tap to retry" : undefined);
                 }
             } finally {
                 clearTimeout(timer);
@@ -1777,14 +1957,14 @@
             $('searchResults').innerHTML = '';
             searchHighlight = -1;
             // Drop focus off the (now hidden) input so the global keydown
-            // guard stops treating keystrokes as typing — arrows work at once.
+            // guard stops treating keystrokes as typing, so arrows work at once.
             $('searchInput').blur();
         };
 
         // --- Recents + favorites (search shortcuts) -----------------------
         // Two lists surface in the search panel. Recents: opening a city
         // auto-saves it (MRU order, capped), ✕-removable. Favorites: cities
-        // the user explicitly ★-stars (capped at MAX_FAVORITES) — these sit at
+        // the user explicitly ★-stars (capped at MAX_FAVORITES); these sit at
         // the top of the resting list and are the set ↑/↓ / swipe cycle between.
         const loadCities = key => {
             const list = loadJSON(key);
@@ -1861,8 +2041,8 @@
 
         // Native share sheet only on touch devices. On desktop, Web Share is
         // redundant and some Chromium builds *kill the tab*
-        // (RESULT_CODE_KILLED_BAD_MESSAGE) when navigator.share is invoked — a
-        // renderer crash no try/catch can catch — so desktop copies the link.
+        // (RESULT_CODE_KILLED_BAD_MESSAGE) when navigator.share is invoked (a
+        // renderer crash no try/catch can catch), so desktop copies the link.
         const nativeShareOK = () =>
             !!navigator.share && matchMedia('(pointer: coarse)').matches;
 
@@ -1875,11 +2055,12 @@
             }
             try {
                 await navigator.clipboard.writeText(url);
-                setStatus(`${what} link copied`, 'fresh');
-            } catch { setStatus('Copy failed — copy from the address bar', 'stale'); }
+                // Confirmation: overlays the resting line, then clears itself.
+                setStatus(`${what} link copied`, 'fresh', { transient: true });
+            } catch { setStatus('Copy failed. Copy from the address bar', 'stale', { transient: true }); }
         };
         // Two targets: this exact place (deep-link), or the plain site URL.
-        const sharePlace = () => shareLink(shareURL(state.place), `Maybe Rain? — ${state.place.name}`, 'Place');
+        const sharePlace = () => shareLink(shareURL(state.place), `Maybe Rain? · ${state.place.name}`, 'Place');
         const shareSite = () => shareLink(location.origin + location.pathname, 'Maybe Rain?', 'Website');
 
         // remember=false keeps savedCities order stable, so ↑/↓ cycling
@@ -1895,8 +2076,8 @@
             fetchWeather(true);
         };
 
-        // Ordering: ★ favorites first (always, filtered by the query), then —
-        // only in the resting list — recents, then live geocoding hits.
+        // Ordering: ★ favorites first (always, filtered by the query), then
+        // (only in the resting list) recents, then live geocoding hits.
         // Typing collapses recents but keeps matching favorites above the
         // geocoding results, so a starred city is always one keystroke away.
         let suggestToken = 0;
@@ -1922,7 +2103,6 @@
             ];
             searchHighlight = -1; // list rebuilt: drop any arrow-key highlight
             $('searchResults').innerHTML =
-                '<div class="search-result geo">⌖ Use my location</div>' +
                 state.suggestions.map((p, i) =>
                     `<div class="search-result" data-i="${i}">
                         <span>${esc(p.name)}${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>
@@ -1934,11 +2114,16 @@
                         </span>
                     </div>`
                 ).join('');
+            // Preselect the first result so pressing Enter has an obvious,
+            // visible target. Hover or arrow keys move it from here.
+            const firstRow = $('searchResults').querySelector('.search-result');
+            searchHighlight = firstRow ? 0 : -1;
+            if (firstRow) firstRow.classList.add('highlighted');
         };
 
         // --- "Use my location" ---------------------------------------------
         const useMyLocation = () => {
-            if (!navigator.geolocation) { setStatus('Geolocation not supported here', 'stale'); return; }
+            if (!navigator.geolocation) { setStatus('Geolocation not supported here', 'stale', { transient: true }); return; }
             setStatus('Locating…', 'updating');
             navigator.geolocation.getCurrentPosition(async pos => {
                 const { latitude, longitude } = pos.coords;
@@ -1956,7 +2141,7 @@
                     }
                 } catch { /* keep the fallback name */ }
                 changeCity(place);
-            }, () => setStatus('Location unavailable — try search', 'stale'),
+            }, () => setStatus('Location unavailable. Try search', 'stale', { transient: true }),
                { timeout: 10000, maximumAge: 5 * 60 * 1000 });
         };
 
@@ -1964,7 +2149,7 @@
         // Fully local: reads the OS timezone (no IP, no third party, no
         // permission prompt), then resolves it to coordinates through the
         // same Open-Meteo geocoding endpoint the city search already uses.
-        // Coarse by design — a timezone is a region, so this is a "somewhere
+        // Coarse by design: a timezone is a region, so this is a "somewhere
         // sensible in your part of the world" guess, not "your exact city".
         // Only used on a first visit with no shared link and no saved place;
         // the hardcoded default stays the final fallback if this can't
@@ -1993,9 +2178,9 @@
             } catch { return null; }
             finally { clearTimeout(timer); }
             if (!results || !results.length) return null;
-            // Prefer the hit whose own timezone matches the browser's — it
+            // Prefer the hit whose own timezone matches the browser's, since it
             // disambiguates repeated city names to the one actually in your
-            // zone — else fall back to the top (most-populated) match.
+            // zone; else fall back to the top (most-populated) match.
             const hit = results.find(x => x.timezone === tz) || results[0];
             if (hit.latitude == null || hit.longitude == null) return null;
             return {
@@ -2015,7 +2200,14 @@
             const hold = () => { clearTimeout(hideTimer); hideTimer = null; };
             const drop = () => { hideTimer = setTimeout(hideTooltip, 250); };
             const explain = () => { hold(); showTooltip(s); };
-            const refresh = () => { hideTooltip(); fetchWeather(true); };
+            // The line is one button with two jobs: when a new app version is
+            // waiting it reads "New version. Tap to reload" and a tap reloads;
+            // otherwise a tap refetches the forecast.
+            const refresh = () => {
+                hideTooltip();
+                if (state.swUpdate) { location.reload(); return; }
+                fetchWeather(true);
+            };
             s.addEventListener('mouseenter', explain);
             s.addEventListener('mouseleave', drop);
             s.addEventListener('focus', explain);
@@ -2056,19 +2248,32 @@
             }
         });
 
-        $('location').onclick = () => {
+        const openSearch = () => {
             toggleSettings(false);
-            const opening = !$('searchContainer').classList.contains('active');
-            $('searchContainer').classList.toggle('active');
-            document.querySelector('.container').classList.toggle('search-active');
-            if (opening) {
-                renderSuggestions(''); // saved cities + geolocate, before any typing
-                $('searchInput').focus();
-            }
+            if ($('searchContainer').classList.contains('active')) { $('searchInput').focus(); return; }
+            $('searchContainer').classList.add('active');
+            document.querySelector('.container').classList.add('search-active');
+            renderSuggestions(''); // saved cities + geolocate, before any typing
+            $('searchInput').focus();
         };
+        // The whole top strip is the search target, not just the city name.
+        // A tap anywhere in the header row opens search (the target is wide
+        // and forgiving), except on the gear, the open settings panel, or the
+        // active field/results themselves. No visible affordance: the header
+        // reads as tappable on its own, and the ↓ arrow already hints "change".
+        document.querySelector('.location-wrapper').addEventListener('click', e => {
+            // Selecting a result clears the list, detaching the clicked row
+            // before this bubbles up; a detached target has no ancestors, so
+            // the .search-container guard below would miss and wrongly re-open
+            // search. Bail on detached targets (matches the outside-click guard).
+            if (!e.target.isConnected) return;
+            if (e.target.closest('#gear') || e.target.closest('.settings')) return;
+            if (e.target.closest('.search-container')) return; // don't re-fire on the open field
+            openSearch();
+        });
         // Keyboard-operable location control
         $('location').addEventListener('keydown', e => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('location').click(); }
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSearch(); }
         });
 
         // --- Settings menu: the app's only menu ---------------------------
@@ -2227,8 +2432,15 @@
             // ⌘/Ctrl+K opens city search from anywhere.
             if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
                 e.preventDefault();
-                if ($('searchContainer').classList.contains('active')) $('searchInput').focus();
-                else $('location').click();
+                openSearch();
+                return;
+            }
+            // Escape closes search/settings/tooltip — handled before the INPUT
+            // guard below so it still fires while the search field has focus.
+            if (e.key === 'Escape') {
+                closeSearch();
+                toggleSettings(false);
+                hideTooltip();
                 return;
             }
             if ((e.target.tagName || '') === 'INPUT') return; // don't hijack typing
@@ -2248,11 +2460,6 @@
             }
             if (e.key === '+' || e.key === '=') setZoom(zoom + 1);
             else if (e.key === '-') setZoom(zoom - 1);
-            else if (e.key === 'Escape') {
-                closeSearch();
-                toggleSettings(false);
-                hideTooltip();
-            }
         });
 
         // --- View toggle: rain ↔ temperature grid -------------------------
@@ -2270,7 +2477,7 @@
         // Warm the geocoding TLS handshake before its first use. Injected
         // dynamically rather than as a static <head> preconnect because the
         // forecast host is hit on every load but geocoding is only used on a
-        // first-visit guess or when someone searches — so returning visitors,
+        // first-visit guess or when someone searches, so returning visitors,
         // the common case, never pay for a connection they won't use. The
         // guard adds at most one link per page load, whichever trigger fires
         // first; crossOrigin anonymous matches the CORS fetch so the warmed
@@ -2288,8 +2495,8 @@
         // Search intent: warm on focus, before the first keystroke fires a lookup.
         $('searchInput').addEventListener('focus', preconnectGeocoding, { once: true });
 
-        // Arrow keys walk the results list (incl. "Use my location"); Enter
-        // picks the highlighted row, or the first city if none is highlighted.
+        // Arrow keys walk the results list; Enter picks the highlighted row,
+        // or the first city if none is highlighted.
         $('searchInput').addEventListener('keydown', e => {
             const rows = [...$('searchResults').querySelectorAll('.search-result')];
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -2306,13 +2513,15 @@
                 e.preventDefault();
                 const target = searchHighlight >= 0
                     ? rows[searchHighlight]
-                    : rows.find(r => !r.classList.contains('geo'));
+                    : rows[0];
                 target?.click();
             }
         });
 
+        // Inline GPS button: resolve current position, then close the panel.
+        $('geoBtn').addEventListener('click', () => { closeSearch(); useMyLocation(); });
+
         $('searchResults').addEventListener('click', e => {
-            if (e.target.closest('.geo')) { closeSearch(); useMyLocation(); return; }
             const star = e.target.closest('.fav');
             if (star) { // ★ toggles favorite; panel stays open, list re-sorts
                 const { saved, fav, ...place } = state.suggestions[+star.dataset.i];
@@ -2337,14 +2546,28 @@
             }
         });
 
+        // Pointer moves the same highlight the keyboard uses, so hover, the
+        // arrow-key selection, and the Enter target are always one row.
+        $('searchResults').addEventListener('mouseover', e => {
+            const row = e.target.closest('.search-result');
+            if (!row) return;
+            const rows = [...$('searchResults').querySelectorAll('.search-result')];
+            const i = rows.indexOf(row);
+            if (i < 0 || i === searchHighlight) return;
+            searchHighlight = i;
+            rows.forEach((r, idx) => r.classList.toggle('highlighted', idx === i));
+        });
+
         document.addEventListener('click', e => {
             // A settings click re-renders the panel, detaching the clicked
             // button before this handler runs; a detached target has no
             // ancestors, which would falsely read as an outside click.
             if (!e.target.isConnected) return;
             if (!e.target.closest('.location-wrapper')) {
-                $('searchContainer').classList.remove('active');
-                document.querySelector('.container').classList.remove('search-active');
+                // Tap anywhere outside the header (including the dimmed grid,
+                // which passes its taps through) fully closes and resets
+                // search. This is the escape: no visible close button needed.
+                closeSearch();
                 toggleSettings(false);
             }
         });
@@ -2362,7 +2585,7 @@
         const IOS_HINT = 'Share → Add to Home Screen';
 
         // The banner must never pre-empt the forecast. It stays hidden until
-        // (1) there's something to offer — beforeinstallprompt has fired, or
+        // (1) there's something to offer: beforeinstallprompt has fired, or
         // we're on iOS; (2) the grid has painted real data at least once; and
         // (3) a short read delay passes so the visitor sees the site first.
         // Dismissal (or install) is remembered across visits via LS_INSTALL.
@@ -2434,6 +2657,25 @@
             if (!document.hidden && !state.loading) fetchWeather();
         }, 30 * 60 * 1000);
 
+        // DR-7: connection state flows through the one status line. Going
+        // offline names the honest resting state and keeps the last forecast on
+        // screen (never a blank grid). Coming back shows a brief "Back online"
+        // acknowledgement, then a background refresh (its own "Updating…").
+        const setOnline = online => {
+            if (state.online === online) return;
+            state.online = online;
+            if (online) {
+                setStatus('Back online', 'fresh', { transient: true });
+                // Refresh after the acknowledgement is visible, before its timer
+                // would clear, so the line reads Back online → Updating… → resting.
+                setTimeout(() => { if (!state.loading) fetchWeather(true); }, 1000);
+            } else {
+                updateStatus(); // resting layer shows the offline notice
+            }
+        };
+        window.addEventListener('online', () => setOnline(true));
+        window.addEventListener('offline', () => setOnline(false));
+
         // --- Init: render last known data instantly, then refresh ---------
         // Installed PWA (mobile): .standalone locks the viewport to exactly
         // one screen, no scroll (see the standalone CSS block).
@@ -2445,7 +2687,7 @@
         if (matchMedia('(pointer: fine)').matches) $('location').title = `Search (${MOD}K)`;
 
         // Precedence: a shared ?lat/lon link wins, else the last saved place,
-        // else — for a genuine first visit — a local timezone guess, else the
+        // else, for a genuine first visit, a local timezone guess, else the
         // built-in default. A shared place is also remembered, so it joins the
         // visitor's saved-city shortcuts.
         const urlPlace = placeFromURL();
@@ -2474,7 +2716,7 @@
                 // guess) and fetches; remember=false keeps a place the user
                 // didn't choose out of recents.
                 if (guess) { changeCity(guess, false); return; }
-                // Guess failed — commit to the default now and fetch it.
+                // Guess failed: commit to the default now and fetch it.
                 syncURL(state.place);
                 renderLocation();
                 fetchWeather();
@@ -2493,10 +2735,32 @@
             fetchWeather(); // refresh in background (skips network if data < 10 min old)
         }
 
-        // Service worker
+        // Service worker. DR-7: when a newer version installs while the old one
+        // still controls the page, surface it as a resting CTA in the status
+        // line ("New version. Tap to reload") instead of a separate banner or a
+        // disruptive auto-reload. The tap-to-reload is wired in the status
+        // handler above; here we just flip state.swUpdate and repaint the line.
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js').catch(() => {});
+                const announceUpdate = () => {
+                    if (state.swUpdate) return;
+                    state.swUpdate = true;
+                    if (!state.loading) updateStatus();
+                };
+                navigator.serviceWorker.register('sw.js').then(reg => {
+                    // Already waiting at register time (installed on a prior visit).
+                    if (reg.waiting && navigator.serviceWorker.controller) announceUpdate();
+                    // A new worker starts installing: watch it reach "installed"
+                    // while a controller exists, which means an update (not the
+                    // first-ever install).
+                    reg.addEventListener('updatefound', () => {
+                        const w = reg.installing;
+                        if (!w) return;
+                        w.addEventListener('statechange', () => {
+                            if (w.state === 'installed' && navigator.serviceWorker.controller) announceUpdate();
+                        });
+                    });
+                }).catch(() => {});
             });
         }
     </script>

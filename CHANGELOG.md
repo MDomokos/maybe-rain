@@ -4,6 +4,26 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 
 ## unreleased
 
+## v22 (2026-07-23)
+
+### status indicator
+- the freshness line is now the app's one status channel: shows offline, back-online, a waiting app version, and stale forecast indicator. Tap to refresh.
+- staleness escalates on the model's cadence: when the next expected model release is missed, offline turns amber and dates the forecast. Indicates how stale the forecast is.
+- copied-link and location messages now clear themselves after 2s
+
+### search
+- search bar opens instantly, removed the fade/slide-in animation
+- geolocation button is now it's own button inline in the search field
+- the first result is preselected on every keystroke, so Enter has an obvious target
+- hover and the arrow keys now share one highlight, so the pointer, the keyboard selection, and the Enter target never disagree (and only one row is ever gold)
+- more room between the typed text and its gold underline, so it no longer feels cramped
+- selecting a place (click or Enter) now reliably collapses search and hands keyboard control back to the main screen
+- results panel spans the full grid width and floats without an outline box. Pure black. Yellow underline.
+- results highlight (hover / keyboard) tints the text gold instead of shading the whole row
+- the whole top strip is a tap target for search, not just the city name
+- while searching, the grid dims further and stops taking taps, so a stray touch can't open a tooltip
+- escape and tapping outside the search field closes search even while the field is focused
+
 ## v21 (2026-07-23)
 - ipad layout: grid fills the screen (portrait widens to 820px, landscape centered)
 - link-preview card is now the actual forecast grid, not the app icon (1200×630, ~22 KB, crawler-only)
