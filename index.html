@@ -649,6 +649,16 @@
             gap: 8px;
         }
         .search-result.geo { color: #FFD700; }
+        /* Favorites-cap advisory: amber, matching the app's "attention" accent,
+           softer than an error. Sits above the results until it self-clears. */
+        .fav-hint {
+            padding: 8px 12px;
+            font-size: 11px;
+            line-height: 1.3;
+            color: #E0A83E;
+            background: rgba(224, 168, 62, 0.08);
+            border-bottom: 1px solid var(--line);
+        }
         .search-result .forget {
             background: none;
             border: none;
@@ -963,13 +973,14 @@
         };
         const LS_PLACE = 'mr-place';
         const LS_FORECAST = 'mr-forecast';
-        const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 9
+        const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 12
         const LS_SETTINGS = 'mr-settings';
         const LS_VIEW = 'mr-view';       // 'rain' | 'temp' | 'wind' grid mode
         const LS_INSTALL = 'mr-install-dismissed';
-        const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (uncapped, user-curated)
+        const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (capped, user-curated)
         const LS_META = 'mr-model-meta';     // cached model-run metadata (run time + cadence)
-        const MAX_CITIES = 9; // cap on recent cities (MRU-evicted); favorites are separate
+        const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
+        const MAX_FAVORITES = 6; // cap on ★ favorites (user must unfavorite to add more)
         // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
         const MOD = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';
 
@@ -1773,8 +1784,8 @@
         // --- Recents + favorites (search shortcuts) -----------------------
         // Two lists surface in the search panel. Recents: opening a city
         // auto-saves it (MRU order, capped), ✕-removable. Favorites: cities
-        // the user explicitly ★-stars (uncapped) — these sit at the top of
-        // the resting list and are the set ↑/↓ / swipe cycle between.
+        // the user explicitly ★-stars (capped at MAX_FAVORITES) — these sit at
+        // the top of the resting list and are the set ↑/↓ / swipe cycle between.
         const loadCities = key => {
             const list = loadJSON(key);
             return Array.isArray(list) ? list.filter(c => c?.name && c.latitude != null) : [];
@@ -1791,11 +1802,33 @@
         const isRecent = p => savedCities.some(c => placeKey(c) === placeKey(p));
         // Star toggles favorite; appended (not prepended) so cycle order stays
         // stable. Unfavoriting a city that's also a recent leaves it in recents.
+        // Returns false (no-op) when adding would exceed MAX_FAVORITES, so the
+        // caller can surface a hint rather than silently evicting a saved city.
         const toggleFavorite = place => {
-            favorites = isFav(place)
-                ? favorites.filter(f => placeKey(f) !== placeKey(place))
-                : [...favorites, place];
+            if (isFav(place)) {
+                favorites = favorites.filter(f => placeKey(f) !== placeKey(place));
+            } else {
+                if (favorites.length >= MAX_FAVORITES) return false;
+                favorites = [...favorites, place];
+            }
             saveJSON(LS_FAVORITES, favorites);
+            return true;
+        };
+        // Transient advisory shown in the search panel when the favorites cap is
+        // hit. Prepended to the results (amber, self-clearing); a later re-render
+        // or keystroke wipes it, whichever comes first.
+        const flashFavHint = () => {
+            const box = $('searchResults');
+            let hint = box.querySelector('.fav-hint');
+            if (!hint) {
+                hint = document.createElement('div');
+                hint.className = 'fav-hint';
+                hint.setAttribute('role', 'status');
+                box.prepend(hint);
+            }
+            hint.textContent = `Favorites are limited to ${MAX_FAVORITES}. Unfavorite one to add another.`;
+            clearTimeout(hint._t);
+            hint._t = setTimeout(() => hint.remove(), 3500);
         };
 
         // --- Shareable place: deep-link URL + branded card ---------------
@@ -2283,8 +2316,8 @@
             const star = e.target.closest('.fav');
             if (star) { // ★ toggles favorite; panel stays open, list re-sorts
                 const { saved, fav, ...place } = state.suggestions[+star.dataset.i];
-                toggleFavorite(place);
-                renderSuggestions($('searchInput').value);
+                if (toggleFavorite(place)) renderSuggestions($('searchInput').value);
+                else flashFavHint(); // cap reached: hint instead of a silent no-op
                 return;
             }
             const forget = e.target.closest('.forget');
