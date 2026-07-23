@@ -2583,44 +2583,54 @@
             if (key === 'overcast') names.unshift('Overcast'); // WMO 3, >90% cover
             return [...new Set(names)];
         };
-        const renderLegend = () => {
-            const legend = $('legend');
-            // Advanced users can hide the key entirely (⚙ Key → hide);
-            // block tooltips still name every condition on tap.
-            show(legend, settings.legend);
-            if (!settings.legend) { legend.innerHTML = ''; return; }
+        // Every view reduces to a list of steps of one shape,
+        // { bg, label, glyph?, cond? }: the temp and wind scales are plain
+        // swatch + label; the condition strip adds a glyph and an index into
+        // CONDITIONS (cond) that makes its swatch interactive. One renderer
+        // walks the list, so the three views share a single codebase.
+        const legendSteps = () => {
             if (view === 'wind') {
-                const steps = [0, 10, 20, 30, 40, 50, 60, 75]; // km/h anchors
-                legend.innerHTML = steps.map((v, i) =>
-                    `<div class="legend-step">
-                        <div class="swatch" style="background:rgb(${windRGB(v)})"></div>
-                        <span>${displayWind(v)}${i === steps.length - 1 ? ' ' + windUnitLabel() : ''}</span>
-                    </div>`
-                ).join('');
-                return;
+                const anchors = [0, 10, 20, 30, 40, 50, 60, 75]; // km/h
+                return anchors.map((v, i) => ({
+                    bg: `rgb(${windRGB(v)})`,
+                    label: `${displayWind(v)}${i === anchors.length - 1 ? ' ' + windUnitLabel() : ''}`
+                }));
             }
             if (view === 'temp') {
-                legend.innerHTML = [-5, 0, 5, 10, 15, 20, 25, 30, 35].map(t =>
-                    `<div class="legend-step">
-                        <div class="swatch" style="background:rgb(${heatRGB(t)})"></div>
-                        <span>${displayTemp(t)}°</span>
-                    </div>`
-                ).join('');
-                return;
+                return [-5, 0, 5, 10, 15, 20, 25, 30, 35].map(t => ({
+                    bg: `rgb(${heatRGB(t)})`, label: `${displayTemp(t)}°`
+                }));
             }
             // Group label sits under the middle cell of its group.
             const members = {};
             CONDITIONS.forEach((c, i) => (members[c.group] = members[c.group] || []).push(i));
             const labelAt = {};
             for (const g in members) labelAt[members[g][members[g].length >> 1]] = g;
-            legend.innerHTML = CONDITIONS.map((c, i) =>
-                `<div class="legend-step">
-                    <div class="swatch legend-swatch" style="background:${c.color};color:${textOn(hexRGB(c.color))}"
-                         tabindex="0" role="button" data-cond="${i}"
-                         aria-label="${esc(c.label)}: ${esc(namesFor(c.key).join(', '))}">${mrIcon(glyphFor(c.key))}</div>
-                    <span>${labelAt[i] || ''}</span>
-                </div>`
-            ).join('');
+            return CONDITIONS.map((c, i) => ({
+                bg: c.color, label: labelAt[i] || '', glyph: glyphFor(c.key), cond: i
+            }));
+        };
+        const renderLegend = () => {
+            const legend = $('legend');
+            // Advanced users can hide the key entirely (⚙ Key → hide);
+            // block tooltips still name every condition on tap.
+            show(legend, settings.legend);
+            if (!settings.legend) { legend.innerHTML = ''; return; }
+            legend.innerHTML = legendSteps().map(s => {
+                // Condition swatches are interactive (tap = exact names) and
+                // carry a luminance-picked glyph color; scale swatches are
+                // just a background.
+                const c = s.cond != null ? CONDITIONS[s.cond] : null;
+                const cls = c ? 'swatch legend-swatch' : 'swatch';
+                const color = c ? `;color:${textOn(hexRGB(s.bg))}` : '';
+                const attrs = c
+                    ? ` tabindex="0" role="button" data-cond="${s.cond}" aria-label="${esc(c.label)}: ${esc(namesFor(c.key).join(', '))}"`
+                    : '';
+                return `<div class="legend-step">
+                    <div class="${cls}" style="background:${s.bg}${color}"${attrs}>${c ? mrIcon(s.glyph) : ''}</div>
+                    <span>${s.label}</span>
+                </div>`;
+            }).join('');
         };
 
         // Toggle shows only the views enabled in ⚙; hidden entirely when

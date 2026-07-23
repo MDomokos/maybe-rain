@@ -4,6 +4,9 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+### code cleanup
+- the legend's three views (rain conditions, temperature scale, wind scale) now render through one shared code path instead of three separate blocks. each view describes its swatches as a simple list and one renderer draws them. no visible change
+
 ## V30 (2026-07-23)
 
 ### header layout
