@@ -4,6 +4,16 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+## V30 (2026-07-23)
+
+### search
+- one unified search look on phone, tablet, and desktop: a single compact field size and row density everywhere, instead of scaling up on tablet and matching the large city-name heading
+- removed the search field's gold underline
+- the city name is bold and the region (state/country) is dimmed, so the place reads at a glance
+- the ★ favourite and ✕ remove buttons line up under the locate and gear icons in the header above them
+- the selected result is marked by a gold underline beneath it
+- unified every gold line to one weight (1px)
+
 ## v29 (2026-07-23)
 
 ### custom icons

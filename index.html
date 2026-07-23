@@ -229,7 +229,9 @@
         .seg button {
             background: transparent;
             border: none;
-            border-bottom: 2px solid transparent;
+            /* 1px active underline: one gold line weight across the app,
+               matching the search-result underline and the sun lines. */
+            border-bottom: 1px solid transparent;
             color: var(--text-faint);
             font-family: inherit;
             font-size: 12px;
@@ -839,15 +841,14 @@
             inset: 0 var(--search-right) -8px 0;   /* leave room for ⚙ on the right */
             display: flex;
             align-items: center;
-            /* Flush with the app: no raised #111 box. The field sits on the
-               same black as everything else, marked only by a single gold
-               hairline underline (the accent, reused). Single-sided border,
-               so radius stays 0. No horizontal padding, so the typed text
-               starts exactly where the city name did, so the field reads as the
-               same element expanded, not a new box. */
+            /* Flush with the app: no raised #111 box, and no underline. The
+               field sits on the same black as everything else; the only gold
+               line in the search UI is the selection highlight above the
+               active result (see .search-result). No horizontal padding, so
+               the typed text starts exactly where the city name did, so the
+               field reads as the same element expanded, not a new box. */
             background: var(--bg);
             border: none;
-            border-bottom: 1px solid var(--accent);
             border-radius: 0;
             padding: 0 0 8px 0;
             opacity: 0;
@@ -866,9 +867,11 @@
             border: none;
             color: var(--text);
             font-family: inherit;
-            /* Match the city-name heading exactly (same size and weight) so
-               the field is just that text made editable. */
-            font-size: 24px;
+            /* One unified search size on every device (not matched to the
+               per-viewport city-name heading): the field only shows while the
+               name is hidden, so a single compact size reads the same on phone,
+               tablet, and desktop. */
+            font-size: 15px;
             font-weight: 600;
             /* type="search" adds native chrome (clear button, inner spin);
                strip it so the field renders like the plain text input it replaced. */
@@ -954,15 +957,32 @@
             border-radius: var(--radius);
         }
         .search-result {
-            padding: 8px 12px;
+            /* Reserve a bottom hairline on every row; its colour is set below
+               (a soft divider between rows, gold under the selected row). This
+               is the one line in the search UI: it underlines the active result
+               and travels with the selection, spanning the full results width,
+               so it runs under the GPS and gear. */
+            border-bottom: 1px solid transparent;
+            padding: 6px 0 6px 12px;   /* no right pad: ✕ reaches the gear edge */
+            font-size: 13px;           /* one unified row size on every device */
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: color 0.2s ease, border-color 0.2s ease;
             color: var(--text);
             display: flex;
-            justify-content: space-between;
             align-items: center;
             gap: 8px;
         }
+        /* City name leads (bold); the region recedes via opacity, so it dims
+           in white and follows the gold on the selected row (A3). */
+        .result-label {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .rl-city { font-weight: 600; }
+        .rl-region { opacity: 0.55; }
         /* Favorites-cap advisory: amber, matching the app's "attention" accent,
            softer than an error. Sits above the results until it self-clears. */
         .fav-hint {
@@ -973,44 +993,60 @@
             background: var(--warn-bg-soft);
             border-bottom: 1px solid var(--line);
         }
-        .search-result .forget {
+        /* Row actions align to the header controls above them: the ✕ remove
+           sits under the ⚙ gear (34px column, flush to the right edge), the ★
+           favorite under the GPS button (30px column + 10px gap reproduces the
+           gear→GPS spacing). An empty .forget-slot holds the ✕ column on rows
+           with no remove action so the ★ never shifts out of the GPS column. */
+        .result-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .search-result .forget,
+        .search-result .forget-slot {
+            width: 34px;              /* aligns the ✕ column under the ⚙ gear */
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             background: none;
             border: none;
             color: var(--text-dim);
             font-family: inherit;
             font-size: 13px;
             line-height: 1;
-            cursor: pointer;
-            padding: 4px 6px;
+            padding: 4px 0;
         }
+        .search-result .forget { cursor: pointer; }
         .search-result .forget:hover { color: var(--text); }
-        /* Row actions: ★ favorite toggle + ✕ dismiss, right-aligned. */
-        .result-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
         .search-result .fav {
+            width: 30px;              /* aligns the ★ column under the GPS button */
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             background: none;
             border: none;
             color: var(--text-dimmer);              /* muted outline star when not a favorite */
             font-family: inherit;
-            font-size: 14px;
+            font-size: 13px;
             line-height: 1;
             cursor: pointer;
-            padding: 4px 6px;
+            padding: 4px 0;
         }
         .search-result .fav.on { color: var(--accent); }   /* gold when favorited */
         .search-result .fav:hover { color: var(--accent); }
-        /* One active row at a time. Hover and the keyboard both drive this
-           single .highlighted class (see the mouseover sync in JS), so the
-           pointer and the Enter target never disagree, and there's only ever
-           one gold row, including the first-result preselect. */
+        /* Soft hairline between rows: every row but the last underlines itself,
+           so there's no line at the very bottom of the list (or under the
+           search bar at the top). */
+        .search-result:not(:last-child) {
+            border-bottom-color: var(--divider);
+        }
+        /* One active row at a time (hover and the keyboard drive the same
+           .highlighted class; see the mouseover sync in JS). The selected row
+           tints gold and underlines itself with the single gold line. This
+           works for the last row too (its own bottom border). Placed after the
+           divider rule so it wins at equal specificity. */
         .search-result.highlighted {
-            color: var(--accent);   /* highlight by tinting the text, not the row */
-        }
-        .search-result + .search-result {
-            border-top: 1px solid var(--divider);
-        }
-        /* Also gold the divider just beneath the active row, to bracket it */
-        .search-result.highlighted + .search-result {
-            border-top-color: var(--accent);
+            color: var(--accent);
+            border-bottom-color: var(--accent);
         }
         .container.search-active #content {
             /* Dim the grid and disable its taps so a stray touch can't open a
@@ -1071,9 +1107,6 @@
             }
             .location {
                 font-size: 18px;
-            }
-            .search-input {
-                font-size: 18px;   /* stay matched to the heading on phones */
             }
             .location-caret svg {
                 width: 14px;
@@ -1181,7 +1214,6 @@
             /* larger lead type for the bigger canvas (grid cells scale with
                the chart height on their own; these are the text elements) */
             .location { font-size: 28px; }
-            .search-input { font-size: 28px; }   /* stay matched to the heading */
             .location-caret svg { width: 18px; height: 18px; }
             .time-label { font-size: calc(12px * var(--ui, 1)); }
             .day-label { font-size: calc(13px * var(--ui, 1)); }
@@ -2852,12 +2884,16 @@
             $('searchResults').innerHTML =
                 state.suggestions.map((p, i) =>
                     `<div class="search-result" data-i="${i}">
-                        <span>${esc(p.name)}${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>
+                        <span class="result-label"><span class="rl-city">${esc(p.name)}</span>${
+                            (p.admin1 || p.country)
+                                ? `<span class="rl-region">${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>`
+                                : ''
+                        }</span>
                         <span class="result-actions">
                             <button class="fav${p.fav ? ' on' : ''}" data-i="${i}"
                                     aria-label="${p.fav ? 'Unfavorite' : 'Favorite'} ${esc(p.name)}"
                                     aria-pressed="${p.fav}">${p.fav ? MR_ICON_STAR_SAVED : MR_ICON.star}</button>
-                            ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">${MR_ICON.close}</button>` : ''}
+                            ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">${MR_ICON.close}</button>` : `<span class="forget-slot" aria-hidden="true"></span>`}
                         </span>
                     </div>`
                 ).join('');
