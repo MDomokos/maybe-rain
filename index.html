@@ -503,8 +503,21 @@
         .tooltip div { white-space: nowrap; line-height: 1.5; }
         /* The freshness explanation is prose, not facts: let it wrap and cap
            the width so it reads as a paragraph rather than one long line. */
-        .tooltip.explain { width: auto; max-width: min(280px, calc(100vw - 16px)); }
-        .tooltip.explain div { white-space: normal; }
+        .tooltip.explain { width: auto; max-width: min(260px, calc(100vw - 16px)); padding: 10px 12px; }
+        .tooltip.explain div { white-space: normal; line-height: 1.45; margin-top: 7px; }
+        /* Title sits tight to the top; the muted rule under it groups the body. */
+        .tooltip.explain div:first-child { margin-top: 0; }
+        .tooltip.explain .tip-title {
+            font-size: 12px;
+            padding-bottom: 6px;
+            margin-bottom: 1px;
+            border-bottom: 1px solid var(--line);
+        }
+        /* Bold lead-ins ("Local", "Global") brighten so the eye lands on them. */
+        .tooltip.explain strong { color: #fff; }
+        .tooltip.explain .tip-body { color: #d0d0d0; }
+        /* The docs link gets extra separation from the body prose. */
+        .tooltip.explain .tip-link { margin-top: 10px; font-size: 11px; }
         /* Link inside the explanation (gold accent; the tooltip becomes
            interactive so it can be clicked; see showTooltip). */
         .tooltip a { color: #FFD700; text-decoration: underline; }
@@ -519,11 +532,21 @@
            push the buttons out of alignment. */
         /* The freshness line is also the refresh button: click/tap refetches,
            hover/focus explains. */
+        /* Wrap holds the freshness label (refresh button) plus the ⓘ that
+           owns the explanation, so hovering/tapping the label just refreshes
+           and the info is a separate, non-intrusive target. */
+        .status-wrap {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
         .status {
             font-size: 11px;
             color: #666;
             text-align: left;
-            flex: 1 1 auto;
+            flex: 0 1 auto;
             min-width: 0;
             white-space: nowrap;
             overflow: hidden;
@@ -535,6 +558,31 @@
         }
         .status:hover { color: #999; }
         .status:focus-visible { outline: 1px solid #FFD700; outline-offset: 2px; border-radius: 2px; }
+        /* Info affordance for the freshness explanation. Drawn as a bordered
+           circle with an italic "i" so it reads clearly on the dark theme and
+           never depends on a font glyph. Muted so it doesn't compete with the
+           state text. */
+        .status-info {
+            flex: none;
+            width: 15px;
+            height: 15px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Georgia, 'Times New Roman', serif;
+            font-size: 10px;
+            font-style: italic;
+            font-weight: 700;
+            line-height: 1;
+            color: #999;
+            background: none;
+            border: 1px solid #777;
+            border-radius: 50%;
+            cursor: help;
+        }
+        .status-info:hover { color: #fff; border-color: #aaa; }
+        .status-info:focus-visible { outline: 1px solid #FFD700; outline-offset: 1px; border-radius: 50%; }
         .status.stale {
             color: #B0B0B0;
         }
@@ -1022,7 +1070,10 @@
                 <div class="chart-grid" id="grid"></div>
             </div>
             <div class="view-toggle" id="viewToggle">
-                <div id="status" class="status" tabindex="0" role="button"></div>
+                <div class="status-wrap">
+                    <div id="status" class="status" tabindex="0" role="button"></div>
+                    <button class="status-info" id="statusInfo" aria-label="About forecast freshness">i</button>
+                </div>
                 <div class="seg">
                     <button data-view="rain">rain</button>
                     <button data-view="temp">temp</button>
@@ -1056,6 +1107,32 @@
         // reference for how recent the underlying model output is. The
         // metadata endpoint is tiny and is NOT counted against rate limits.
         const META_URL = 'https://api.open-meteo.com/data/dwd_icon/static/meta.json';
+        // Regional high-resolution models Best Match may use for the near-term
+        // hours; each refreshes more often than the global run and covers a
+        // limited area. bbox = [latMin, lonMin, latMax, lonMax], read from each
+        // model's own meta.json. Best Match never reveals which model it picked
+        // per point, so this is an approximation: of the models whose grid
+        // contains the location, pick the one whose center is nearest (see
+        // localModelFor). A location outside every box → global indicator only.
+        const LOCAL_MODELS = [
+            { slug: 'meteofrance_arome_france_hd',     label: 'AROME',    bbox: [37.5, -12.0, 55.4, 16.0] },
+            { slug: 'dwd_icon_d2',                     label: 'ICON-D2',  bbox: [43.18, -3.94, 58.08, 20.34] },
+            { slug: 'knmi_harmonie_arome_netherlands', label: 'HARMONIE', bbox: [49.0, 0.0, 56.0, 11.28] },
+            { slug: 'ukmo_uk_deterministic_2km',       label: 'UKMO',     bbox: [44.51, -17.15, 61.93, 15.35] },
+            { slug: 'ncep_hrrr_conus',                 label: 'HRRR',     bbox: [21.14, -122.72, 47.84, -60.92] },
+            { slug: 'jma_msm',                         label: 'MSM',      bbox: [22.4, 120.0, 47.6, 150.0] }
+        ];
+        const localMetaURL = slug => `https://api.open-meteo.com/data/${slug}/static/meta.json`;
+        const localModelFor = (lat, lon) => {
+            let best = null, bestD = Infinity;
+            for (const m of LOCAL_MODELS) {
+                const [a, b, c, d] = m.bbox;
+                if (lat < a || lat > c || lon < b || lon > d) continue;
+                const dist = (lat - (a + c) / 2) ** 2 + (lon - (b + d) / 2) ** 2;
+                if (dist < bestD) { bestD = dist; best = m; }
+            }
+            return best;
+        };
         // The line counts down to the next model update, estimated from the
         // current run's own publish lag. Once that estimate passes by more than
         // this grace, the update is genuinely overdue → warn amber.
@@ -1091,7 +1168,8 @@
         const LS_VIEW = 'mr-view';       // 'rain' | 'temp' | 'wind' grid mode
         const LS_INSTALL = 'mr-install-dismissed';
         const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (capped, user-curated)
-        const LS_META = 'mr-model-meta';     // cached model-run metadata (run time + cadence)
+        const LS_META = 'mr-model-meta';     // cached global model-run metadata (run time + cadence)
+        const LS_META_LOCAL = 'mr-model-meta-local'; // cached regional model meta, keyed by model slug
         const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
         const MAX_FAVORITES = 6; // cap on ★ favorites (user must unfavorite to add more)
         // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
@@ -1234,7 +1312,8 @@
             days: [],     // [{text, isToday, date}]
             sun: {},      // date → { rise: {h, m}, set: {h, m} } (city-local)
             fetchedAt: 0, // timestamp of the forecast currently displayed
-            modelRun: null, // { init, interval, nextRun } ms, from the metadata API
+            modelRun: null, // global model run: { init, interval, nextUpdate } ms, from the metadata API
+            localRun: null, // regional high-res model run (or null): { init, interval, nextUpdate, slug, label }
             loading: false,
             controller: null,
             online: navigator.onLine, // tracked via online/offline events (DR-7)
@@ -1591,7 +1670,7 @@
             // (3) A newer app version is waiting: one reload CTA, styled like the
             // outdated pill, in this same line instead of a separate banner.
             if (state.swUpdate) {
-                setStatus('New version. Tap to reload', 'outdated');
+                setStatus('New app version. Tap to reload', 'outdated');
                 $('status').setAttribute('aria-label',
                     'A new version of the app is available. Tap to reload.');
                 return;
@@ -1604,11 +1683,26 @@
             const m = state.modelRun;
             if (m) {
                 const toNext = m.nextUpdate - Date.now();
+                const loc = state.localRun;
                 if (overdue) {
                     // A newer run should be out, so present an explicit refresh CTA.
                     setStatus('↻ Update forecast', 'outdated');
                     $('status').setAttribute('aria-label',
-                        `Forecast out of date (model last run ${runClockLabel(m.init)}). Refresh to update.`);
+                        `Forecast out of date (global model last run ${runClockLabel(m.init)}). Refresh to update.`);
+                } else if (loc) {
+                    // Two-model line: the regional high-res model drives the
+                    // near-term hours and refreshes more often; the global run
+                    // covers the full 7-day horizon. Show both run times so
+                    // "how fresh" is honest for each. Overdue stays tied to the
+                    // global cadence (above), since it governs the whole grid.
+                    setStatus(`Local ${runClockLabel(loc.init)} · Global ${runClockLabel(m.init)}`, '');
+                    const toLoc = loc.nextUpdate - Date.now();
+                    $('status').setAttribute('aria-label',
+                        `Forecast freshness: ${loc.label} local model last run at ${runClockLabel(loc.init)}` +
+                        (toLoc > 0 ? ` (next update ~${nextTimeLabel(loc.nextUpdate)})` : ' (update due)') +
+                        `; global model last run at ${runClockLabel(m.init)}` +
+                        (toNext > 0 ? ` (next ~${nextTimeLabel(m.nextUpdate)})` : ' (update due)') +
+                        '. Click to refresh.');
                 } else {
                     const tail = toNext > 0 ? `next update ~${nextTimeLabel(m.nextUpdate)}` : 'update due';
                     setStatus(`Run ${runClockLabel(m.init)} · ${tail}`, '');
@@ -1670,15 +1764,18 @@
         // last run became available at last_run_availability_time, so the next
         // run should release about one update interval after that. This gives a
         // real expected time rather than a guess.
-        const setModelRun = meta => {
+        const parseRun = meta => {
             const init = meta.last_run_initialisation_time * 1000;
             const interval = (meta.update_interval_seconds || 6 * 3600) * 1000;
             // When the current run actually became available on the API.
             const released = meta.last_run_availability_time
                 ? meta.last_run_availability_time * 1000
                 : init + 4 * 60 * 60 * 1000; // fallback: typical global publish lag
-            state.modelRun = { init, interval, nextUpdate: released + interval };
+            return { init, interval, nextUpdate: released + interval };
         };
+        const setModelRun = meta => { state.modelRun = parseRun(meta); };
+        const setLocalRun = (meta, model) =>
+            { state.localRun = { ...parseRun(meta), slug: model.slug, label: model.label }; };
 
         // Fetch the model-run metadata. Fired in parallel with the forecast
         // (never chained after it) and non-blocking: the grid paints first and
@@ -1703,9 +1800,45 @@
             } catch { /* offline / CORS / timeout: keep fetch-time fallback */ }
         };
 
+        // Fetch the regional model's run time for the current place, same
+        // pattern as fetchModelMeta (parallel, non-blocking, cadence-guarded).
+        // The model is chosen by location; if none covers it, state.localRun is
+        // cleared so the line shows the global run alone. Per-slug cache, since
+        // switching cities can switch regions. Called alongside fetchModelMeta
+        // on every fetch, so it re-evaluates whenever the place changes.
+        const fetchLocalMeta = async () => {
+            const model = localModelFor(state.place.latitude, state.place.longitude);
+            if (!model) { state.localRun = null; return; }
+            // Have this model's run already and it's still current.
+            if (state.localRun?.slug === model.slug && Date.now() < state.localRun.nextUpdate) return;
+            const cache = loadJSON(LS_META_LOCAL) || {};
+            const cached = cache[model.slug];
+            if (cached?.last_run_initialisation_time) {
+                setLocalRun(cached, model);
+                if (Date.now() < state.localRun.nextUpdate) return; // cache still within cadence
+            } else if (state.localRun?.slug !== model.slug) {
+                state.localRun = null; // don't show the previous region's run while fetching
+            }
+            try {
+                const r = await fetch(localMetaURL(model.slug), {
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
+                });
+                if (!r.ok) return;
+                const meta = await r.json();
+                if (!meta?.last_run_initialisation_time) return;
+                // The place may have changed regions mid-fetch — discard if so.
+                if (localModelFor(state.place.latitude, state.place.longitude)?.slug !== model.slug) return;
+                setLocalRun(meta, model);
+                saveJSON(LS_META_LOCAL, { ...(loadJSON(LS_META_LOCAL) || {}), [model.slug]: meta });
+                if (!state.loading) updateStatus(); // don't clobber "Loading…"/"Updating…"
+            } catch { /* offline / CORS / timeout: fall back to global-only line */ }
+        };
+
         const fetchWeather = async (force = false) => {
             if (state.loading && !force) return;
             fetchModelMeta(); // parallel, non-blocking; self-guards on cadence
+            fetchLocalMeta(); // regional run time for this place; self-guards too
             if (!force && state.data.length && (Date.now() - state.fetchedAt) < FRESH_TIME) {
                 updateStatus();
                 return;
@@ -2007,7 +2140,7 @@
         // Toggle shows only the views enabled in ⚙; hidden entirely when
         // just one view is left, since there is nothing to switch to.
         const renderViewToggle = () => {
-            document.querySelectorAll('#viewToggle button').forEach(b => {
+            document.querySelectorAll('#viewToggle .seg button').forEach(b => {
                 b.style.display = settings.views[b.dataset.view] ? '' : 'none';
                 b.classList.toggle('active', b.dataset.view === view);
             });
@@ -2043,22 +2176,22 @@
             const tooltip = $('tooltip');
             // Prose explanation wraps and is interactive (so its link is
             // clickable); the fact tooltips stay single-line and click-through.
-            tooltip.classList.toggle('explain', el.id === 'status');
-            tooltip.style.pointerEvents = el.id === 'status' ? 'auto' : 'none';
-            if (el.id === 'status') { // freshness line: what it means
-                const docs = '<a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules model updates ↗</a>';
-                const lines = state.modelRun
-                    ? ['<strong>Forecast freshness</strong>',
-                       'Run time is when the weather model last computed this forecast - not when the app fetched it.',
-                       'The next time is when fresh data is expected - These times track the global model (ICON), which updates every 6 hours and drives the longer-range forecast.',
-                       'Your local short-range may refresh more often.',
-                       '<em>Click the label to refresh now.</em>',
-                       docs]
-                    : ['<strong>Forecast freshness</strong>',
-                       'How recently the app fetched the forecast. The model run time is unavailable right now.',
-                       '<em>Click the label to refresh now.</em>',
-                       docs];
-                tooltip.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+            tooltip.classList.toggle('explain', el.id === 'statusInfo');
+            tooltip.style.pointerEvents = el.id === 'statusInfo' ? 'auto' : 'none';
+            if (el.id === 'statusInfo') { // freshness line: what it means
+                const title = '<div class="tip-title"><strong>Forecast freshness</strong></div>';
+                const docs = '<div class="tip-link"><a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules updates ↗</a></div>';
+                const body = state.modelRun
+                    ? (state.localRun
+                        ? [`<strong>Local:</strong> the ${esc(state.localRun.label)} regional model. Drives the near-term hours and refreshes often.`,
+                           '<strong>Global:</strong> ICON, updated about every 6h. Covers the full 7-day forecast.',
+                           'Each shows when it last ran.']
+                        : ['<strong>Global model (ICON):</strong> sets the run and next-update times, refreshing about every 6h.',
+                           'No local short-range model covers this location.'])
+                    : ['Shows when the app last fetched the forecast.',
+                       'The model run time is unavailable right now.'];
+                tooltip.innerHTML =
+                    title + body.map(l => `<div class="tip-body">${l}</div>`).join('') + docs;
             } else if (el.dataset.cond != null) { // legend cell: exact condition names
                 const c = CONDITIONS[+el.dataset.cond];
                 tooltip.innerHTML =
@@ -2402,28 +2535,44 @@
         // The freshness label doubles as the refresh/retry button: hover or
         // keyboard focus shows the explanation, click / Enter / Space refetches.
         {
-            const s = $('status'), tip = $('tooltip');
-            // Delay the hide so the pointer can travel from the label up into
-            // the tooltip (to click its link) without it vanishing.
+            const s = $('status'), info = $('statusInfo'), tip = $('tooltip');
+            // Delay the hide so the pointer can travel from the ⓘ up into the
+            // tooltip (to click its link) without it vanishing.
             let hideTimer = null;
             const hold = () => { clearTimeout(hideTimer); hideTimer = null; };
             const drop = () => { hideTimer = setTimeout(hideTooltip, 250); };
-            const explain = () => { hold(); showTooltip(s); };
-            // The line is one button with two jobs: when a new app version is
+            const explain = () => { hold(); showTooltip(info); };
+            // The label is one button with two jobs: when a new app version is
             // waiting it reads "New version. Tap to reload" and a tap reloads;
-            // otherwise a tap refetches the forecast.
+            // otherwise a tap refetches the forecast. The explanation lives on
+            // the separate ⓘ so refreshing never triggers the tooltip.
             const refresh = () => {
                 hideTooltip();
                 if (state.swUpdate) { location.reload(); return; }
                 fetchWeather(true);
             };
-            s.addEventListener('mouseenter', explain);
-            s.addEventListener('mouseleave', drop);
-            s.addEventListener('focus', explain);
-            s.addEventListener('blur', hideTooltip);
             s.addEventListener('click', refresh);
             s.addEventListener('keydown', e => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); refresh(); }
+            });
+            // ⓘ owns the explanation: hover/focus opens it on desktop; a tap
+            // toggles it on mobile (where the label's tap is spoken for by
+            // refresh). Stop the tap from bubbling to the document handler
+            // that would immediately close it again.
+            const shown = () => tip.classList.contains('explain') && tip.style.opacity === '1';
+            info.addEventListener('mouseenter', explain);
+            info.addEventListener('mouseleave', drop);
+            info.addEventListener('focus', explain);
+            info.addEventListener('blur', hideTooltip);
+            info.addEventListener('click', e => {
+                e.stopPropagation();
+                if (shown()) hideTooltip(); else explain();
+            });
+            info.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (shown()) hideTooltip(); else explain();
+                }
             });
             // Keep it open while the pointer is over the (interactive) tooltip.
             tip.addEventListener('mouseenter', () => { if (tip.classList.contains('explain')) hold(); });
@@ -2867,6 +3016,15 @@
             if (!document.hidden && !state.loading) fetchWeather();
         }, 30 * 60 * 1000);
 
+        // The 30-min timer skips while hidden, so a backgrounded tab/PWA can
+        // sit on a stale run time for hours. Re-check when it becomes visible
+        // again: fetchWeather no-ops if data is < 10 min old, and fetchModelMeta
+        // self-guards on the model cadence, so this is cheap and only does real
+        // work when a new run is actually due.
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && !state.loading) fetchWeather();
+        });
+
         // DR-7: connection state flows through the one status line. Going
         // offline names the honest resting state and keeps the last forecast on
         // screen (never a blank grid). Coming back shows a brief "Back online"
@@ -2890,6 +3048,31 @@
         // Installed PWA (mobile): .standalone locks the viewport to exactly
         // one screen, no scroll (see the standalone CSS block).
         if (isStandalone()) document.documentElement.classList.add('standalone');
+
+        // Android standalone reload quirk: after location.reload() (the update
+        // CTA), the system bars — and the safe-area insets that keep content
+        // clear of the gesture nav bar — settle a beat AFTER first paint. The
+        // locked-height layout gets measured against the pre-settle insets
+        // (effectively 0), so the bottom of the grid tucks under the nav bar
+        // until the app is reopened. Re-assert the .standalone rules whenever
+        // the viewport changes (and on a couple of frames right after boot) so
+        // the padding re-reads env(safe-area-inset-*) once the bars have
+        // settled. No-op off standalone, so desktop/browser are untouched.
+        const resyncStandalone = () => {
+            const html = document.documentElement;
+            if (!isStandalone() || !html.classList.contains('standalone')) return;
+            html.classList.remove('standalone');
+            void html.offsetHeight;            // force reflow before re-adding
+            html.classList.add('standalone');  // padding now re-reads env() insets
+        };
+        addEventListener('resize', resyncStandalone);
+        addEventListener('orientationchange', resyncStandalone);
+        addEventListener('pageshow', resyncStandalone);
+        if (window.visualViewport) visualViewport.addEventListener('resize', resyncStandalone);
+        // Backstops: on some devices the bars settle without firing a resize.
+        requestAnimationFrame(resyncStandalone);
+        setTimeout(resyncStandalone, 300);
+
         // The install banner is no longer shown here: it's armed on the first
         // real data paint (see updateDisplay) so it never precedes the grid.
         applyBand();   // --band from the current hours setting
@@ -2909,6 +3092,12 @@
 
         const savedMeta = loadJSON(LS_META);
         if (savedMeta?.last_run_initialisation_time) setModelRun(savedMeta);
+        // Prime the local run from cache for the resolved place, so the two-model
+        // line can paint immediately; fetchLocalMeta revalidates on first fetch.
+        const savedLocal = loadJSON(LS_META_LOCAL);
+        const startModel = savedLocal && localModelFor(state.place.latitude, state.place.longitude);
+        if (startModel && savedLocal[startModel.slug]?.last_run_initialisation_time)
+            setLocalRun(savedLocal[startModel.slug], startModel);
 
         if (firstVisit) {
             // No shared link and no saved place. Rather than paint the hardcoded

@@ -4,6 +4,23 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...), 
 
 ## unreleased
 
+## v24 (2026-07-23)
+
+### local + global model times
+- the freshness line now shows two run times where a regional high-res model covers
+- the local model is picked from location: arome (france/w europe), icon-d2 (central europe), harmonie (netherlands), ukmo (british isles), hrrr (us), msm (japan). Otherwise global model (icon). Only a best guess, not a guarantee.
+
+### background refresh
+- returning to a backgrounded tab or installed app now re-checks the forecast right away. does no network work if the data is already current
+
+### status tooltip
+- the freshness explanation moved off the status label and onto a small ⓘ beside it.
+- the ⓘ now works on touch: before, the info was hover-only, so phones never saw it (the label's own tap is taken by refresh)
+- rewrote the explanation to spell out the local vs global model split
+
+### android layout fix
+- installed on android, reloading via the update button no longer leaves the bottom of the grid tucked under the gesture nav bar: the layout now re-reads the safe-area insets once the system bars settle after a reload
+
 ## v23 (2026-07-23)
 
 ### per-city cache
