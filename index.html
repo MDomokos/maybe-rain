@@ -783,22 +783,29 @@
         .status.stale {
             color: var(--status-stale);
         }
-        /* Out of date: the run is past its expected refresh. The label becomes
-           an explicit amber "update" button (bordered pill) prompting a manual
-           refresh; the ↻ glyph reads as refresh for colour-blind users too.
-           Like the resting line it may shrink and ellipsize (flex 0 1 auto,
-           min-width 0) so a long state never overlaps or pushes the
-           rain/temp/wind buttons out of the row on a narrow phone. */
+        /* Out of date / update CTAs: "↻ Update forecast", "↻ Update app", and
+           the "New version · see ⚙" note all share this one button. Same shape
+           and behaviour as the settings-panel .btn (1px border, --radius, smooth
+           transition, border brightens on hover) so every button in the app
+           reads as one family; recoloured amber with a soft --warn-bg fill so it
+           carries more colour and pulls the eye as an attention CTA. The ↻ glyph
+           doubles the "refresh" signal for colour-blind users. Kept at the row's
+           11px scale (not the settings 12px) so it lines up with the
+           rain/temp/wind toggles beside it instead of towering over them. Like
+           the resting line it may shrink and ellipsize (flex 0 1 auto, min-width
+           0) so a long state never pushes the toggles out of the row on a narrow
+           phone. */
         .status.outdated {
             color: var(--warn);
             flex: 0 1 auto;
             min-width: 0;
-            border: 1px solid currentColor;
+            background: var(--warn-bg);
+            border: 1px solid var(--warn);
             border-radius: var(--radius);
-            padding: 2px 8px;
-            font-weight: 500;
+            padding: 3px 9px;
+            transition: all 0.2s ease;
         }
-        .status.outdated:hover { color: var(--warn-strong); background: var(--warn-bg); }
+        .status.outdated:hover { color: var(--warn-strong); border-color: var(--warn-strong); }
         .fade-in {
             animation: fadeIn 0.5s ease-in;
         }

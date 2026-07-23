@@ -7,7 +7,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 ### app updates
 - the "update app" button no longer shows when the app is already up to date. it now appears only when a new version actually landed while the app was open and a reload is needed
 - the app re-checks for a new version when you switch back to it, so that update button shows up when there genuinely is one (not only after a full reopen)
-- after an update, the "new version · see ⚙" note (which points to what's new) now shows reliably. before, it sometimes didn't appear, or flashed before the update button. it stays up for about 4 seconds, then the line goes back to the forecast freshness
+- the update / new-version buttons in the status line now match the buttons in the settings panel 
 
 ## v31 (2026-07-23)
 
