@@ -15,14 +15,21 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://mdomokos.github.io/maybe-rain/">
     <meta property="og:site_name" content="Maybe Rain?">
+    <meta property="og:locale" content="en_NZ">
     <meta property="og:image" content="https://mdomokos.github.io/maybe-rain/og.png">
+    <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Maybe Rain? — glanceable weekly weather">
+    <meta property="og:image:alt" content="A week of Maybe Rain?'s hourly forecast grid, coloured by condition, beside the wordmark">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Maybe Rain?">
     <meta name="twitter:description" content="Glanceable weekly weather — should I expect rain, and when?">
     <meta name="twitter:image" content="https://mdomokos.github.io/maybe-rain/og.png">
+    <meta name="twitter:image:alt" content="A week of Maybe Rain?'s hourly forecast grid, coloured by condition, beside the wordmark">
+    <!-- Warm up the TLS connection to the forecast API before the first fetch
+         fires (preconnect pays off when there's a 100–300 ms gap ahead of the
+         request — here, the JS boot + geolocation resolve provide it). -->
+    <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.5f244688.png">
@@ -110,6 +117,9 @@
         .location:hover::after {
             transform: translateY(2px);
         }
+        /* First-visit "Locating…" state: hide the change-city arrow (there's
+           no place to change yet); the header can still be tapped to search. */
+        .location.locating::after { display: none; }
 
         /* Button styles */
         .btn {
@@ -177,15 +187,20 @@
         .seg button.active { background: #fff; color: #000; }
         .seg button:focus-visible { outline: 1px solid #FFD700; outline-offset: -2px; }
 
-        /* Rain/temperature view toggle: one tap, near the grid.
-           Right margin = --overhang, so it aligns with the last column,
-           not the gridline overhang. */
+        /* Rain/temperature view toggle: one tap, near the grid. Shares its
+           row with the data-freshness line (freshness left, buttons right).
+           Right margin = --overhang, so the buttons align with the last
+           column, not the gridline overhang. */
         .view-toggle {
             display: flex;
-            justify-content: flex-end;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
             margin-top: var(--sp-1);
+            margin-left: var(--gutter);
             margin-right: var(--overhang);
         }
+        .view-toggle .seg { flex: none; }
         .view-toggle .seg button { padding: 3px 10px; font-size: 11px; }
 
         /* Keyboard focus */
@@ -228,15 +243,6 @@
             .weather-block.skeleton, .status.updating { animation: none; opacity: 0.7; }
             .weather-block.reveal { animation: none; }
         }
-        .error {
-            border: 1px solid rgba(255,0,0,0.5);
-            border-radius: var(--radius);
-            padding: 15px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            color: #ff6b6b;
-        }
-
         /* Temperature and day labels.
            All three rows (temps, day labels, grid columns) share the same
            left gutter, gap, and flex:1 items, so they stay column-aligned
@@ -462,22 +468,55 @@
         /* One fact per line, never wrapped mid-fact ("wind 6 km/h NW"
            stays whole); the tooltip grows to fit instead. */
         .tooltip div { white-space: nowrap; line-height: 1.5; }
+        /* The freshness explanation is prose, not facts: let it wrap and cap
+           the width so it reads as a paragraph rather than one long line. */
+        .tooltip.explain { width: auto; max-width: min(280px, calc(100vw - 16px)); }
+        .tooltip.explain div { white-space: normal; }
+        /* Link inside the explanation (gold accent; the tooltip becomes
+           interactive so it can be clicked — see showTooltip). */
+        .tooltip a { color: #FFD700; text-decoration: underline; }
+        .tooltip a:hover { color: #fff; }
 
         /* Status and animations. Centered on the column field like the
            legend. No hue of its own: gold is reserved for now/today/sun and
            the palette for conditions, so the status text carries the state
            in words. */
+        /* Data-freshness line: shares the view-toggle row, sits to the left
+           of the rain/temp/wind buttons. Ellipsizes so long states never
+           push the buttons out of alignment. */
+        /* The freshness line is also the refresh button: click/tap refetches,
+           hover/focus explains. */
         .status {
             font-size: 11px;
             color: #666;
-            text-align: center;
-            margin-top: var(--sp-1);
-            padding-left: var(--gutter);
-            padding-right: var(--overhang);
+            text-align: left;
+            flex: 1 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: inherit;
         }
+        .status:hover { color: #999; }
+        .status:focus-visible { outline: 1px solid #FFD700; outline-offset: 2px; border-radius: 2px; }
         .status.stale {
             color: #B0B0B0;
         }
+        /* Out of date: the run is past its expected refresh. The label becomes
+           an explicit amber "update" button (bordered pill) prompting a manual
+           refresh; the ↻ glyph reads as refresh for colour-blind users too. */
+        .status.outdated {
+            color: #E0A83E;
+            flex: none;
+            border: 1px solid currentColor;
+            border-radius: var(--radius);
+            padding: 2px 8px;
+            font-weight: 500;
+        }
+        .status.outdated:hover { color: #F0C060; background: rgba(224,168,62,0.12); }
         .fade-in {
             animation: fadeIn 0.5s ease-in;
         }
@@ -490,6 +529,9 @@
         }
 
         /* Install banner: bottom-center pill, dismissible, remembered.
+           Hidden by default in CSS — it must never pre-empt the forecast.
+           JS adds .revealed only after the grid has painted real data once
+           and a short read delay has elapsed (see maybeScheduleInstallBanner).
            Shown once per device until installed or dismissed. */
         .install-banner {
             position: fixed;
@@ -500,14 +542,16 @@
             border: 1px solid var(--line);
             border-radius: var(--radius);
             padding: 10px 12px;
-            display: flex;
+            display: none;              /* revealed only via .revealed */
             align-items: center;
             gap: 12px;
             font-size: 12px;
             z-index: 50;
             max-width: calc(100vw - 32px);
         }
-        .install-banner.hidden { display: none; }
+        .install-banner.revealed { display: flex; animation: installIn .25s ease-out; }
+        /* Opacity-only fade: animating transform would fight translateX(-50%). */
+        @keyframes installIn { from { opacity: 0; } to { opacity: 1; } }
         .install-banner .btn { padding: 5px 12px; font-size: 12px; white-space: nowrap; }
         .install-banner .dismiss {
             background: none;
@@ -738,6 +782,77 @@
             html.standalone .chart { min-height: 0; }
         }
 
+        /* ------------------------------------------------------------------
+           Tablet / iPad. The phone rule (≤480px) fills the screen edge to
+           edge; the default rule centers a narrow ≤540px column. Between them
+           an iPad got that narrow column floating in a sea of black. These
+           two rules close the gap. Portrait is the intended orientation for a
+           vertical agenda grid, so it does the real work — the column widens
+           and the grid stretches to the bottom of the screen. Landscape (short
+           and wide) just stays tidy and centered. The landscape rule is gated
+           on pointer:coarse + a tall min-height so desktop/laptop browsers in
+           the same width range are never caught. */
+
+        /* Portrait tablet: fill the viewport height like the phone, but keep a
+           centered column with a larger cap and roomier margins. */
+        @media (min-width: 481px) and (orientation: portrait) {
+            /* A *definite* container height (not flex-grow inside a min-height
+               body) is required so the grid's percentage cell heights (--band)
+               resolve — the same approach the phone rule uses. Growing the
+               container with flex:1 fills the screen but collapses every cell
+               to ~0 height (an empty grid). calc(100dvh - 56px) accounts for
+               the 28px body padding top+bottom, so it fills without overflow. */
+            body { padding: 28px; }
+            .container {
+                max-width: min(820px, 90vw);
+                height: calc(100vh - 56px);
+                height: calc(100dvh - 56px);
+                margin: 0 auto;
+                display: flex;
+                flex-direction: column;
+            }
+            #content {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+            }
+            /* the grid absorbs the extra height so it reaches the bottom */
+            .chart {
+                flex: 1;
+                height: auto;
+                min-height: 360px;
+                margin-top: var(--sp-2);
+            }
+            /* larger lead type for the bigger canvas (grid cells scale with
+               the chart height on their own; these are the text elements) */
+            .location { font-size: 28px; }
+            .location::after { font-size: 18px; }
+            .time-label { font-size: calc(12px * var(--ui, 1)); }
+            .day-label { font-size: calc(13px * var(--ui, 1)); }
+            .temp-max { font-size: calc(15px * var(--ui, 1)); }
+            .temp-min, .temp-sep { font-size: calc(13px * var(--ui, 1)); }
+        }
+
+        /* Landscape tablet (touch, tall viewport): short and wide. Don't fill
+           height — center the portrait grid and cap it so it never overflows.
+           min-height rules out phones in landscape; pointer:coarse rules out
+           desktops. */
+        @media (orientation: landscape) and (min-height: 600px) and (pointer: coarse) {
+            body {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                min-height: -webkit-fill-available;
+                min-height: 100dvh;
+                padding: 24px;
+            }
+            .container { max-width: clamp(420px, 64vh, 600px); width: 100%; }
+            .chart { height: clamp(280px, 58vh, 620px); }
+        }
+
         /* desktop keyboard-shortcut reference in the settings pane */
         .shortcuts-hint {
             display: flex;
@@ -795,11 +910,6 @@
             <div class="settings hidden" id="settings"></div>
         </div>
 
-        <div id="error" class="error hidden">
-            <div id="errorText"></div>
-            <button class="btn" id="retry">Retry</button>
-        </div>
-
         <div id="content">
             <div class="day-labels" id="days"></div>
             <div class="temp-row" id="temps"></div>
@@ -809,6 +919,7 @@
                 <div class="chart-grid" id="grid"></div>
             </div>
             <div class="view-toggle" id="viewToggle">
+                <div id="status" class="status" tabindex="0" role="button"></div>
                 <div class="seg">
                     <button data-view="rain">rain</button>
                     <button data-view="temp">temp</button>
@@ -816,11 +927,10 @@
                 </div>
             </div>
             <div class="legend" id="legend"></div>
-            <div id="status" class="status"></div>
         </div>
     </div>
 
-    <div class="install-banner hidden" id="installBanner">
+    <div class="install-banner" id="installBanner">
         <span id="installText"></span>
         <button class="btn" id="installGo">Install</button>
         <button class="dismiss" id="installDismiss" aria-label="Dismiss">✕</button>
@@ -834,7 +944,19 @@
         // Data: Open-Meteo (keyless, true hourly, 7 days, city-local time).
         // ---------------------------------------------------------------
         const FRESH_TIME = 10 * 60 * 1000;   // consider data fresh for 10 min
+        const FETCH_TIMEOUT = 10 * 1000;     // abort a stalled forecast fetch after 10s
         const HOUR_START = 6, HOUR_END = 21; // displayed hours (inclusive)
+        // The forecast uses Open-Meteo "Best Match" (a different model per
+        // location, whose identity the API never returns). For the freshness
+        // line we read the *run* time of the global model that drives the
+        // 7-day horizon — DWD ICON, 6-hourly, hourly, 7.5 days — as an honest
+        // reference for how recent the underlying model output is. The
+        // metadata endpoint is tiny and is NOT counted against rate limits.
+        const META_URL = 'https://api.open-meteo.com/data/dwd_icon/static/meta.json';
+        // The line counts down to the next model update, estimated from the
+        // current run's own publish lag. Once that estimate passes by more than
+        // this grace, the update is genuinely overdue → warn amber.
+        const NEXT_UPDATE_GRACE = 60 * 60 * 1000;
         const DEFAULT_PLACE = {
             name: 'Whakatane', country: 'New Zealand', admin1: 'Bay of Plenty',
             latitude: -37.9586, longitude: 176.9854
@@ -846,6 +968,7 @@
         const LS_VIEW = 'mr-view';       // 'rain' | 'temp' | 'wind' grid mode
         const LS_INSTALL = 'mr-install-dismissed';
         const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (uncapped, user-curated)
+        const LS_META = 'mr-model-meta';     // cached model-run metadata (run time + cadence)
         const MAX_CITIES = 9; // cap on recent cities (MRU-evicted); favorites are separate
         // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
         const MOD = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';
@@ -987,6 +1110,7 @@
             days: [],     // [{text, isToday, date}]
             sun: {},      // date → { rise: {h, m}, set: {h, m} } (city-local)
             fetchedAt: 0, // timestamp of the forecast currently displayed
+            modelRun: null, // { init, interval, nextRun } ms — from the metadata API
             loading: false,
             controller: null,
             suggestions: [] // saved cities + geocoding hits, in display order
@@ -1062,8 +1186,12 @@
 
         // --- UI state ---------------------------------------------------
         const setStatus = (text, cls = '') => {
-            $('status').textContent = text;
-            $('status').className = `status ${cls}`.trim();
+            const el = $('status');
+            el.textContent = text;
+            el.className = `status ${cls}`.trim();
+            // It's a button now, so always name the refresh action; updateStatus
+            // overrides with a richer description for the run line.
+            el.setAttribute('aria-label', text ? `${text}. Refresh forecast` : 'Refresh forecast');
         };
 
         // Shared time-axis labels (real grid and skeleton alike).
@@ -1116,7 +1244,6 @@
         const setLoading = loading => {
             state.loading = loading;
             if (!loading) return;
-            show($('error'), false);
             if (!state.data.length) {
                 // Nothing to show yet: skeleton grid + explicit indicator.
                 renderSkeleton();
@@ -1127,14 +1254,69 @@
             }
         };
 
-        const showError = msg => {
-            $('errorText').textContent = `Unable to load weather: ${msg}`;
-            show($('error'), true);
+        // No separate error banner: the freshness label carries the failure
+        // and doubles as the retry button (tap/click to refetch).
+        const showError = (msg = 'No forecast — tap to retry') => {
             state.loading = false;
-            if (!state.data.length) setStatus('No forecast yet — retry when back online', 'stale');
+            if (!state.data.length) setStatus(msg, 'stale');
         };
 
+        // City-local calendar parts for any instant (date + hour + minute),
+        // using the forecast's IANA timezone so times match the grid.
+        const cityParts = ms => {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: state.tz, year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+            }).formatToParts(new Date(ms));
+            const g = t => parts.find(p => p.type === t).value;
+            return { date: `${g('year')}-${g('month')}-${g('day')}`, h: +g('hour'), m: +g('minute') };
+        };
+        // Clock time of an instant, in the user's 12/24h style (reuses timeLabel
+        // so it matches the grid's own axis labels).
+        const runClockLabel = ms => { const p = cityParts(ms); return timeLabel(p.h, p.m); };
+        // Expected next-release clock time; adds a day hint when it lands after
+        // midnight (the interval is at most a few hours, so "tomorrow" covers it).
+        const nextTimeLabel = ms => {
+            const p = cityParts(ms);
+            const label = timeLabel(p.h, p.m);
+            return p.date === cityParts(Date.now()).date ? label : `${label} tomorrow`;
+        };
+        // Coarse "time until" for the tooltip/aria (Minutes < 1h, hours < 1d).
+        const relFuture = ms => {
+            const min = Math.round(ms / 60000);
+            if (min < 60) return `in ${Math.max(1, min)}m`;
+            const h = Math.round(min / 60);
+            if (h < 24) return `in ${h}h`;
+            return `in ${Math.round(h / 24)}d`;
+        };
+
+        // The freshness line reports the weather model's *run* time (when the
+        // forecast was computed, not when we fetched it) and the time until the
+        // next model update. When that update is overdue it warns amber. Falls
+        // back to fetch time if the metadata API hasn't answered.
         const updateStatus = () => {
+            const m = state.modelRun;
+            if (m) {
+                const toNext = m.nextUpdate - Date.now();
+                const overdue = toNext <= 0 && -toNext > NEXT_UPDATE_GRACE;
+                if (overdue) {
+                    // A newer run should be out — present an explicit refresh CTA.
+                    setStatus('↻ Update forecast', 'outdated');
+                    $('status').setAttribute('aria-label',
+                        `Forecast out of date (model last run ${runClockLabel(m.init)}). Refresh to update.`);
+                } else {
+                    const tail = toNext > 0 ? `next update ~${nextTimeLabel(m.nextUpdate)}` : 'update due';
+                    setStatus(`Run ${runClockLabel(m.init)} · ${tail}`, '');
+                    $('status').setAttribute('aria-label',
+                        `Forecast freshness: weather model last run at ${runClockLabel(m.init)}; ` +
+                        (toNext > 0
+                            ? `next update expected around ${nextTimeLabel(m.nextUpdate)} (${relFuture(toNext)}). `
+                            : 'next update is due. ') +
+                        'Click to refresh.');
+                }
+                return;
+            }
+            // Fallback: no model metadata yet → old fetch-time wording.
             if (!state.fetchedAt) { setStatus(''); return; }
             const age = Date.now() - state.fetchedAt;
             const minutes = Math.floor(age / 60000);
@@ -1149,9 +1331,18 @@
 
         const renderLocation = () => {
             document.title = state.place.name;
+            $('location').classList.remove('locating');
             // Set the inner span (not .location itself) so the ellipsis rule
             // applies and the ↓ arrow pseudo-element is preserved.
             $('locationName').textContent = state.place.name;
+        };
+        // First-visit holding state, shown while the timezone guess resolves so
+        // the hardcoded default never flashes before the real nearby city. The
+        // .locating class hides the ↓ arrow; the title stays generic (no city).
+        const renderLocating = () => {
+            document.title = 'Maybe Rain?';
+            $('location').classList.add('locating');
+            $('locationName').textContent = 'Locating…';
         };
 
         // --- Fetch forecast (Open-Meteo, no API key) ----------------------
@@ -1162,16 +1353,60 @@
             '&daily=sunrise,sunset' +
             '&timezone=auto&forecast_days=7';
 
+        // Parse the metadata payload (Unix seconds) into ms state. The next
+        // update is computed from the *actual* previous release: the model's
+        // last run became available at last_run_availability_time, so the next
+        // run should release about one update interval after that. This gives a
+        // real expected time rather than a guess.
+        const setModelRun = meta => {
+            const init = meta.last_run_initialisation_time * 1000;
+            const interval = (meta.update_interval_seconds || 6 * 3600) * 1000;
+            // When the current run actually became available on the API.
+            const released = meta.last_run_availability_time
+                ? meta.last_run_availability_time * 1000
+                : init + 4 * 60 * 60 * 1000; // fallback: typical global publish lag
+            state.modelRun = { init, interval, nextUpdate: released + interval };
+        };
+
+        // Fetch the model-run metadata. Fired in parallel with the forecast
+        // (never chained after it) and non-blocking: the grid paints first and
+        // this fills in the freshness line when it lands. Cached in
+        // localStorage and only re-fetched once the next run is due, so it
+        // adds no perceptible load. On any failure the line falls back to
+        // fetch time (see updateStatus).
+        const fetchModelMeta = async () => {
+            // Until the next update is expected, the cached value is still correct.
+            if (state.modelRun && Date.now() < state.modelRun.nextUpdate) return;
+            try {
+                const r = await fetch(META_URL, {
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
+                });
+                if (!r.ok) return;
+                const meta = await r.json();
+                if (!meta?.last_run_initialisation_time) return;
+                setModelRun(meta);
+                saveJSON(LS_META, meta);
+                if (!state.loading) updateStatus(); // don't clobber "Loading…"/"Updating…"
+            } catch { /* offline / CORS / timeout: keep fetch-time fallback */ }
+        };
+
         const fetchWeather = async (force = false) => {
             if (state.loading && !force) return;
+            fetchModelMeta(); // parallel, non-blocking; self-guards on cadence
             if (!force && state.data.length && (Date.now() - state.fetchedAt) < FRESH_TIME) {
                 updateStatus();
                 return;
             }
             setLoading(true);
+            let timedOut = false;
+            let timer;
             try {
                 state.controller?.abort();
                 state.controller = new AbortController();
+                // Abort a connection that stalls: a hung socket would otherwise
+                // spin on "Loading forecast…" forever with no way out.
+                timer = setTimeout(() => { timedOut = true; state.controller.abort(); }, FETCH_TIMEOUT);
                 const response = await fetch(forecastURL(state.place), { signal: state.controller.signal });
                 if (!response.ok) throw new Error(`API error: ${response.status}`);
                 const payload = await response.json();
@@ -1183,14 +1418,21 @@
                 updateDisplay();
                 setLoading(false);
             } catch (error) {
-                if (error.name === 'AbortError') return;
+                // A supersede abort (a newer fetch replaced this one) stays silent;
+                // a timeout abort is a real failure and must surface.
+                if (error.name === 'AbortError' && !timedOut) return;
                 if (state.data.length) {
                     // Stale data already on screen: no banner, status says "outdated".
                     setLoading(false);
                     updateStatus();
                 } else {
-                    showError(error.message);
+                    // Timeout or network failure → friendly "can't reach" wording;
+                    // API/parse errors keep the generic retry label.
+                    const unreachable = timedOut || error.name === 'TypeError';
+                    showError(unreachable ? "Can't reach weather service — tap to retry" : undefined);
                 }
+            } finally {
+                clearTimeout(timer);
             }
         };
 
@@ -1339,6 +1581,13 @@
             }).join('');
 
             updateStatus();
+
+            // First real data paint: now it's safe to arm the install banner
+            // (any beforeinstallprompt that fired earlier, or the iOS hint).
+            if (!firstPaintDone) {
+                firstPaintDone = true;
+                maybeScheduleInstallBanner();
+            }
         };
 
         // --- Legend: spectrum strip or heat strip -------------------------
@@ -1429,7 +1678,25 @@
         const TIP_SEL = '.weather-block[data-info], .legend-swatch';
         const showTooltip = el => {
             const tooltip = $('tooltip');
-            if (el.dataset.cond != null) { // legend cell: exact condition names
+            // Prose explanation wraps and is interactive (so its link is
+            // clickable); the fact tooltips stay single-line and click-through.
+            tooltip.classList.toggle('explain', el.id === 'status');
+            tooltip.style.pointerEvents = el.id === 'status' ? 'auto' : 'none';
+            if (el.id === 'status') { // freshness line: what it means
+                const docs = '<a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules model updates ↗</a>';
+                const lines = state.modelRun
+                    ? ['<strong>Forecast freshness</strong>',
+                       'Run time is when the weather model last computed this forecast - not when the app fetched it.',
+                       'The next time is when fresh data is expected - These times track the global model (ICON), which updates every 6 hours and drives the longer-range forecast.',
+                       'Your local short-range may refresh more often.',
+                       '<em>Click the label to refresh now.</em>',
+                       docs]
+                    : ['<strong>Forecast freshness</strong>',
+                       'How recently the app fetched the forecast. The model run time is unavailable right now.',
+                       '<em>Click the label to refresh now.</em>',
+                       docs];
+                tooltip.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+            } else if (el.dataset.cond != null) { // legend cell: exact condition names
                 const c = CONDITIONS[+el.dataset.cond];
                 tooltip.innerHTML =
                     `<div><strong>${esc(c.label)}</strong></div><div>${namesFor(c.key).map(esc).join(' · ')}</div>`;
@@ -1466,7 +1733,12 @@
             tooltip.style.top = `${rect.top < th + 16 ? rect.bottom + 8 : rect.top - th - 8}px`;
         };
         let tappedBlock = null; // element whose tooltip was opened by tap
-        const hideTooltip = () => { $('tooltip').style.opacity = '0'; tappedBlock = null; };
+        const hideTooltip = () => {
+            const t = $('tooltip');
+            t.style.opacity = '0';
+            t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
+            tappedBlock = null;
+        };
 
         // --- City search (Open-Meteo geocoding, URL-encoded) --------------
         const searchCity = async query => {
@@ -1561,19 +1833,21 @@
         const nativeShareOK = () =>
             !!navigator.share && matchMedia('(pointer: coarse)').matches;
 
-        // Share the place link. Its preview (Open Graph tags in <head> +
-        // og.png) is what renders when it's pasted into a messenger.
-        const sharePlace = async () => {
-            const url = shareURL(state.place);
+        // Share (touch) or copy (desktop) a link. Its preview when pasted into
+        // a messenger comes from the Open Graph tags in <head> + og.png.
+        const shareLink = async (url, title, what) => {
             if (nativeShareOK()) {
-                try { await navigator.share({ title: `Maybe Rain? — ${state.place.name}`, url }); return; }
+                try { await navigator.share({ title, url }); return; }
                 catch (e) { if (e?.name === 'AbortError') return; /* else fall through to copy */ }
             }
             try {
                 await navigator.clipboard.writeText(url);
-                setStatus('Link copied', 'fresh');
+                setStatus(`${what} link copied`, 'fresh');
             } catch { setStatus('Copy failed — copy from the address bar', 'stale'); }
         };
+        // Two targets: this exact place (deep-link), or the plain site URL.
+        const sharePlace = () => shareLink(shareURL(state.place), `Maybe Rain? — ${state.place.name}`, 'Place');
+        const shareSite = () => shareLink(location.origin + location.pathname, 'Maybe Rain?', 'Website');
 
         // remember=false keeps savedCities order stable, so ↑/↓ cycling
         // steps through the whole list instead of toggling the top two.
@@ -1653,8 +1927,74 @@
                { timeout: 10000, maximumAge: 5 * 60 * 1000 });
         };
 
+        // --- First-visit location guess: browser timezone → city ----------
+        // Fully local: reads the OS timezone (no IP, no third party, no
+        // permission prompt), then resolves it to coordinates through the
+        // same Open-Meteo geocoding endpoint the city search already uses.
+        // Coarse by design — a timezone is a region, so this is a "somewhere
+        // sensible in your part of the world" guess, not "your exact city".
+        // Only used on a first visit with no shared link and no saved place;
+        // the hardcoded default stays the final fallback if this can't
+        // resolve. Own abortable 4s timeout so a stalled geocode still yields
+        // to the default rather than hanging on the skeleton.
+        const guessPlaceFromTimezone = async () => {
+            let tz;
+            try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return null; }
+            // Need a Region/City zone; skip offset-only names (Etc/GMT±X, UTC).
+            if (!tz || tz.indexOf('/') === -1 || /^Etc\//i.test(tz) || /GMT|UTC/i.test(tz)) return null;
+            // Last path segment is the representative city:
+            // "Europe/Budapest" → "Budapest", "America/Argentina/Buenos_Aires" → "Buenos Aires".
+            const city = tz.split('/').pop().replace(/_/g, ' ');
+            if (city.length < 2) return null;
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 4000);
+            let results;
+            try {
+                const r = await fetch(
+                    'https://geocoding-api.open-meteo.com/v1/search' +
+                    `?name=${encodeURIComponent(city)}&count=5&language=en&format=json`,
+                    { signal: ctrl.signal }
+                );
+                if (!r.ok) return null;
+                results = (await r.json()).results;
+            } catch { return null; }
+            finally { clearTimeout(timer); }
+            if (!results || !results.length) return null;
+            // Prefer the hit whose own timezone matches the browser's — it
+            // disambiguates repeated city names to the one actually in your
+            // zone — else fall back to the top (most-populated) match.
+            const hit = results.find(x => x.timezone === tz) || results[0];
+            if (hit.latitude == null || hit.longitude == null) return null;
+            return {
+                name: hit.name, country: hit.country_code || hit.country || '',
+                admin1: hit.admin1 || '', latitude: hit.latitude, longitude: hit.longitude
+            };
+        };
+
         // --- Events -------------------------------------------------------
-        $('retry').onclick = () => fetchWeather(true);
+        // The freshness label doubles as the refresh/retry button: hover or
+        // keyboard focus shows the explanation, click / Enter / Space refetches.
+        {
+            const s = $('status'), tip = $('tooltip');
+            // Delay the hide so the pointer can travel from the label up into
+            // the tooltip (to click its link) without it vanishing.
+            let hideTimer = null;
+            const hold = () => { clearTimeout(hideTimer); hideTimer = null; };
+            const drop = () => { hideTimer = setTimeout(hideTooltip, 250); };
+            const explain = () => { hold(); showTooltip(s); };
+            const refresh = () => { hideTooltip(); fetchWeather(true); };
+            s.addEventListener('mouseenter', explain);
+            s.addEventListener('mouseleave', drop);
+            s.addEventListener('focus', explain);
+            s.addEventListener('blur', hideTooltip);
+            s.addEventListener('click', refresh);
+            s.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); refresh(); }
+            });
+            // Keep it open while the pointer is over the (interactive) tooltip.
+            tip.addEventListener('mouseenter', () => { if (tip.classList.contains('explain')) hold(); });
+            tip.addEventListener('mouseleave', () => { if (tip.classList.contains('explain')) hideTooltip(); });
+        }
 
         document.addEventListener('mouseover', e => {
             if (e.target.matches(TIP_SEL)) showTooltip(e.target);
@@ -1719,7 +2059,10 @@
                     [['8', '8'], ['10', '10'], ['11', '11']])}</div>` +
                 installSettingsRow() +
                 `<div class="setting-row"><span>Share</span>` +
-                `<button class="btn" id="shareBtn" style="padding:5px 10px;font-size:12px;">${nativeShareOK() ? 'Share' : 'Copy link'}</button></div>` +
+                `<div style="display:flex;gap:6px;">` +
+                `<button class="btn" id="shareBtn" style="padding:5px 10px;font-size:12px;" title="${nativeShareOK() ? 'Share' : 'Copy'} a link to this place">${nativeShareOK() ? 'Place' : 'Copy place'}</button>` +
+                `<button class="btn" id="shareSiteBtn" style="padding:5px 10px;font-size:12px;" title="${nativeShareOK() ? 'Share' : 'Copy'} the website link">${nativeShareOK() ? 'Link' : 'Copy link'}</button>` +
+                `</div></div>` +
                 (matchMedia('(pointer: fine)').matches
                     ? `<div class="shortcuts-hint">
                          <div class="sc"><span>Search</span><span>${MOD}K</span></div>
@@ -1759,6 +2102,7 @@
             }
             if (e.target.id === 'installBtn') { promptInstall(); return; }
             if (e.target.id === 'shareBtn') { sharePlace(); return; }
+            if (e.target.id === 'shareSiteBtn') { shareSite(); return; }
         });
 
         // --- Semantic zoom: pinch / trackpad-pinch / ± keys --------------
@@ -1890,6 +2234,27 @@
             searchTimeout = setTimeout(() => renderSuggestions(e.target.value), 250);
         });
 
+        // Warm the geocoding TLS handshake before its first use. Injected
+        // dynamically rather than as a static <head> preconnect because the
+        // forecast host is hit on every load but geocoding is only used on a
+        // first-visit guess or when someone searches — so returning visitors,
+        // the common case, never pay for a connection they won't use. The
+        // guard adds at most one link per page load, whichever trigger fires
+        // first; crossOrigin anonymous matches the CORS fetch so the warmed
+        // connection is actually reused.
+        let geocodingWarmed = false;
+        const preconnectGeocoding = () => {
+            if (geocodingWarmed) return;
+            geocodingWarmed = true;
+            const l = document.createElement('link');
+            l.rel = 'preconnect';
+            l.href = 'https://geocoding-api.open-meteo.com';
+            l.crossOrigin = '';
+            document.head.appendChild(l);
+        };
+        // Search intent: warm on focus, before the first keystroke fires a lookup.
+        $('searchInput').addEventListener('focus', preconnectGeocoding, { once: true });
+
         // Arrow keys walk the results list (incl. "Use my location"); Enter
         // picks the highlighted row, or the first city if none is highlighted.
         $('searchInput').addEventListener('keydown', e => {
@@ -1963,18 +2328,48 @@
         let deferredInstall = null;
         const IOS_HINT = 'Share → Add to Home Screen';
 
-        const hideInstallBanner = () => show($('installBanner'), false);
-        const showInstallBanner = () => {
-            if (isStandalone() || loadJSON(LS_INSTALL)) return;
+        // The banner must never pre-empt the forecast. It stays hidden until
+        // (1) there's something to offer — beforeinstallprompt has fired, or
+        // we're on iOS; (2) the grid has painted real data at least once; and
+        // (3) a short read delay passes so the visitor sees the site first.
+        // Dismissal (or install) is remembered across visits via LS_INSTALL.
+        const INSTALL_DELAY_MS = 5000;      // let people read the forecast first
+        let firstPaintDone = false;
+        let installBannerTimer = null;
+
+        const installEligible = () =>
+            !isStandalone() && !loadJSON(LS_INSTALL) && (deferredInstall || isIOS());
+
+        // Actually paint the pill. Sets its copy from whichever path applies,
+        // then flips on the .revealed class (see CSS default of display:none).
+        const revealInstallBanner = () => {
+            installBannerTimer = null;
+            if (!installEligible()) return;
             if (deferredInstall) {
                 $('installText').textContent = 'Add Maybe Rain? to your home screen';
                 show($('installGo'), true);
-            } else if (isIOS()) {
+            } else { // iOS: no native prompt, show the share-sheet hint instead
                 $('installText').textContent = `Install: ${IOS_HINT}`;
                 show($('installGo'), false);
-            } else return; // no native prompt, not iOS: nothing useful to offer
-            show($('installBanner'), true);
+            }
+            $('installBanner').classList.add('revealed');
         };
+
+        const hideInstallBanner = () => {
+            clearTimeout(installBannerTimer);
+            installBannerTimer = null;
+            $('installBanner').classList.remove('revealed');
+        };
+
+        // Arm the delayed reveal. A no-op until BOTH a source exists and the
+        // grid has painted, so an early beforeinstallprompt can't jump ahead
+        // of the forecast. Idempotent while a timer is pending or already up.
+        const maybeScheduleInstallBanner = () => {
+            if (!firstPaintDone || !installEligible()) return;
+            if (installBannerTimer || $('installBanner').classList.contains('revealed')) return;
+            installBannerTimer = setTimeout(revealInstallBanner, INSTALL_DELAY_MS);
+        };
+
         const promptInstall = async () => {
             if (!deferredInstall) return;
             const p = deferredInstall;
@@ -1991,9 +2386,11 @@
             return '';
         };
         window.addEventListener('beforeinstallprompt', e => {
+            // Fires early, often before the forecast has painted. Capture it
+            // and let the paint + delay gate decide when (if ever) to show.
             e.preventDefault();
             deferredInstall = e;
-            showInstallBanner();
+            maybeScheduleInstallBanner();
         });
         window.addEventListener('appinstalled', () => { deferredInstall = null; hideInstallBanner(); });
         $('installGo').onclick = promptInstall;
@@ -2008,30 +2405,60 @@
         // Installed PWA (mobile): .standalone locks the viewport to exactly
         // one screen, no scroll (see the standalone CSS block).
         if (isStandalone()) document.documentElement.classList.add('standalone');
-        showInstallBanner(); // iOS path; beforeinstallprompt never fires there
+        // The install banner is no longer shown here: it's armed on the first
+        // real data paint (see updateDisplay) so it never precedes the grid.
         applyBand();   // --band from the current hours setting
         setView(view); // paints the view toggle + matching legend
         if (matchMedia('(pointer: fine)').matches) $('location').title = `Search (${MOD}K)`;
 
         // Precedence: a shared ?lat/lon link wins, else the last saved place,
-        // else the built-in default. A shared place is also remembered, so it
-        // joins the visitor's saved-city shortcuts.
+        // else — for a genuine first visit — a local timezone guess, else the
+        // built-in default. A shared place is also remembered, so it joins the
+        // visitor's saved-city shortcuts.
         const urlPlace = placeFromURL();
         const savedPlace = loadJSON(LS_PLACE);
+        const hasSaved = savedPlace?.name && savedPlace.latitude != null;
+        const firstVisit = !urlPlace && !hasSaved;
         if (urlPlace) { state.place = urlPlace; saveJSON(LS_PLACE, urlPlace); rememberCity(urlPlace); }
-        else if (savedPlace?.name && savedPlace.latitude != null) state.place = savedPlace;
-        syncURL(state.place);
-        renderLocation();
+        else if (hasSaved) state.place = savedPlace;
 
-        const savedForecast = loadJSON(LS_FORECAST);
-        if (savedForecast?.payload && savedForecast.placeKey === placeKey(state.place)) {
-            state.fetchedAt = savedForecast.timestamp;
-            try {
-                processData(savedForecast.payload);
-                updateDisplay();
-            } catch { state.data = []; state.fetchedAt = 0; }
+        const savedMeta = loadJSON(LS_META);
+        if (savedMeta?.last_run_initialisation_time) setModelRun(savedMeta);
+
+        if (firstVisit) {
+            // No shared link and no saved place. Rather than paint the hardcoded
+            // default and visibly correct to the guessed city a moment later,
+            // hold a "Locating…" header + skeleton grid until the timezone guess
+            // resolves, then show that city's weather. The default is only
+            // committed to screen if the guess can't resolve.
+            preconnectGeocoding();      // warm the geocoding handshake
+            renderLocating();           // header: "Locating…", no city name yet
+            state.loading = true;
+            renderSkeleton();           // dim placeholder grid
+            setStatus('Locating…', 'updating');
+            guessPlaceFromTimezone().then(guess => {
+                // changeCity paints the city, saves it (so next visit skips the
+                // guess) and fetches; remember=false keeps a place the user
+                // didn't choose out of recents.
+                if (guess) { changeCity(guess, false); return; }
+                // Guess failed — commit to the default now and fetch it.
+                syncURL(state.place);
+                renderLocation();
+                fetchWeather();
+            });
+        } else {
+            syncURL(state.place);
+            renderLocation();
+            const savedForecast = loadJSON(LS_FORECAST);
+            if (savedForecast?.payload && savedForecast.placeKey === placeKey(state.place)) {
+                state.fetchedAt = savedForecast.timestamp;
+                try {
+                    processData(savedForecast.payload);
+                    updateDisplay();
+                } catch { state.data = []; state.fetchedAt = 0; }
+            }
+            fetchWeather(); // refresh in background (skips network if data < 10 min old)
         }
-        fetchWeather(); // refresh in background (skips network if data < 10 min old)
 
         // Service worker
         if ('serviceWorker' in navigator) {
