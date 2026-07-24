@@ -4,7 +4,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
-### day rollover
+### day rollover (bug)
 - the week now updates itself at midnight: when the clock ticks over to a new day the past day drops off and the next day slides in on its own, instead of the grid getting stuck a day short until you reloaded
 - the app now keeps one extra day of forecast in reserve (fetches 8, still shows 7), so that new day appears instantly at the rollover without waiting on the network
 
@@ -15,6 +15,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 - a refresh that arrives mid-swipe waits for the wave to finish before blinking its changed blocks, so the sweep never gets cut short
 - the pixel order carries a bit of randomness, so repeating the same switch never plays back exactly the same way
 - all of it honours "reduce motion": the grid updates instantly with no blinking
+- shorten reload animation to 0.25s fade-in, no translate
 
 ### grid layout
 - update current hour indicator to use a gold accent bar in the gutter, rather than a gold ring on the block itself
