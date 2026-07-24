@@ -835,11 +835,11 @@
         }
         .status.outdated:hover { color: var(--warn-strong); border-color: var(--warn-strong); }
         .fade-in {
-            animation: fadeIn 0.5s ease-in;
+            animation: fadeIn 0.25s ease-in;
         }
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
         .hidden {
             display: none;
@@ -2781,8 +2781,8 @@
         let gridTimers = [];       // pending blink timeouts, all cancelled on the next paint
         let gridBusyUntil = 0;     // timestamp a directional wave finishes settling
         let pendingRefresh = null; // a refresh deferred until the wave above settles
-        const GRID_BLACK_MS = 70, GRID_HOLD_MS = 90, GRID_COLOR_MS = 150;
-        const rankStep = n => Math.min(38, 300 / Math.max(1, n - 1));
+        const GRID_BLACK_MS = 45, GRID_HOLD_MS = 45, GRID_COLOR_MS = 110;
+        const rankStep = n => Math.min(23, 160 / Math.max(1, n - 1));
 
         const cellDelay = (anim, c, r, nCols, nRows, desc) => {
             if (anim.type === 'refresh') return desc.moved ? Math.random() * 220 : -1;
@@ -2839,10 +2839,7 @@
             const now = performance.now();
             const nCols = cols.length, nRows = cols[0] ? cols[0].length : 0;
             const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-            const kids = grid.children;
-            const structureOk = kids.length === nCols
-                && Array.prototype.every.call(kids, (col, i) => col.children.length === cols[i].length);
-            const animated = anim && !reduce && structureOk;
+            const animated = !!anim && !reduce;
 
             // A refresh that lands while a directional wave is still settling waits
             // for it to finish, so the wave never gets clipped mid-sweep. Any newer
@@ -2859,21 +2856,34 @@
             gridTimers.forEach(clearTimeout); gridTimers.length = 0;
             gridBusyUntil = 0;
 
-            // Rebuild (instant) on a structure change, no animation, or reduced
-            // motion. Otherwise update cells in place so the blink can play.
+            // No animation (or reduced motion): rebuild the grid instantly.
             if (!animated) {
                 grid.innerHTML = cols.map(cells =>
                     `<div class="day-column">${cells.map(buildCell).join('')}</div>`).join('');
                 return;
             }
-            const viaBlack = anim.type !== 'reveal';
+
+            // The blink runs in place, so the DOM must already match the layout. A
+            // skeleton grid (first visit) already matches and is reused. A cold
+            // start (empty grid on load / reload) or a layout change first lays down
+            // a black grid to reveal into, so the whole page always blinks in with
+            // the same black → colour language as every other transition.
+            let kids = grid.children;
+            const structureOk = kids.length === nCols
+                && Array.prototype.every.call(kids, (col, i) => col.children.length === cols[i].length);
+            if (!structureOk) {
+                grid.innerHTML = cols.map(cells =>
+                    `<div class="day-column">${cells.map(() => '<div class="weather-block" style="background:#000"></div>').join('')}</div>`).join('');
+                kids = grid.children;
+            }
+
             let maxDelay = 0;
             cols.forEach((cells, c) => {
                 const colNode = kids[c];
                 cells.forEach((desc, r) => {
                     const node = colNode.children[r];
                     // Skeleton cells fill via !important; freeze their grey as an
-                    // inline colour and drop the class so transitions take hold.
+                    // inline colour and drop the class so the blink transition takes.
                     if (node.classList.contains('skeleton')) {
                         node.classList.remove('skeleton');
                         node.style.animation = 'none';
@@ -2881,7 +2891,7 @@
                     }
                     const delay = cellDelay(anim, c, r, nCols, nRows, desc);
                     if (delay < 0 || desc.empty) applyCell(node, desc, false);
-                    else { blinkCell(node, desc, delay, viaBlack); if (delay > maxDelay) maxDelay = delay; }
+                    else { blinkCell(node, desc, delay, true); if (delay > maxDelay) maxDelay = delay; }
                 });
             });
             // A directional wave/reveal marks the grid busy until its last cell has
@@ -4200,8 +4210,10 @@
             syncURL(state.place);
             renderLocation();
             // DR-6: startup is just "paint the cache for state.place, then
-            // revalidate", the same path as a city switch.
-            paintCachedForecast();
+            // revalidate", the same path as a city switch. The cached grid blinks
+            // in with the reveal so a reload has the same entrance as a first visit
+            // (a background refresh then defers behind it and blinks only changes).
+            paintCachedForecast({ type: 'reveal' });
             fetchWeather(); // refresh in background (skips network if data < 10 min old)
         }
         // Arm the local-midnight re-slice. The cached paint above already set
