@@ -2665,8 +2665,13 @@
                             ? { timestamp: state.fetchedAt, payload, prev: entry.prev }
                             : { timestamp: state.fetchedAt, payload });
                     }
+                    // Fresh data present already (cached paint / background poll):
+                    // blink only the changed cells. Nothing on screen yet: use the
+                    // pending directional/first-load reveal from the skeleton.
+                    const hadData = state.data.length > 0;
                     processData(payload);
-                    updateDisplay();
+                    updateDisplay(hadData ? { type: 'refresh' } : (nextRevealAnim || { type: 'reveal' }));
+                    nextRevealAnim = null;
                     setLoading(false);
                 }
             } catch (error) {
@@ -2753,7 +2758,131 @@
         };
 
         // --- Render ------------------------------------------------------
-        const updateDisplay = () => {
+        // --- Pixel grid painter --------------------------------------------
+        // One primitive drives every grid transition: a cell blinks to black,
+        // then to its (new) colour. Motion is implied purely by the ORDER of
+        // those blinks — pixels never move. `anim` selects the order:
+        //   null                     instant, no blink (cached paint, prefs)
+        //   {type:'reveal'}          column sweep left→right, no black (first load)
+        //   {type:'wave',axis,dir}   directional wave (city = 'y', view = 'x');
+        //                            dir +1 fills from index 0, −1 from the last
+        //   {type:'refresh'}         only changed cells blink, scattered (poll)
+        // A random per-cell jitter is added so repeats never reveal identically.
+        let nextRevealAnim = null; // directional/first hint for the next fresh paint
+        let gridTimers = [];       // pending blink timeouts, all cancelled on the next paint
+        let gridBusyUntil = 0;     // timestamp a directional wave finishes settling
+        let pendingRefresh = null; // a refresh deferred until the wave above settles
+        const GRID_BLACK_MS = 70, GRID_HOLD_MS = 90, GRID_COLOR_MS = 150;
+        const rankStep = n => Math.min(38, 300 / Math.max(1, n - 1));
+
+        const cellDelay = (anim, c, r, nCols, nRows, desc) => {
+            if (anim.type === 'refresh') return desc.moved ? Math.random() * 220 : -1;
+            if (anim.type === 'reveal') { const s = rankStep(nCols); return c * s + Math.random() * s; }
+            if (anim.type === 'wave') {
+                const idx = anim.axis === 'y' ? r : c;
+                const n = anim.axis === 'y' ? nRows : nCols;
+                const rank = anim.dir > 0 ? idx : (n - 1 - idx);
+                const s = rankStep(n);
+                // The vertical wave packs many rows into a short span, so it reads
+                // as a tidy sweep. Extra scatter (≈2.6 ranks vs 1 for horizontal)
+                // gives it the same dithered feel as the wider view switch.
+                const jitter = anim.axis === 'y' ? s * 2.6 : s;
+                return rank * s + Math.random() * jitter;
+            }
+            return -1;
+        };
+
+        const buildCell = desc => desc.empty
+            ? '<div class="weather-block empty"></div>'
+            : `<div class="weather-block${desc.current ? ' current' : ''}" style="background:rgb(${desc.rgb});color:${desc.textColor}" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
+
+        // Update an existing cell node in place (no DOM teardown, so a blink can
+        // run old → black → new on the same element).
+        const applyCell = (node, desc, animated) => {
+            if (desc.empty) {
+                node.className = 'weather-block empty';
+                ['tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'].forEach(a => node.removeAttribute(a));
+                node.style.transition = 'none'; node.style.background = 'transparent'; node.innerHTML = '';
+                return;
+            }
+            node.className = 'weather-block' + (desc.current ? ' current' : '');
+            node.innerHTML = desc.marks;
+            node.setAttribute('tabindex', '0');
+            node.setAttribute('aria-label', desc.info);
+            node.dataset.day = desc.dayIndex;
+            node.dataset.hour = desc.hour;
+            node.dataset.info = desc.info;
+            node.style.color = desc.textColor;
+            node.style.transition = animated ? `background-color ${GRID_COLOR_MS}ms linear` : 'none';
+            node.style.background = `rgb(${desc.rgb})`;
+        };
+
+        const blinkCell = (node, desc, delay, viaBlack) => {
+            gridTimers.push(setTimeout(() => {
+                if (!viaBlack) { applyCell(node, desc, true); return; }
+                node.style.transition = `background-color ${GRID_BLACK_MS}ms linear`;
+                node.style.background = '#000';
+                gridTimers.push(setTimeout(() => applyCell(node, desc, true), GRID_HOLD_MS));
+            }, delay));
+        };
+
+        const paintGrid = (grid, cols, anim) => {
+            const now = performance.now();
+            const nCols = cols.length, nRows = cols[0] ? cols[0].length : 0;
+            const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const kids = grid.children;
+            const structureOk = kids.length === nCols
+                && Array.prototype.every.call(kids, (col, i) => col.children.length === cols[i].length);
+            const animated = anim && !reduce && structureOk;
+
+            // A refresh that lands while a directional wave is still settling waits
+            // for it to finish, so the wave never gets clipped mid-sweep. Any newer
+            // navigation supersedes the queued refresh below.
+            if (animated && anim.type === 'refresh' && now < gridBusyUntil) {
+                if (pendingRefresh) clearTimeout(pendingRefresh);
+                pendingRefresh = setTimeout(() => { pendingRefresh = null; paintGrid(grid, cols, anim); }, gridBusyUntil - now + 16);
+                return;
+            }
+
+            // Any other paint supersedes: drop a queued refresh and cancel every
+            // in-flight blink so rapid navigation can't leave half-finished cells.
+            if (pendingRefresh) { clearTimeout(pendingRefresh); pendingRefresh = null; }
+            gridTimers.forEach(clearTimeout); gridTimers.length = 0;
+            gridBusyUntil = 0;
+
+            // Rebuild (instant) on a structure change, no animation, or reduced
+            // motion. Otherwise update cells in place so the blink can play.
+            if (!animated) {
+                grid.innerHTML = cols.map(cells =>
+                    `<div class="day-column">${cells.map(buildCell).join('')}</div>`).join('');
+                return;
+            }
+            const viaBlack = anim.type !== 'reveal';
+            let maxDelay = 0;
+            cols.forEach((cells, c) => {
+                const colNode = kids[c];
+                cells.forEach((desc, r) => {
+                    const node = colNode.children[r];
+                    // Skeleton cells fill via !important; freeze their grey as an
+                    // inline colour and drop the class so transitions take hold.
+                    if (node.classList.contains('skeleton')) {
+                        node.classList.remove('skeleton');
+                        node.style.animation = 'none';
+                        node.style.background = '#1c1c1c';
+                    }
+                    const delay = cellDelay(anim, c, r, nCols, nRows, desc);
+                    if (delay < 0 || desc.empty) applyCell(node, desc, false);
+                    else { blinkCell(node, desc, delay, viaBlack); if (delay > maxDelay) maxDelay = delay; }
+                });
+            });
+            // A directional wave/reveal marks the grid busy until its last cell has
+            // fully blinked in, so a refresh can defer to that moment.
+            if (anim.type === 'wave' || anim.type === 'reveal') {
+                gridBusyUntil = performance.now() + maxDelay + GRID_BLACK_MS + GRID_HOLD_MS + GRID_COLOR_MS;
+            }
+        };
+
+        const updateDisplay = (anim = null) => {
             const { start, end, days } = visibleWindow();
             const rows = end - start + 1;
             const shownDays = state.data.slice(0, days);   // today-first, up to 7
@@ -2798,24 +2927,14 @@
             // overlay; temp and wind views draw their own scales.
             const rainView = view === 'rain';
 
-            $('grid').innerHTML = shownDays.map((dayData, dayIndex) => {
+            const cols = shownDays.map((dayData, dayIndex) => {
                 const isToday = dayMeta[dayIndex].isToday;
                 const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
-                const blocks = [];
+                const cells = [];
                 for (let hour = start; hour <= end; hour++) {
                     const h = dayData.find(x => x.hour === hour);
-                    if (!h) { // honest gap, no interpolated block
-                        blocks.push('<div class="weather-block empty"></div>');
-                        continue;
-                    }
-                    const current = isToday && hour === currentHour ? ' current' : '';
-                    // Dithered pixel order: a Knuth multiplicative hash
-                    // (top 3 bits, so it scatters; low bits would degenerate
-                    // into a sweep) assigns each block one of 8 discrete
-                    // 45ms ticks. Worst case 315ms + 120ms flicker ≈ 0.44s.
-                    const cell = dayIndex * rows + (hour - start) + 1;
-                    const tick = Math.imul(cell, 2654435761) >>> 29;
-                    const delay = tick * 45;
+                    if (!h) { cells.push({ empty: true }); continue; } // honest gap
+                    const isCurrent = isToday && hour === currentHour;
                     // Temperature view: heat-scale recolor. Wind view: wind
                     // scale. Rain view: the WMO sky colour (tinted for rain,
                     // cloud-spread, night after this hour's local sunset); rain
@@ -2866,11 +2985,14 @@
                     // pulses in temp view, not rain view) and armed only while
                     // pulsePending, so it fires once per new model run; the
                     // was/now detail stays in the tooltip either way.
+                    // DR-6: a cell whose forecast meaningfully moved since the
+                    // previous model run drives the one-shot blink on a refresh
+                    // (view-gated: a temp move only blinks in temp view). The
+                    // was/now detail rides the tooltip either way.
                     const ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
                     const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
-                    const pulse = state.pulsePending && movedInView ? ' changed' : '';
                     const chText = changeLines(ch).map(l => ` · ${l}`).join('');
-                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`);
+                    const info = `${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`;
                     // Marks: precipitation overlays first (under the glyphs;
                     // rain lines + snow lattice + hail rings, any subset;
                     // lines + lattice together IS sleet) + centred wind arrow
@@ -2882,17 +3004,11 @@
                         + arrow
                         + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
                         + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
-                    blocks.push(
-                        `<div class="weather-block reveal${current}${pulse}"
-                              style="animation-delay:${delay}ms;background:rgb(${rgb});color:${textOn(rgb)}"
-                              tabindex="0"
-                              aria-label="${info}"
-                              data-day="${dayIndex}"
-                              data-hour="${h.hour}"
-                              data-info="${info}">${marks}</div>`);
+                    cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex, hour: h.hour, moved: !!movedInView });
                 }
-                return `<div class="day-column">${blocks.join('')}</div>`;
-            }).join('');
+                return cells;
+            });
+            paintGrid($('grid'), cols, anim);
 
             // DR-6: the first render after a rotation consumes the pulse, so
             // settings and view re-renders rebuild without .changed and the
@@ -2989,21 +3105,25 @@
             });
             $('viewToggle').style.display = enabledViews().length > 1 ? '' : 'none';
         };
-        const setView = v => {
+        const setView = (v, anim) => {
+            const prev = view;
             view = v;
             saveJSON(LS_VIEW, v);
-            const paint = () => {
-                renderViewToggle();
-                renderLegend();
-                if (state.data.length) updateDisplay();
-            };
-            // Crossfade the grid on a view swap where the API exists. Skip
-            // the initial paint (no data yet) and honour reduced motion.
-            const animate = document.startViewTransition
-                && state.data.length
-                && !matchMedia('(prefers-reduced-motion: reduce)').matches;
-            if (animate) document.startViewTransition(paint);
-            else paint();
+            renderViewToggle();
+            renderLegend();
+            if (!state.data.length) return; // initial paint: no grid to animate yet
+            // A swipe/arrow passes the wave direction; a toolbar click derives it
+            // from the view's position relative to the previous one. paintGrid
+            // falls back to an instant repaint under reduced motion.
+            let a = anim;
+            if (!a) {
+                const en = enabledViews();
+                const oi = en.indexOf(prev), ni = en.indexOf(v);
+                a = (oi >= 0 && ni >= 0 && oi !== ni)
+                    ? { type: 'wave', axis: 'x', dir: ni > oi ? -1 : 1 }
+                    : { type: 'reveal' };
+            }
+            updateDisplay(a);
         };
 
         // Re-render everything that depends on a preference.
@@ -3228,7 +3348,7 @@
         // DR-6: paint state.place's cached forecast, if any. One code path
         // for startup and city switches alike. Returns true on a paint; a
         // corrupt entry resets state so the skeleton path takes over.
-        const paintCachedForecast = () => {
+        const paintCachedForecast = (anim = null) => {
             const entry = loadForecast(state.place);
             // A fully-expired entry (every hour already in the past) is no
             // better than a miss: the past-day filter would drop all its days
@@ -3238,7 +3358,7 @@
             try {
                 state.fetchedAt = entry.timestamp;
                 processData(entry.payload);
-                updateDisplay();
+                updateDisplay(anim);
                 return true;
             } catch {
                 state.data = []; state.days = []; state.fetchedAt = 0;
@@ -3248,7 +3368,7 @@
 
         // remember=false keeps savedCities order stable, so ↑/↓ cycling
         // steps through the whole list instead of toggling the top two.
-        const changeCity = (place, remember = true) => {
+        const changeCity = (place, remember = true, anim = null) => {
             state.place = place;
             saveJSON(LS_PLACE, place);
             if (remember) rememberCity(place);
@@ -3264,7 +3384,13 @@
             // status line labels its age honestly), then revalidate in the
             // background; "Updating…" replaces the skeleton path. A place
             // with no cache keeps the skeleton-then-fetch path unchanged.
-            paintCachedForecast();
+            // Cached data paints instantly (no animation); the fetch then blinks
+            // only the cells whose values changed. With no cache, the skeleton
+            // shows now and the first real data reveals with the swipe's
+            // directional wave (or a plain left→right sweep when there's no
+            // direction, e.g. a search pick).
+            const cached = paintCachedForecast(anim);
+            nextRevealAnim = cached ? null : (anim || { type: 'reveal' });
             fetchWeather(true);
         };
 
@@ -3622,13 +3748,16 @@
             const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
             const c = favorites[(base + dir + n) % n];
             // stable order (no MRU reorder) so it cycles the whole list
-            if (c && placeKey(c) !== placeKey(state.place)) changeCity(c, false);
+            // Vertical wave: next (↓) fills top→bottom, previous (↑) bottom→top.
+            if (c && placeKey(c) !== placeKey(state.place)) changeCity(c, false, { type: 'wave', axis: 'y', dir: Math.sign(dir) });
         };
         const stepView = dir => {
             const enabled = enabledViews();
             if (enabled.length < 2) return;
             const i = enabled.indexOf(view);
-            setView(enabled[(i + dir + enabled.length) % enabled.length]);
+            // Horizontal wave: the new view enters from the side it sits on, so
+            // next (→ in the toolbar) fills right→left and previous fills left→right.
+            setView(enabled[(i + dir + enabled.length) % enabled.length], { type: 'wave', axis: 'x', dir: -Math.sign(dir) });
         };
 
         // One-finger swipe on the grid: horizontal cycles views (swipe

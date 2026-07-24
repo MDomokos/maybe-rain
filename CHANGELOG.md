@@ -4,6 +4,15 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+### grid transitions
+- switching city or view now animates as a pixel wave: blocks blink to black and back to colour in sequence, so the motion is carried by the order the pixels change while. city (swipe up/down or the ↑/↓ arrows) sweeps vertically, view (swipe left/right or the toggle) sweeps horizontally
+- first load now fills in from the skeleton grid left-to-right
+- a city with cached data shows instantly; when fresh data lands only the blocks whose values actually changed blink
+- a refresh that arrives mid-swipe waits for the wave to finish before blinking its changed blocks, so the sweep never gets cut short
+- the pixel order carries a bit of randomness, so repeating the same switch never plays back exactly the same way
+- all of it honours "reduce motion": the grid updates instantly with no blinking
+
+### grid layout
 - update current hour indicator to use a gold accent bar in the gutter, rather than a gold ring on the block itself
 - even out gridline and block gaps. whitespace in each band is split block-gap/2 above and block-gap/2 below
 - even out grid gaps. 6px all around on desktop, 4px all around on mobile
