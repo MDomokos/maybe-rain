@@ -4,6 +4,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+## v34 (2026-07-25)
+- update night time colors to more closely resemble daytime
+- add a sunset transition colors
+
+## v33 (2026-07-24)
+
 ### desktop layout
 - the grid now floats in the upper-centre of the viewport on large screens, with the height driven by the viewport size
 

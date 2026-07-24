@@ -1644,15 +1644,17 @@
         // Palette Explorer) --------------------------------------------------
         // Every block is a picture of the sky. Each of the 28 WMO codes maps
         // to one of eight sky levels, each with a fixed day colour and a
-        // distinct-hue night colour (approach A: a clear night is deep blue,
-        // not a muddy darkened gold). Three modifiers then run per hour:
+        // warm-neutral night colour: night dims and desaturates the sky rather
+        // than recolouring it, so no night is blue and blue reads only as rain.
+        // Three modifiers then run per hour:
         //   1. rain codes get a slight blue tint, so the block reads "wet"
         //      even before the streak overlay (DR-12/DR-13) is drawn on top,
         //   2. cloud cover spreads the brightness around the swatch (clear
         //      hours lift, overcast hours ease down), so neighbouring hours
         //      read as visibly different without the grid trending dark,
-        //   3. hours after local sunset (or before sunrise) take the night
-        //      palette — the per-hour half of the explorer's Hybrid mode.
+        //   3. nightFactor blends each hour between its day and night colour
+        //      across a twilight window, so the grid eases into night over the
+        //      sunset/sunrise hour instead of flipping palette in one row.
         const SKY_DAY = {
             clear:    [255, 207,  51],
             mclear:   [230, 220, 170],
@@ -1663,15 +1665,20 @@
             storm:    [ 70,  26, 120],
             snow:     [240, 248, 255]
         };
+        // A1 (warm dim): dimmed, desaturated versions of the day sky. The
+        // bright end keeps a faint warmth (a clear night reads as dusk-gold at
+        // rest, not blue), the greys stay neutral, and brightness falls as the
+        // sky thickens. Nothing here is blue except a residual violet on storm,
+        // so the blue rain tint/streaks are the only blue after dark.
         const SKY_NIGHT = {
-            clear:    [ 40,  52, 104],
-            mclear:   [ 46,  56, 100],
-            partly:   [ 56,  62,  92],
-            cloudy:   [ 58,  62,  78],
-            overcast: [ 44,  46,  56],
-            fog:      [ 64,  68,  80],
-            storm:    [ 28,  14,  50],
-            snow:     [180, 194, 220]
+            clear:    [ 88,  76,  54],
+            mclear:   [ 80,  74,  62],
+            partly:   [ 68,  70,  74],
+            cloudy:   [ 58,  60,  64],
+            overcast: [ 50,  52,  56],
+            fog:      [ 62,  64,  68],
+            storm:    [ 40,  28,  52],
+            snow:     [150, 156, 168]
         };
         // WMO code → sky level. Rain / drizzle / freezing precip fall from an
         // overcast sky; ordinary showers (80/81) from a brighter broken sky;
@@ -1715,18 +1722,26 @@
         };
         const mix3 = (a, b, t) => [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t);
         const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
-        // An hour is night when its clock hour is before that day's sunrise or
-        // at/after sunset. No sun data (polar edge, missing) → treated as day.
-        const hourNight = (hour, sun) => {
-            if (!sun || !sun.rise || !sun.set) return false;
+        const clamp01 = v => Math.max(0, Math.min(1, v));
+        // A block's "nightness" for the day→night palette blend: 0 in full day,
+        // 1 in full night, easing linearly across a ±TWILIGHT window either
+        // side of the day's sunrise/sunset so the grid never flips palette in a
+        // single row. No sun data (polar edge, missing) → treated as full day.
+        const TWILIGHT = 1; // hours of half-transition each side of the event
+        const nightFactor = (hour, sun) => {
+            if (!sun || !sun.rise || !sun.set) return 0;
             const rise = sun.rise.h + sun.rise.m / 60;
             const set = sun.set.h + sun.set.m / 60;
-            return hour < rise || hour >= set;
+            const evening = clamp01((hour - (set - TWILIGHT)) / (2 * TWILIGHT));  // 0→1 across sunset
+            const morning = clamp01(((rise + TWILIGHT) - hour) / (2 * TWILIGHT)); // 1→0 across sunrise
+            return Math.max(evening, morning);
         };
         // The default-view colour for one hour: sky level → tint → cloud dim.
-        const conditionRGB = (h, night) => {
+        // nf (0..1) blends the level's day and night colour, so twilight hours
+        // sit part-way between instead of snapping over at the sunset row.
+        const conditionRGB = (h, nf) => {
             const level = skyLevelFor(h.code, h.cloud);
-            let c = (night ? SKY_NIGHT : SKY_DAY)[level].slice();
+            let c = mix3(SKY_DAY[level], SKY_NIGHT[level], nf);
             if (RAIN_CODES.has(h.code)) c = mix3(c, RAIN_TINT, RAIN_TINT_W);
             const cl = h.cloud;
             const f = cl == null ? 1
@@ -2966,7 +2981,7 @@
             // Hybrid chrome: once the current local hour is past sunset, the
             // background eases to night (blocks already colour per their own
             // hour). Purely ambient — a single --bg swap, accent stays gold.
-            document.body.classList.toggle('night', hourNight(currentHour, sunToday));
+            document.body.classList.toggle('night', nightFactor(currentHour, sunToday) >= 0.5);
             $('sunLines').innerHTML = !settings.sunLines ? '' : ['rise', 'set'].map(k => {
                 const t = sunToday[k];
                 if (!t) return '';
@@ -2994,7 +3009,7 @@
                     const rgb = view === 'temp' ? heatRGB(h.temp)
                         : view === 'wind'
                             ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
-                            : conditionRGB(h, hourNight(hour, sun));
+                            : conditionRGB(h, nightFactor(hour, sun));
                     // Hazard icons (DR-10): every applicable hazard shows,
                     // packed into the bottom-right corner in a fixed order so
                     // two never swap places: the weather-coded hazard first
