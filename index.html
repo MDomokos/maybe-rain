@@ -441,7 +441,10 @@
             position: relative;
         }
         /* Each hour band is exactly --band = 100% / displayed rows. A block
-           fills its band minus a fixed top gap where the gridline shows through.
+           fills its band minus --block-gap of whitespace, split evenly above
+           and below so the block sits centered in its band and each gridline
+           runs down the middle of the gap between blocks (rather than the block
+           bottom resting flush on the line below it).
            (px, not %, for the gap: percentage vertical margins resolve
            against the column width, which was the old misalignment bug.)
            Colors come inline from the JS CONDITIONS array, so no condition
@@ -449,7 +452,8 @@
         .weather-block {
             width: 100%;
             height: calc(var(--band) - var(--block-gap));
-            margin-top: var(--block-gap);
+            margin-top: calc(var(--block-gap) / 2);
+            margin-bottom: calc(var(--block-gap) / 2);
             border-radius: var(--radius);
             cursor: pointer;
             transition: opacity 0.3s ease;

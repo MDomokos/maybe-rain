@@ -4,6 +4,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+- even out gridline and block gaps. whitespace in each band is split block-gap/2 above and block-gap/2 below
 - even out grid gaps. 6px all around on desktop, 4px all around on mobile
 
 ## v32 (2026-07-24)
