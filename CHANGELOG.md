@@ -1,8 +1,16 @@
 # changelog
 
-what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
+what changed, newest first. the version is `CACHE_NAME` in sw.js
 
-## unreleased
+
+## v34
+
+### block tooltip redesign
+- the hover/tap tooltip now leads with the two most-checked facts: temperature (with feels-like) and rain, shown big; rain chance and amount sit together (e.g. "85% · 6.4 mm/h"), with the rain figure in the same blue as the grid's rain lines
+- a sleet hour shows both the rain and snow rates
+- everything else drops to one quiet line below; sunrise or sunset now shows on every block
+- gusts show only when meaningfully stronger than the steady wind
+- hazards (thunderstorm/hail, fog, freezing rain, heavy rain, extreme heat, very high UV) now read as amber chips along the bottom, one for each hazard marked on the block
 
 ## v34 (2026-07-25)
 - update night time colors to more closely resemble daytime

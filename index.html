@@ -75,6 +75,7 @@
             --line-strong: rgba(255,255,255,0.6); /* button hover border, above --line */
             /* Extra text greys past the main three, brightest to faintest. */
             --tip-body: #d0d0d0;   /* tooltip body copy */
+            --tip-rain: #cfe4f7;   /* the rain figure in the block tooltip, tied to the streak blue */
             --text-dim: #666;      /* temp separator, dismiss, hints */
             --text-dimmer: #555;   /* the off (unfavorited) star */
             /* Status line states. */
@@ -686,6 +687,32 @@
            interactive so it can be clicked; see showTooltip). */
         .tooltip a { color: var(--accent); text-decoration: underline; }
         .tooltip a:hover { color: var(--text); }
+
+        /* Block hover tooltip: two hero lines (temperature, then rain in the
+           streak blue), one muted context line, and hazard chips. Capped width
+           so a long context line wraps instead of stretching the tooltip; the
+           header and hero lines keep the default nowrap and stay single-line. */
+        .tooltip.block { width: max-content; max-width: min(240px, calc(100vw - 16px)); }
+        .tooltip .tip-when { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 3px; }
+        .tooltip .tip-when .d { color: var(--text-muted); font-weight: 600; }
+        .tooltip .tip-when .t { color: var(--text-faint); }
+        .tooltip .tip-hero { font-size: 21px; font-weight: 600; line-height: 1.15; }
+        .tooltip .tip-temp { margin-top: 2px; }
+        .tooltip .tip-feels { font-size: 11px; font-weight: 400; color: var(--text-faint); }
+        .tooltip .tip-rain { margin: 1px 0 5px; }
+        .tooltip .tip-rain .tip-hero { color: var(--tip-rain); }
+        .tooltip .tip-ctx { white-space: normal; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+        .tooltip .tip-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        /* Reuse the amber status button (see .status.outdated) for the chips. */
+        .tooltip .tip-chip {
+            color: var(--warn);
+            background: var(--warn-bg);
+            border: 1px solid var(--warn);
+            border-radius: var(--radius);
+            padding: 3px 9px;
+            font-size: 11px;
+            line-height: 1.35;
+        }
 
         /* Changelog ("What's new"): a modal over a scrim, opened only from the
            settings menu so it never steals attention on its own. The body is a
@@ -1469,6 +1496,7 @@
         const FRESH_TIME = 10 * 60 * 1000;   // consider data fresh for 10 min
         const FETCH_TIMEOUT = 10 * 1000;     // abort a stalled forecast fetch after 10s
         const HOUR_START = 6, HOUR_END = 21; // displayed hours (inclusive)
+        const GUST_MIN = 8; // km/h a gust must exceed the sustained wind by before the tooltip shows it
         // The forecast uses Open-Meteo "Best Match" (a different model per
         // location, whose identity the API never returns). For the freshness
         // line we read the *run* time of the global model that drives the
@@ -2569,7 +2597,7 @@
         const forecastURL = p =>
             'https://api.open-meteo.com/v1/forecast' +
             `?latitude=${p.latitude}&longitude=${p.longitude}` +
-            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
+            '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
             '&daily=sunrise,sunset' +
             // Fetch 8 days but only ever display 7 (visibleWindow). The spare
             // trailing day is a rollover buffer: at local midnight the past day
@@ -2757,7 +2785,7 @@
         const processData = payload => {
             state.tz = payload.timezone || state.tz;
             state.utcOffset = payload.utc_offset_seconds || 0; // for city-local sky-event day windows
-            const { time, temperature_2m, weather_code, cloud_cover, precipitation, rain, showers, snowfall, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
+            const { time, temperature_2m, apparent_temperature, relative_humidity_2m, weather_code, cloud_cover, precipitation, rain, showers, snowfall, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
 
             // Daily sunrise/sunset (local ISO strings) → per-date {h, m}.
             state.sun = {};
@@ -2780,6 +2808,8 @@
                 const h = {
                     hour: +time[i].slice(11, 13),
                     temp: Math.round(temperature_2m[i]),
+                    feels: apparent_temperature?.[i] != null ? Math.round(apparent_temperature[i]) : null, // tooltip
+                    humidity: relative_humidity_2m?.[i] ?? null, // %, tooltip
                     pop: precipitation_probability?.[i] ?? null, // null = unknown, never faked
                     mm: precipitation?.[i] ?? null,           // mm/h total; warning, tooltip
                     // Liquid vs frozen split for the rain-view overlays: lines
@@ -3246,6 +3276,9 @@
             // Prose explanation wraps and is interactive (so its link is
             // clickable); the fact tooltips stay single-line and click-through.
             tooltip.classList.toggle('explain', el.id === 'statusInfo');
+            // Block tooltip gets the capped-width, hero-line layout; legend and
+            // freshness tooltips keep the plain single-line style.
+            tooltip.classList.toggle('block', el.id !== 'statusInfo' && el.dataset.cond == null);
             tooltip.style.pointerEvents = el.id === 'statusInfo' ? 'auto' : 'none';
             if (el.id === 'statusInfo') { // freshness line: what it means
                 const title = '<div class="tip-title"><strong>Forecast freshness</strong></div>';
@@ -3265,36 +3298,71 @@
                 const c = CONDITIONS[+el.dataset.cond];
                 tooltip.innerHTML =
                     `<div><strong>${esc(c.label)}</strong></div><div>${namesFor(c.key).map(esc).join(' · ')}</div>`;
-            } else { // grid block: structured lines from state, one fact per line
+            } else { // grid block: hero temp + rain, one context line, hazard chips
                 const di = +el.dataset.day;
                 const day = state.days[di];
                 const h = state.data[di]?.find(x => x.hour === +el.dataset.hour);
                 if (!day || !h) return;
-                const lines = [
-                    `<strong>${day.isToday ? 'Today' : day.text} ${dateLabel(day.date)} · ${hourLabel(h.hour)}</strong>`,
-                    `${esc(h.description)}, ${displayTemp(h.temp)}°${settings.unit}`
-                ];
-                if (h.pop != null) lines.push(`${h.pop}% rain`);
-                if (h.wind != null) {
-                    let w = `wind ${displayWind(h.wind)} ${windUnitLabel()}`
-                        + (h.windDir != null ? ` ${COMPASS[windOctant(h.windDir)]}` : '');
-                    // Gusts: wind view only, where they matter.
-                    if (view === 'wind' && h.gust != null) w += `, gusts ${displayWind(h.gust)}`;
-                    lines.push(w);
-                }
-                if (h.temp >= settings.heatWarn) lines.push(`${MR_ICON.heat} extreme heat`);
-                if (h.uv != null && h.uv >= settings.uvWarn) lines.push(`${MR_ICON.uv} very high UV (${Math.round(h.uv)})`);
                 const sun = state.sun[day.date] || {};
-                // sunrise/sunset reuse the sun (UV) icon, as the text glyph did;
-                // the dedicated sunrise/sunset icons wait on the sun-times feature.
-                if (sun.rise?.h === h.hour) lines.push(`${MR_ICON.uv} sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`);
-                if (sun.set?.h === h.hour) lines.push(`${MR_ICON.uv} sunset ${timeLabel(sun.set.h, sun.set.m)}`);
-                if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) lines.push(`${mrIcon(sky.glyph)} ${esc(sky.label)}`); }
-                // DR-6: was/now detail for a cell the previous model run
-                // disagreed with (works with reduced motion, which skips the
-                // pulse but keeps this).
-                changeLines(state.changed?.[`${day.date}|${h.hour}`]).forEach(l => lines.push(l));
-                tooltip.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+
+                // Header: day + date left, the hour range right (kept whole so
+                // it never wraps onto a second line).
+                const range = `${hourLabel(h.hour)}–${hourLabel((h.hour + 1) % 24)}`;
+                const when = `<div class="tip-when"><span class="d">${day.isToday ? 'Today' : day.text} ${dateLabel(day.date)}</span><span class="t">${range}</span></div>`;
+
+                // Hero 1 — temperature, feels-like always shown when known.
+                const feels = h.feels != null ? ` <span class="tip-feels">feels ${displayTemp(h.feels)}°</span>` : '';
+                const temp = `<div class="tip-temp"><span class="tip-hero">${displayTemp(h.temp)}°</span>${feels}</div>`;
+
+                // Hero 2 — rain: chance then amount (rain mm/h and/or snow cm/h;
+                // both present = sleet), from the liquid/frozen split.
+                const rainBits = [];
+                if (h.pop != null) rainBits.push(`${h.pop}%`);
+                if (h.snow != null && h.snow > 0) {
+                    if (h.liquid != null && h.liquid >= 0.1) rainBits.push(`${h.liquid} mm/h`);
+                    rainBits.push(`${h.snow} cm/h snow`);
+                } else if (h.mm != null && h.mm >= 0.1) {
+                    rainBits.push(`${h.mm} mm/h`);
+                }
+                const rain = rainBits.length
+                    ? `<div class="tip-rain"><span class="tip-hero">${rainBits.join(' · ')}</span></div>` : '';
+
+                // Context line — condition, wind (+ gusts only when notably
+                // above the sustained wind), humidity, the day's next sun event,
+                // and any 21:00 sky event.
+                const ctx = [esc(h.description)];
+                if (h.wind != null) {
+                    ctx.push(`wind ${displayWind(h.wind)} ${windUnitLabel()}`
+                        + (h.windDir != null ? ` ${COMPASS[windOctant(h.windDir)]}` : ''));
+                    if (h.gust != null && h.gust - h.wind >= GUST_MIN) ctx.push(`gusts ${displayWind(h.gust)}`);
+                }
+                if (h.humidity != null) ctx.push(`humidity ${h.humidity}%`);
+                if (sun.rise && sun.set) ctx.push(h.hour < sun.rise.h + sun.rise.m / 60
+                    ? `sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`
+                    : `sunset ${timeLabel(sun.set.h, sun.set.m)}`);
+                if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) ctx.push(esc(sky.label)); }
+                const ctxLine = `<div class="tip-ctx">${ctx.join(' · ')}</div>`;
+
+                // DR-6: was/now detail, as small muted lines under the context.
+                const chg = changeLines(state.changed?.[`${day.date}|${h.hour}`])
+                    .map(l => `<div class="tip-ctx">${l}</div>`).join('');
+
+                // Hazard chips: one per corner glyph currently shown on the
+                // block (none in wind view, where the arrow replaces them),
+                // reusing the amber status pill.
+                const chips = [];
+                if (view !== 'wind') {
+                    if (h.glyph === 'storm') chips.push(h.code === 96 || h.code === 99 ? 'thunderstorm, hail' : 'thunderstorm');
+                    else if (h.glyph === 'fog') chips.push('fog');
+                    else if (h.glyph === 'freeze') chips.push('freezing rain');
+                    if (view === 'rain' && h.mm != null && h.mm > LN.warn) chips.push('heavy rain');
+                    if (h.temp >= settings.heatWarn) chips.push('extreme heat');
+                    if (h.uv != null && h.uv >= settings.uvWarn) chips.push(`very high UV (${Math.round(h.uv)})`);
+                }
+                const chipHtml = chips.length
+                    ? `<div class="tip-chips">${chips.map(c => `<span class="tip-chip">${esc(c)}</span>`).join('')}</div>` : '';
+
+                tooltip.innerHTML = when + temp + rain + ctxLine + chg + chipHtml;
             }
             tooltip.style.opacity = '1';
             // Measure the real size, center on the block, clamp to the
