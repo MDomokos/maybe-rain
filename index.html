@@ -1732,9 +1732,11 @@
         // rain-tinted, cloud-spread, night after local sunset), and rain lives
         // entirely in a streak overlay drawn on top. Chance = left-to-right
         // fill extent (nothing below 8%); intensity = one density/weight ramp
-        // (gamma 0.4, capped at 8 mm) under three texture bands (nothing under
-        // 0.3 mm, ticks to 1, broken runs to 2, solid above); line colour = a
-        // luminance-tuned blue (DR-13), so "blue = rain" reads on every sky.
+        // (gamma 0.4, capped at 8 mm) under texture bands: below 0.3 mm a faint
+        // trace tick when the chance clears 8% (a likely light sprinkle the
+        // amount misses, since chance is the ensemble and amount the
+        // deterministic run), then ticks to 1, broken runs to 2, solid above;
+        // line colour = a luminance-tuned blue (DR-13), so "blue = rain" reads.
         // No base escalation (owner call): heavy rain saturates the density and
         // adds a warning mark above 20 mm, and a genuine storm is already the
         // violet by weather code, so the base holds the sky. Lines lean with
@@ -1750,6 +1752,7 @@
         const LN = { sp0: 15, sp1: 4.7, sw0: 0.85, sw1: 2.6, gamma: 0.4, cap: 8,
                      floor: 0.3, b1: 1, tlen: 3.7, tgap: 5.1, b2: 2, blen: 14, bgap: 6,
                      shade: 0.5, alpha: 0.6, popFloor: 8, warn: 20,
+                     traceSp: 16, traceLen: 2.5, traceGap: 7, traceSw: 0.7, traceAlpha: 0.55,
                      maxAngle: 55, windSat: 40,
                      snowCap: 2 }; // cm/h; the 5y Budapest max (Climatology note)
         const lnLum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
@@ -1784,28 +1787,47 @@
             // lack the split: fall back to total mm, except on snow-coded
             // hours where drawing rain lines would misrepresent.
             const liquid = h.liquid ?? (COND[h.condition].group === 'snow' ? null : h.mm);
-            if (liquid == null || liquid < LN.floor) return '';
-            if (h.pop != null && h.pop < LN.popFloor) return '';
-            const t = Math.pow(Math.min(liquid, LN.cap) / LN.cap, LN.gamma);
-            const sp = LN.sp0 + (LN.sp1 - LN.sp0) * t;
-            const sw = LN.sw0 + (LN.sw1 - LN.sw0) * t;
+            if (liquid == null) return '';
             const c = lnBlue(base); // DR-13: blue, tuned to the base luminance
-            const col = `rgba(${c[0]},${c[1]},${c[2]},${LN.alpha})`;
             const ang = windLean(h).toFixed(1);
             const id = 'mrln' + (lnId++);
-            let dl = 0, dg = 0; // dash pattern: ticks, then broken runs, then solid
-            if (liquid < LN.b1) { dl = LN.tlen; dg = LN.tgap; }
-            else if (liquid < LN.b2) { dl = LN.blen; dg = LN.bgap; }
-            let pat;
-            if (dl > 0) { // two columns, dash phase staggered so breaks never align
-                const per = dl + dg;
-                const line = (x, off) =>
-                    `<line x1="${x.toFixed(2)}" y1="${(-per).toFixed(2)}" x2="${x.toFixed(2)}" y2="${(2 * per).toFixed(2)}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-dasharray="${dl} ${dg}" stroke-dashoffset="${off.toFixed(2)}"/>`;
-                pat = `<pattern id="${id}" width="${(sp * 2).toFixed(2)}" height="${per.toFixed(2)}" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})">${line(sp / 2, 0)}${line(sp * 1.5, per / 2)}</pattern>`;
+            let pat, wp;
+            if (liquid < LN.floor) {
+                // Trace tier: the amount is below the 0.3 mm floor (often ~0),
+                // but the chance is real. Amount is the deterministic run;
+                // chance is the ensemble (P > 0.1 mm), so a high chance with
+                // ~0 mm is a likely light sprinkle the amount misses (Open-
+                // Meteo). Draw the chance as the fill, with the faintest,
+                // sparsest tick, below the drizzle band, so it stops vanishing.
+                // Chance-driven: it needs a real pop to fire, and it is liquid
+                // rain only, so a snow-coded hour draws nothing here (its
+                // precipitation is the white lattice, not a rain trace).
+                if (COND[h.condition].group === 'snow') return '';
+                if (h.pop == null || h.pop < LN.popFloor) return '';
+                const col = `rgba(${c[0]},${c[1]},${c[2]},${LN.traceAlpha})`;
+                const per = (LN.traceLen + LN.traceGap).toFixed(2);
+                const x = (LN.traceSp / 2).toFixed(2);
+                pat = `<pattern id="${id}" width="${LN.traceSp.toFixed(2)}" height="${per}" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})"><line x1="${x}" y1="-${per}" x2="${x}" y2="${(2 * (LN.traceLen + LN.traceGap)).toFixed(2)}" stroke="${col}" stroke-width="${LN.traceSw}" stroke-dasharray="${LN.traceLen} ${LN.traceGap}"/></pattern>`;
+                wp = Math.min(100, h.pop);
             } else {
-                pat = `<pattern id="${id}" width="${sp.toFixed(2)}" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})"><line x1="${(sp / 2).toFixed(2)}" y1="-2" x2="${(sp / 2).toFixed(2)}" y2="16" stroke="${col}" stroke-width="${sw.toFixed(2)}"/></pattern>`;
+                if (h.pop != null && h.pop < LN.popFloor) return '';
+                const t = Math.pow(Math.min(liquid, LN.cap) / LN.cap, LN.gamma);
+                const sp = LN.sp0 + (LN.sp1 - LN.sp0) * t;
+                const sw = LN.sw0 + (LN.sw1 - LN.sw0) * t;
+                const col = `rgba(${c[0]},${c[1]},${c[2]},${LN.alpha})`;
+                let dl = 0, dg = 0; // dash pattern: ticks, then broken runs, then solid
+                if (liquid < LN.b1) { dl = LN.tlen; dg = LN.tgap; }
+                else if (liquid < LN.b2) { dl = LN.blen; dg = LN.bgap; }
+                if (dl > 0) { // two columns, dash phase staggered so breaks never align
+                    const per = dl + dg;
+                    const line = (x, off) =>
+                        `<line x1="${x.toFixed(2)}" y1="${(-per).toFixed(2)}" x2="${x.toFixed(2)}" y2="${(2 * per).toFixed(2)}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-dasharray="${dl} ${dg}" stroke-dashoffset="${off.toFixed(2)}"/>`;
+                    pat = `<pattern id="${id}" width="${(sp * 2).toFixed(2)}" height="${per.toFixed(2)}" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})">${line(sp / 2, 0)}${line(sp * 1.5, per / 2)}</pattern>`;
+                } else {
+                    pat = `<pattern id="${id}" width="${sp.toFixed(2)}" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})"><line x1="${(sp / 2).toFixed(2)}" y1="-2" x2="${(sp / 2).toFixed(2)}" y2="16" stroke="${col}" stroke-width="${sw.toFixed(2)}"/></pattern>`;
+                }
+                wp = h.pop == null ? 100 : Math.min(100, h.pop);
             }
-            const wp = h.pop == null ? 100 : Math.min(100, h.pop);
             return `<span class="rain-ov" style="width:${wp}%"><svg xmlns="http://www.w3.org/2000/svg"><defs>${pat}</defs><rect width="100%" height="100%" fill="url(#${id})"/></svg></span>`;
         };
         // Snow: a staggered lattice of constant-white dots (snow is white,

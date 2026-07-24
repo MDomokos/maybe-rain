@@ -14,11 +14,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 - after sunset blocks switch to a night palette (a clear night reads deep blue), and the background eases to near-black-blue once your local time is past sunset
 
 ### rain now drawn as lines over the sky
-- rain is drawn as blue diagonal lines over the sky-coloured block: how far they fill the block = the chance of rain, how dense and heavy = how hard it's coming down. 0-0.3 mm/hr nothing, 0.3-1 dotted (a drizzle), 1-2 dashed (bring an umbrella), 2+ solid (you'll get soaked)
+- rain is drawn as blue diagonal lines over the sky-coloured block: how far they fill the block = the chance of rain, how dense and heavy = how hard it's coming down. under 0.3 mm/hr a faint trace (a possible sprinkle), 0.3-1 dotted (a drizzle), 1-2 dashed (bring an umbrella), 2+ solid (you'll get soaked)
 - the lines are blue and stay readable on every sky: a deep blue on bright blocks, a pale blue on dark ones
 - rain lines lean with the wind (heavier wind = more lean)
 - snow draws as white falling dots (denser = heavier; any snowfall at all shows). an hour with both rain and snow shows both: lines and dots
 - hail shows as small rings over the storm colour. fog and freezing rain keep their corner icons, and a warning mark appears above 20 mm/hr
+- a likely-but-light sprinkle (high chance of rain, near-zero forecast amount) now shows those faint trace ticks instead of a bare block. the amount and the chance come from different models, so a high chance with ~0 mm means "probably a light drizzle," not "no rain"
 - this used to be a hidden `?lines=1` experiment and is now the default rain view
 
 ## v31 (2026-07-23)
