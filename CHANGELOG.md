@@ -4,6 +4,10 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+### day rollover
+- the week now updates itself at midnight: when the clock ticks over to a new day the past day drops off and the next day slides in on its own, instead of the grid getting stuck a day short until you reloaded
+- the app now keeps one extra day of forecast in reserve (fetches 8, still shows 7), so that new day appears instantly at the rollover without waiting on the network
+
 ### grid transitions
 - switching city or view now animates as a pixel wave: blocks blink to black and back to colour in sequence, so the motion is carried by the order the pixels change while. city (swipe up/down or the ↑/↓ arrows) sweeps vertically, view (swipe left/right or the toggle) sweeps horizontally
 - first load now fills in from the skeleton grid left-to-right

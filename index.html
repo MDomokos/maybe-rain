@@ -2523,7 +2523,13 @@
             `?latitude=${p.latitude}&longitude=${p.longitude}` +
             '&hourly=temperature_2m,weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
             '&daily=sunrise,sunset' +
-            '&timezone=auto&forecast_days=7';
+            // Fetch 8 days but only ever display 7 (visibleWindow). The spare
+            // trailing day is a rollover buffer: at local midnight the past day
+            // drops out and the cached 8th day slides into the 7th slot, so the
+            // week stays full without waiting on a network fetch (the cache
+            // could otherwise only ever supply 6 forward days once the date
+            // ticks over, since forecast_days is anchored to the request date).
+            '&timezone=auto&forecast_days=8';
 
         // Parse the metadata payload (Unix seconds) into ms state. The next
         // update is computed from the *actual* previous release: the model's
@@ -2673,6 +2679,9 @@
                     updateDisplay(hadData ? { type: 'refresh' } : (nextRevealAnim || { type: 'reveal' }));
                     nextRevealAnim = null;
                     setLoading(false);
+                    // Re-arm the midnight tick against this payload's timezone
+                    // (processData refreshed state.utcOffset).
+                    scheduleDayRollover();
                 }
             } catch (error) {
                 // A supersede abort (a newer fetch replaced this one) stays silent;
@@ -3133,6 +3142,45 @@
             if (state.data.length) updateDisplay(); else renderSkeleton();
         };
 
+        // --- Day rollover -------------------------------------------------
+        // The week is sliced against cityNow().date in processData, but that
+        // only runs on a fetch or a cached paint. With no trigger at local
+        // midnight the grid keeps the previous day's slice (a now-past day
+        // still flagged "today") until the next poll happens to land. This
+        // schedules a tick at the city's next local midnight that re-slices
+        // from the cached payload — which now carries a spare 8th day, so the
+        // dropped day is replaced in the same frame — then revalidates from
+        // the network. Self-arming, so it also picks up a timezone that moved
+        // with a city switch.
+        let dayRolloverTimer = null;
+        const msUntilCityMidnight = () => {
+            // Shift "now" into city-local time, then read how far it is past
+            // local midnight via the UTC getters on the shifted instant.
+            const local = new Date(Date.now() + (state.utcOffset || 0) * 1000);
+            const since = ((local.getUTCHours() * 60 + local.getUTCMinutes()) * 60
+                + local.getUTCSeconds()) * 1000 + local.getUTCMilliseconds();
+            return 86400000 - since;
+        };
+        const scheduleDayRollover = () => {
+            clearTimeout(dayRolloverTimer);
+            // +2s cushion so cityNow() is safely into the new day when we
+            // re-slice (avoids a boundary race that could re-drop the new day).
+            dayRolloverTimer = setTimeout(() => {
+                // Re-slice the on-screen week against the new local date. Keep
+                // the true fetch time (processData doesn't touch it), so the
+                // freshness line isn't reset by a pure re-slice; the forced
+                // fetch below then brings genuinely newer data and the next
+                // day's 8th column.
+                const entry = loadForecast(state.place);
+                if (entry?.payload && !forecastExpired(entry)) {
+                    processData(entry.payload);
+                    updateDisplay();
+                }
+                if (!document.hidden && !state.loading) fetchWeather(true);
+                scheduleDayRollover(); // arm the next midnight (fresh offset)
+            }, msUntilCityMidnight() + 2000);
+        };
+
         // --- Tooltip: shared by grid blocks and legend cells --------------
         const TIP_SEL = '.weather-block[data-info], .legend-swatch';
         const showTooltip = el => {
@@ -3392,6 +3440,7 @@
             const cached = paintCachedForecast(anim);
             nextRevealAnim = cached ? null : (anim || { type: 'reveal' });
             fetchWeather(true);
+            scheduleDayRollover(); // new city may sit in a different timezone
         };
 
         // Ordering: ★ favorites first (always, filtered by the query), then
@@ -4155,6 +4204,11 @@
             paintCachedForecast();
             fetchWeather(); // refresh in background (skips network if data < 10 min old)
         }
+        // Arm the local-midnight re-slice. The cached paint above already set
+        // state.utcOffset for a returning user; first-visit arms again inside
+        // changeCity once the guessed city resolves, and every fetch re-arms
+        // with the payload's timezone.
+        scheduleDayRollover();
         // DR-6: cache lifecycle sweep, once per startup, off the critical
         // path so it never delays the first paint.
         setTimeout(sweepForecasts, 4000);
