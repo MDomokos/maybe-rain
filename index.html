@@ -3331,7 +3331,9 @@
                 if (h.snow != null && h.snow > 0) {
                     if (h.liquid != null && h.liquid >= 0.1) rainBits.push(`${h.liquid} mm/h`);
                     rainBits.push(`${h.snow} cm/h snow`);
-                } else if (h.mm != null && h.mm >= 0.1) {
+                } else if (h.mm != null) {
+                    // Always show the rainfall amount next to the chance, even
+                    // 0 mm/h, so a "% rain" never appears without an amount.
                     rainBits.push(`${h.mm} mm/h`);
                 }
                 const rain = rainBits.length

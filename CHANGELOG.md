@@ -7,6 +7,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ### tooltip update (bug)
 - when tooltip is active over a block, and a different city is loaded, the tooltip refreshes with the new city's data
+- always show mm/hr of precipitation if there is a % chance of rain. even if mm/hr is 0
 
 ### block tooltip redesign
 - the hover/tap tooltip now leads with the two most-checked facts: temperature (with feels-like) and rain, shown big; rain chance and amount sit together (e.g. "85% · 6.4 mm/h"), with the rain figure in the same blue as the grid's rain lines
