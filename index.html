@@ -40,8 +40,8 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --gutter: 44px;    /* left space for time labels */
-            --gap: 10px;       /* horizontal gap between day columns */
-            --block-gap: 4px;  /* vertical gap between blocks in a column */
+            --gap: 6px;        /* horizontal gap between day columns */
+            --block-gap: 6px;  /* vertical gap between blocks in a column (matches --gap for an even grid) */
             --overhang: 14px;  /* how far gridlines extend past the grid on the right */
             --band: 6.25%;     /* height of one hour band = 100 / displayed rows (set from JS) */
             --radius: 2px;     /* the one corner radius, used everywhere */
@@ -1131,8 +1131,8 @@
         @media (max-width: 480px) {
             :root {
                 --gutter: 36px;
-                --gap: 7px;
-                --block-gap: 3px;
+                --gap: 4px;
+                --block-gap: 4px;
                 --overhang: 10px;
             }
             body {
