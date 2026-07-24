@@ -3,7 +3,7 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
-## v34
+## v35 (2026-07-25)
 
 ### block tooltip redesign
 - the hover/tap tooltip now leads with the two most-checked facts: temperature (with feels-like) and rain, shown big; rain chance and amount sit together (e.g. "85% · 6.4 mm/h"), with the rain figure in the same blue as the grid's rain lines
