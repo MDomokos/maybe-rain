@@ -3898,7 +3898,11 @@
             const row = e.target.closest('.search-result');
             if (row) {
                 const { saved, fav, ...place } = state.suggestions[+row.dataset.i];
-                changeCity(place);
+                // A pick we already have fresh cache for swipes up into view (the
+                // same wave as the ↑ arrow); an uncached place keeps skeleton → reveal.
+                const entry = loadForecast(place);
+                const cached = entry?.payload && !forecastExpired(entry);
+                changeCity(place, true, cached ? { type: 'wave', axis: 'y', dir: -1 } : null);
             }
         });
 
