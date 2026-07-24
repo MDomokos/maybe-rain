@@ -1318,6 +1318,39 @@
             .chart { height: clamp(280px, 58vh, 620px); }
         }
 
+        /* Desktop (fine pointer, wide landscape window). The default rule
+           leaves a ~540px column top-aligned with the top of the viewport, so
+           on a large screen it floats in the upper-centre with half the height
+           empty below. Centre it on both axes, lift the height-driven caps a
+           little so the canvas grows with the screen (still portrait, so the
+           day columns keep their proportions), and open the header→grid and
+           grid→legend gaps to match the bigger canvas. Gated on pointer:fine
+           so touch tablets (their own rules above) are untouched, and on a
+           min-width so a narrowed desktop window falls back to the plain
+           centred column. Placed before the window-controls-overlay block so
+           an installed desktop PWA's titlebar padding still wins. */
+        @media (min-width: 900px) and (pointer: fine) and (orientation: landscape) {
+            body {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                min-height: 100dvh;
+                padding: 24px;
+            }
+            .container { max-width: clamp(440px, 60vh, 600px); width: 100%; }
+            /* Let the grid use the tall desktop viewport: the width stays
+               capped (portrait day columns), but the height reaches most of
+               the screen so the blocks grow vertically instead of leaving the
+               lower half empty. */
+            .chart { height: clamp(300px, 74vh, 900px); }
+            /* section gaps scaled up for the larger canvas (the base 8px scale
+               stays elsewhere; only these two grouping gaps grow) */
+            .location-wrapper { margin-bottom: var(--sp-3); }
+            .legend { margin-top: var(--sp-4); }
+        }
+
         /* desktop keyboard-shortcut reference in the settings pane */
         .shortcuts-hint {
             display: flex;

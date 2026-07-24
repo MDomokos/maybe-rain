@@ -4,6 +4,9 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+### desktop layout
+- the grid now floats in the upper-centre of the viewport on large screens, with the height driven by the viewport size
+
 ### day rollover (bug)
 - the week now updates itself at midnight: when the clock ticks over to a new day the past day drops off and the next day slides in on its own, instead of the grid getting stuck a day short until you reloaded
 - the app now keeps one extra day of forecast in reserve (fetches 8, still shows 7), so that new day appears instantly at the rollover without waiting on the network
