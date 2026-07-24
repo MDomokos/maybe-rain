@@ -526,13 +526,25 @@
         .weather-block:hover {
             opacity: 0.8;
         }
-        /* Current hour: two-tone inset ring. Outer black band shows on light
-           blocks (sunny gold), inner white band on dark blocks (navy,
-           overcast). Static; the "now" cue is the axis marker below. */
+        /* Current hour: a gold accent bar in the gutter just left of the block.
+           The current block is always in the first column (today), so the bar
+           sits on the black gutter background rather than on the block itself —
+           it never fights the block colour (e.g. a sunny gold block) the way an
+           on-block gold ring would. Static; the axis marker reinforces the row. */
         .weather-block.current {
             z-index: 1;
             position: relative;
-            box-shadow: inset 0 0 0 2px var(--bg), inset 0 0 0 4px var(--marker);
+        }
+        .weather-block.current::before {
+            content: '';
+            position: absolute;
+            left: calc(-1 * var(--gap));
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--accent);
+            border-radius: 1px;
+            pointer-events: none;
         }
         /* Side "now" indicator: at the current hour, the axis label becomes
            a gold current-temp marker with a triangle pointing at today's row.
