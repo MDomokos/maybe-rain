@@ -701,6 +701,8 @@
         .tooltip .tip-feels { font-size: 11px; font-weight: 400; color: var(--text-faint); }
         .tooltip .tip-rain { margin: 1px 0 5px; }
         .tooltip .tip-rain .tip-hero { color: var(--tip-rain); }
+        /* Snow (sleet) drops to its own line under the rain amount. */
+        .tooltip .tip-snow { display: block; }
         .tooltip .tip-ctx { white-space: normal; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
         .tooltip .tip-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
         /* Reuse the amber status button (see .status.outdated) for the chips. */
@@ -3324,20 +3326,25 @@
                 const feels = h.feels != null ? ` <span class="tip-feels">feels ${displayTemp(h.feels)}°</span>` : '';
                 const temp = `<div class="tip-temp"><span class="tip-hero">${displayTemp(h.temp)}°</span>${feels}</div>`;
 
-                // Hero 2 — rain: chance then amount (rain mm/h and/or snow cm/h;
-                // both present = sleet), from the liquid/frozen split.
+                // Hero 2 — rain: chance then rainfall amount (always shown, even
+                // 0 mm/h, so a "% rain" never appears without an amount). A snow
+                // amount (sleet) wraps to its own line below, so the combined
+                // rain+snow line never overruns the tooltip width.
                 const rainBits = [];
+                let snowBit = '';
                 if (h.pop != null) rainBits.push(`${h.pop}%`);
                 if (h.snow != null && h.snow > 0) {
                     if (h.liquid != null && h.liquid >= 0.1) rainBits.push(`${h.liquid} mm/h`);
-                    rainBits.push(`${h.snow} cm/h snow`);
+                    snowBit = `${h.snow} cm/h snow`;
                 } else if (h.mm != null) {
-                    // Always show the rainfall amount next to the chance, even
-                    // 0 mm/h, so a "% rain" never appears without an amount.
                     rainBits.push(`${h.mm} mm/h`);
                 }
-                const rain = rainBits.length
-                    ? `<div class="tip-rain"><span class="tip-hero">${rainBits.join(' · ')}</span></div>` : '';
+                const rain = (rainBits.length || snowBit)
+                    ? `<div class="tip-rain">`
+                        + (rainBits.length ? `<span class="tip-hero">${rainBits.join(' · ')}</span>` : '')
+                        + (snowBit ? `<span class="tip-hero tip-snow">${snowBit}</span>` : '')
+                        + `</div>`
+                    : '';
 
                 // Context line — condition, wind (+ gusts only when notably
                 // above the sustained wind), humidity, the day's next sun event,
