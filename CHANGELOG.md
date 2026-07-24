@@ -11,16 +11,15 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 - the colour comes straight from the weather code Open-Meteo returns (all 28 mapped to a sky)
 - a rainy hour leans slightly blue, so you can still tell a wet grey from a dry grey without opening the tooltip
 - cloud cover now nudges every block: clearer hours lift a little brighter, cloudier hours ease a little darker, so two similar hours no longer look identical
-- after sunset blocks switch to a night palette,the background eases to near-black-blue once your local time is past sunset
+- after sunset blocks switch to a night palette (a clear night reads deep blue), and the background eases to near-black-blue once your local time is past sunset
 
-### rain as lines (open the app with `?lines=1`)
-- a prototype of the new rain look, off by default. block colour becomes a picture of the sky (lighter = sunnier, darker = cloudier, storm violet darkest)
-- rain lines: 0-0.3mm/hr nothing, 0.3-1mm/hr dotted, 1-2mm/hr dashed, 2-mm/hr solid. Shows the difference betweeen basically no rain, a drizzle, bring an umbrella, and you will get soaked
-- rain lines lean with the wind, heavier wind = more leaning
-- rain lines cover the block by the percentage chance of rain
-- the lines lean with the wind, and very heavy rain darkens the block toward the storm colour, with a warning mark above 20 mm/h
-- snow draws as white falling dots (denser = heavier snow, any snowfall at all shows). an hour with rain and snow together shows both: lines and dots
-- hail shows as small rings over the storm colour. fog and freezing rain keep their corner icons
+### rain now drawn as lines over the sky
+- rain is drawn as blue diagonal lines over the sky-coloured block: how far they fill the block = the chance of rain, how dense and heavy = how hard it's coming down. 0-0.3 mm/hr nothing, 0.3-1 dotted (a drizzle), 1-2 dashed (bring an umbrella), 2+ solid (you'll get soaked)
+- the lines are blue and stay readable on every sky: a deep blue on bright blocks, a pale blue on dark ones
+- rain lines lean with the wind (heavier wind = more lean)
+- snow draws as white falling dots (denser = heavier; any snowfall at all shows). an hour with both rain and snow shows both: lines and dots
+- hail shows as small rings over the storm colour. fog and freezing rain keep their corner icons, and a warning mark appears above 20 mm/hr
+- this used to be a hidden `?lines=1` experiment and is now the default rain view
 
 ## v31 (2026-07-23)
 

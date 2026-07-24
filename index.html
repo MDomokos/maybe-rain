@@ -482,7 +482,7 @@
         }
         .block-mark svg { width: 1em; height: 1em; display: block; }
         .block-mark.sky { right: auto; left: 2px; }
-        /* ?lines=1 rain-streak overlay: the wrapper's width is the chance
+        /* Rain-streak overlay: the wrapper's width is the chance
            channel (fill extent, anchored left, bare front edge); the SVG
            pattern inside is the intensity channel. Sits under the corner
            marks, clipped to the block's rounded corners. */
@@ -1597,8 +1597,8 @@
         // to one of eight sky levels, each with a fixed day colour and a
         // distinct-hue night colour (approach A: a clear night is deep blue,
         // not a muddy darkened gold). Three modifiers then run per hour:
-        //   1. rain codes get a slight blue tint (the block still reads "wet"
-        //      even though rain proper lives in the ?lines=1 streak overlay),
+        //   1. rain codes get a slight blue tint, so the block reads "wet"
+        //      even before the streak overlay (DR-12/DR-13) is drawn on top,
         //   2. cloud cover spreads the brightness around the swatch (clear
         //      hours lift, overcast hours ease down), so neighbouring hours
         //      read as visibly different without the grid trending dark,
@@ -1626,8 +1626,10 @@
         };
         // WMO code → sky level. Rain / drizzle / freezing precip fall from an
         // overcast sky; ordinary showers (80/81) from a brighter broken sky;
-        // violent showers (82) from overcast; snow keeps its luminous block;
-        // thunder is the violet. Code 3 splits by cover (below), like DR-12.
+        // violent showers (82) from overcast; snow codes take the grey they
+        // fall from (see skyLevelFor, the white lattice is the snow); thunder
+        // is the violet. Code 3 splits by cover (below), like DR-12. The snow
+        // level below is kept for reference but the base uses the grey.
         const SKY_LEVEL = {
             0: 'clear', 1: 'mclear', 2: 'partly',
             45: 'fog', 48: 'fog',
@@ -1650,9 +1652,18 @@
         // trending dark: overcast eases down a little, clear lifts more.
         const CLOUD_DARKEN = 0.06;         // 100% cloud sits this far below the swatch
         const CLOUD_LIGHTEN = 0.14;        // 0% cloud sits this far above it
-        const skyLevelFor = (code, cloud) =>
-            code === 3 ? ((cloud ?? 0) > 90 ? 'overcast' : 'cloudy')
-                       : (SKY_LEVEL[code] || 'cloudy');
+        // Snow codes take the grey sky the snow falls from, not a white block:
+        // the white dot lattice (DR-12) is the snow, and it needs a grey base
+        // to read. ~97% of snow hours are overcast (Climatology note).
+        const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
+        const skyLevelFor = (code, cloud) => {
+            if (code === 3) return (cloud ?? 0) > 90 ? 'overcast' : 'cloudy';
+            if (SNOW_CODES.has(code)) {
+                const cl = cloud ?? 100;
+                return cl > 90 ? 'overcast' : cl > 60 ? 'cloudy' : cl > 25 ? 'partly' : 'clear';
+            }
+            return SKY_LEVEL[code] || 'cloudy';
+        };
         const mix3 = (a, b, t) => [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t);
         const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
         // An hour is night when its clock hour is before that day's sunrise or
@@ -1716,75 +1727,44 @@
             return hexRGB(hex).map((c, i) => Math.round(NAVY[i] + (c - NAVY[i]) * w));
         };
 
-        // --- ?lines=1 prototype: sky base + rain-streak overlay -----------
-        // Reverses DR-1 in the rain view only, behind a URL flag: the block
-        // colour becomes a picture of the sky (lighter = sunnier, darker =
-        // cloudier; overcast capped at medium grey, storm violet darkest),
-        // and rain lives entirely in a streak overlay. Chance = left-to-right
+        // --- Rain view: sky base + rain-streak overlay (DR-12/DR-13/DR-14) --
+        // The block colour is the sky (conditionRGB above: the WMO sky palette,
+        // rain-tinted, cloud-spread, night after local sunset), and rain lives
+        // entirely in a streak overlay drawn on top. Chance = left-to-right
         // fill extent (nothing below 8%); intensity = one density/weight ramp
-        // (gamma 0.4, capped at 8 mm) under three texture bands (nothing
-        // under 0.3 mm, ticks to 1, broken runs to 2, solid above); line
-        // colour = adaptive -50% shade of the base, carrying no data. Above
-        // 4 mm the base blends along the old blue ramp into storm violet,
-        // full at the 25 mm ceiling (escalation B); a warning mark joins
-        // above 20 mm. Lines lean with the wind: angle = 55deg x clamp(E-W
-        // wind component / 40 km/h), calibrated on 5y wet-hour data (p50
-        // ~11deg, p90 ~21-28deg, saturation only at 5-year extremes).
-        // The frozen family (vocabulary round, same day): snow = constant
-        // white dot lattice from snowfall cm/h (no floor, cap 2 cm/h, half
-        // wind lean); lines + lattice together on a mixed hour IS sleet;
-        // hail (WMO 96/99, category only) = sparse open rings, full width.
-        // Fog and freezing rain stay corner glyphs; uncertainty hatch is
+        // (gamma 0.4, capped at 8 mm) under three texture bands (nothing under
+        // 0.3 mm, ticks to 1, broken runs to 2, solid above); line colour = a
+        // luminance-tuned blue (DR-13), so "blue = rain" reads on every sky.
+        // No base escalation (owner call): heavy rain saturates the density and
+        // adds a warning mark above 20 mm, and a genuine storm is already the
+        // violet by weather code, so the base holds the sky. Lines lean with
+        // the wind: angle = 55deg x clamp(E-W wind component / 40 km/h),
+        // calibrated on 5y wet-hour data (p50 ~11deg, p90 ~21-28deg, saturation
+        // only at 5-year extremes). The frozen family: snow = constant white
+        // dot lattice from snowfall cm/h (no floor, cap 2 cm/h, half wind lean)
+        // on the cloud-derived grey; lines + lattice together on a mixed hour
+        // IS sleet; hail (WMO 96/99, category only) = sparse open rings, full
+        // width. Fog and freezing rain stay corner glyphs; uncertainty hatch is
         // earmarked and owns no texture.
         // Config locked 2026-07-24 (Maybe Rain Precipitation + Climatology).
-        const LINES = new URLSearchParams(location.search).get('lines') === '1';
-        const SKY = {
-            sun:        [255, 207, 51],
-            lightCloud: [205, 209, 214],
-            cloud:      [163, 168, 174],
-            overcast:   [120, 126, 133], // capped medium grey, never out-darkens rain
-            storm:      [70, 26, 120]
-        };
         const LN = { sp0: 15, sp1: 4.7, sw0: 0.85, sw1: 2.6, gamma: 0.4, cap: 8,
                      floor: 0.3, b1: 1, tlen: 3.7, tgap: 5.1, b2: 2, blen: 14, bgap: 6,
-                     shade: 0.5, alpha: 0.6, popFloor: 8, esc0: 4, warn: 20, ceil: 25,
+                     shade: 0.5, alpha: 0.6, popFloor: 8, warn: 20,
                      maxAngle: 55, windSat: 40,
                      snowCap: 2 }; // cm/h; the 5y Budapest max (Climatology note)
-        // Old blue rain ramp, now only the escalation target path.
-        const RAIN_RAMP = [[8, [26, 46, 120]], [14, [17, 30, 84]], [25, [70, 26, 120]]];
         const lnLum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
         const lnMix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * t));
+        // Hail rings borrow a neutral adaptive shade of the base (frozen, not
+        // rain, so not blue): darken a bright base, lighten a dark one.
         const lnShade = b => lnLum(b) > 135 ? lnMix(b, [0, 0, 0], LN.shade) : lnMix(b, [255, 255, 255], LN.shade);
-        const rampAt = mm => {
-            if (mm <= RAIN_RAMP[0][0]) return RAIN_RAMP[0][1];
-            for (let i = 0; i < RAIN_RAMP.length - 1; i++) {
-                const [m0, c0] = RAIN_RAMP[i], [m1, c1] = RAIN_RAMP[i + 1];
-                if (mm <= m1) return lnMix(c0, c1, (mm - m0) / (m1 - m0));
-            }
-            return RAIN_RAMP[RAIN_RAMP.length - 1][1];
-        };
-        // The sky an hour shows: for precipitation hours it derives from
-        // cloud cover (the sky the rain falls from), otherwise from the
-        // condition itself. Storm is always the violet; snow keeps its white
-        // block for now (streaks are rain vocabulary; snow treatment open).
-        const skyRGB = h => {
-            const c = COND[h.condition];
-            if (c.key === 'thunderstorm') return SKY.storm;
-            if (c.group === 'rain' || c.group === 'snow') { // the sky the precipitation falls from
-                const cl = h.cloud ?? 100;
-                return cl > 90 ? SKY.overcast : cl > 60 ? SKY.cloud
-                     : cl > 25 ? SKY.lightCloud : SKY.sun;
-            }
-            return { sunny: SKY.sun, 'partly-cloudy': SKY.lightCloud,
-                     cloudy: SKY.cloud, overcast: SKY.overcast }[c.key] || hexRGB(c.color);
-        };
-        // Escalation B: above 4 mm the base leaves the pure sky and blends
-        // toward the old ramp, fully there at the 25 ceiling.
-        const escSky = (sky, mm) => {
-            if (mm == null || mm <= LN.esc0) return sky;
-            const m = Math.min(mm, LN.ceil);
-            return lnMix(sky, rampAt(m), (m - LN.esc0) / (LN.ceil - LN.esc0));
-        };
+        // DR-13: rain lines are blue, contrast-tuned to the background by
+        // luminance band. Deep steel-blue on light skies (gold, the light
+        // greys), pale steel-blue on the dark ones (dark greys, storm violet,
+        // the night palette), so the streaks stay legible everywhere and read
+        // as "blue = rain". Line colour carries no data; density does.
+        const LN_BLUE_HI = [20, 54, 110];   // deep, on bright bases (lum > 135)
+        const LN_BLUE_LO = [206, 228, 247]; // pale, on dark bases
+        const lnBlue = base => lnLum(base) > 135 ? LN_BLUE_HI : LN_BLUE_LO;
         // Wind lean: signed E-W component of travel (wind blows toward
         // dir+180), linear to 55deg at a 40 km/h component. Positive SVG
         // rotation = drifting east. No wind data = vertical fall.
@@ -1798,7 +1778,7 @@
         // chance channel (width = pop%, anchored left, bare front edge); the
         // SVG pattern is the intensity channel. Chance unknown = full width
         // (the amount is a real forecast; the chance channel is just absent).
-        const rainLinesSVG = h => {
+        const rainLinesSVG = (h, base) => {
             // Lines draw from the liquid part only (rain + showers); the
             // white lattice carries the frozen part. Old cached payloads
             // lack the split: fall back to total mm, except on snow-coded
@@ -1806,11 +1786,10 @@
             const liquid = h.liquid ?? (COND[h.condition].group === 'snow' ? null : h.mm);
             if (liquid == null || liquid < LN.floor) return '';
             if (h.pop != null && h.pop < LN.popFloor) return '';
-            const base = escSky(skyRGB(h), h.mm);
             const t = Math.pow(Math.min(liquid, LN.cap) / LN.cap, LN.gamma);
             const sp = LN.sp0 + (LN.sp1 - LN.sp0) * t;
             const sw = LN.sw0 + (LN.sw1 - LN.sw0) * t;
-            const c = lnShade(base);
+            const c = lnBlue(base); // DR-13: blue, tuned to the base luminance
             const col = `rgba(${c[0]},${c[1]},${c[2]},${LN.alpha})`;
             const ang = windLean(h).toFixed(1);
             const id = 'mrln' + (lnId++);
@@ -2702,8 +2681,8 @@
                     hour: +time[i].slice(11, 13),
                     temp: Math.round(temperature_2m[i]),
                     pop: precipitation_probability?.[i] ?? null, // null = unknown, never faked
-                    mm: precipitation?.[i] ?? null,           // mm/h total; escalation, warning, tooltip
-                    // Liquid vs frozen split for the ?lines=1 overlays: lines
+                    mm: precipitation?.[i] ?? null,           // mm/h total; warning, tooltip
+                    // Liquid vs frozen split for the rain-view overlays: lines
                     // draw from the liquid part, the white lattice from
                     // snowfall. Old cached payloads lack the split (null).
                     liquid: (rain?.[i] != null || showers?.[i] != null)
@@ -2777,9 +2756,9 @@
                 return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
             }).join('');
 
-            // ?lines=1: the rain view swaps DR-1's probability fade for the
-            // sky-base + streak-overlay system; temp and wind views unchanged.
-            const linesMode = LINES && view === 'rain';
+            // The rain view is the sky base (conditionRGB) plus the streak
+            // overlay; temp and wind views draw their own scales.
+            const rainView = view === 'rain';
 
             $('grid').innerHTML = shownDays.map((dayData, dayIndex) => {
                 const isToday = dayMeta[dayIndex].isToday;
@@ -2799,23 +2778,14 @@
                     const cell = dayIndex * rows + (hour - start) + 1;
                     const tick = Math.imul(cell, 2654435761) >>> 29;
                     const delay = tick * 45;
-                    // Temperature view: heat-scale recolor.
-                    // Rain view: probability fade. No probability data means
-                    // full hue, with no invented number. Color always derives
-                    // from CONDITIONS; glyph contrast by luminance.
-                    const cond = COND[h.condition];
+                    // Temperature view: heat-scale recolor. Wind view: wind
+                    // scale. Rain view: the WMO sky colour (tinted for rain,
+                    // cloud-spread, night after this hour's local sunset); rain
+                    // itself rides on top as the streak overlay, below.
                     const rgb = view === 'temp' ? heatRGB(h.temp)
                         : view === 'wind'
                             ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
-                            : linesMode
-                                // Base = the sky (+ escalation B above 4 mm).
-                                // Snow hours use it too: white lattice on the
-                                // cloud-derived grey, not a white block.
-                                ? escSky(skyRGB(h), h.mm)
-                                // Default view: the WMO sky colour, tinted for
-                                // rain, dimmed by cloud cover, night after this
-                                // hour's local sunset (Sky Palette Explorer).
-                                : conditionRGB(h, hourNight(hour, sun));
+                            : conditionRGB(h, hourNight(hour, sun));
                     // Hazard icons (DR-10): every applicable hazard shows,
                     // packed into the bottom-right corner in a fixed order so
                     // two never swap places: the weather-coded hazard first
@@ -2833,17 +2803,17 @@
                         ? `<span class="wind-arrow" style="transform:rotate(${windOctant(h.windDir) * 45 + 180}deg)">${MR_ICON.wind}</span>` : '';
                     const hazGlyph = view === 'wind' ? ''
                         : mrIcon(h.glyph)
-                        + (linesMode && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
+                        + (rainView && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
                         + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '');
                     // Sky event (moon phase / lunar eclipse): a night fact, so
                     // it rides the day's 21:00 block, bottom-left, in all views.
                     const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
                     const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
-                    // Lines mode: the exact amount lives here, never in the
-                    // cell (the clamp at 25 is visual only; this stays honest).
-                    const mmText = linesMode && h.mm != null && h.mm >= 0.1
+                    // Rain view: the exact amount lives in the tooltip, never
+                    // printed in the cell, so the grid stays glanceable.
+                    const mmText = rainView && h.mm != null && h.mm >= 0.1
                         ? ` · ${h.mm} mm/h` : '';
-                    const snowText = linesMode && h.snow != null && h.snow > 0
+                    const snowText = rainView && h.snow != null && h.snow > 0
                         ? ` · ${h.snow} cm/h snow` : '';
                     const windText = h.wind != null
                         ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
@@ -2868,8 +2838,8 @@
                     // lines + lattice together IS sleet) + centred wind arrow
                     // (wind view) + bottom-right hazard glyph + bottom-left
                     // sky glyph. Any may be empty.
-                    const marks = (linesMode
-                            ? rainLinesSVG(h) + snowLatticeSVG(h) + hailRingsSVG(h, rgb)
+                    const marks = (rainView
+                            ? rainLinesSVG(h, rgb) + snowLatticeSVG(h) + hailRingsSVG(h, rgb)
                             : '')
                         + arrow
                         + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
@@ -2933,31 +2903,21 @@
                     bg: `rgb(${heatRGB(t)})`, label: `${displayTemp(t)}°`
                 }));
             }
-            // ?lines=1: the strip becomes the sky ramp (lighter = sunnier,
-            // darker = cloudier, storm darkest) plus one hatched swatch
-            // teaching "lines = rain". Final legend design is open; this is
-            // the prototype's minimum.
-            if (LINES) {
-                const hatch = `repeating-linear-gradient(118deg, rgba(82,84,87,0.6) 0 1.5px, transparent 1.5px 8px), rgb(${SKY.cloud})`;
-                const dots = `radial-gradient(rgba(255,255,255,0.92) 1px, rgba(0,0,0,0) 1.4px) 0 0 / 7px 7px, rgb(${SKY.overcast})`;
-                return [
-                    { bg: `rgb(${SKY.sun})`, label: 'sun' },
-                    { bg: `rgb(${SKY.lightCloud})`, label: '' },
-                    { bg: `rgb(${SKY.cloud})`, label: 'cloud' },
-                    { bg: `rgb(${SKY.overcast})`, label: '' },
-                    { bg: hatch, label: 'rain' },
-                    { bg: dots, label: 'snow' },
-                    { bg: `rgb(${SKY.storm})`, label: 'storm' }
-                ];
-            }
-            // Group label sits under the middle cell of its group.
-            const members = {};
-            CONDITIONS.forEach((c, i) => (members[c.group] = members[c.group] || []).push(i));
-            const labelAt = {};
-            for (const g in members) labelAt[members[g][members[g].length >> 1]] = g;
-            return CONDITIONS.map((c, i) => ({
-                bg: c.color, label: labelAt[i] || '', glyph: glyphFor(c.key), cond: i
-            }));
+            // Rain view: the strip is the sky ramp (lighter = sunnier, darker
+            // = cloudier, storm darkest) plus a blue-hatched "rain" swatch
+            // (DR-13, teaching "blue = rain") and a white-dot "snow" swatch.
+            // Block tooltips still name every condition on tap.
+            const hatch = `repeating-linear-gradient(118deg, rgba(${LN_BLUE_HI[0]},${LN_BLUE_HI[1]},${LN_BLUE_HI[2]},0.85) 0 1.6px, transparent 1.6px 8px), rgb(${SKY_DAY.cloudy})`;
+            const dots = `radial-gradient(rgba(255,255,255,0.92) 1px, rgba(0,0,0,0) 1.4px) 0 0 / 7px 7px, rgb(${SKY_DAY.overcast})`;
+            return [
+                { bg: `rgb(${SKY_DAY.clear})`, label: 'sun' },
+                { bg: `rgb(${SKY_DAY.partly})`, label: '' },
+                { bg: `rgb(${SKY_DAY.cloudy})`, label: 'cloud' },
+                { bg: `rgb(${SKY_DAY.overcast})`, label: '' },
+                { bg: hatch, label: 'rain' },
+                { bg: dots, label: 'snow' },
+                { bg: `rgb(${SKY_DAY.storm})`, label: 'storm' }
+            ];
         };
         const renderLegend = () => {
             const legend = $('legend');
@@ -3196,10 +3156,6 @@
             });
             if (p.admin1) q.set('admin1', p.admin1);
             if (p.country) q.set('country', p.country);
-            // Keep the ?lines=1 prototype flag sticky: the URL is rewritten
-            // on every city change, and losing the flag there would silently
-            // drop out of the experiment on the next reload.
-            if (LINES) q.set('lines', '1');
             return `${location.origin}${location.pathname}?${q}`;
         };
         // Keep the address bar shareable, without stacking history entries.
