@@ -4,6 +4,13 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js (v17, v18...)
 
 ## unreleased
 
+### experiment: rain as lines (open the app with `?lines=1`)
+- a prototype of the new rain look, off by default. block colour becomes a picture of the sky (lighter = sunnier, darker = cloudier, storm violet darkest)
+- rain lines: 0-0.3mm/hr nothing, 0.3-1mm/hr dotted, 1-2mm/hr dashed, 2-mm/hr solid. Shows the difference betweeen basically no rain, a drizzle, bring an umbrella, and you will get soaked
+- rain lines lean with the wind, heavier wind = more leaning
+- rain lines cover the block by the percentage chance of rain
+- the lines lean with the wind, and very heavy rain darkens the block toward the storm colour, with a warning mark above 20 mm/h
+
 ## v31 (2026-07-23)
 
 ### app updates

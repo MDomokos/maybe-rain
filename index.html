@@ -482,6 +482,18 @@
         }
         .block-mark svg { width: 1em; height: 1em; display: block; }
         .block-mark.sky { right: auto; left: 2px; }
+        /* ?lines=1 rain-streak overlay: the wrapper's width is the chance
+           channel (fill extent, anchored left, bare front edge); the SVG
+           pattern inside is the intensity channel. Sits under the corner
+           marks, clipped to the block's rounded corners. */
+        .rain-ov {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            border-radius: var(--radius);
+            pointer-events: none;
+        }
+        .rain-ov svg { width: 100%; height: 100%; display: block; }
         /* Wind view: one SVG arrow centred in the block, rotated to the wind
            octant by an inline transform. Larger than a corner mark so the
            direction reads at a glance. */
@@ -1621,6 +1633,110 @@
             return hexRGB(hex).map((c, i) => Math.round(NAVY[i] + (c - NAVY[i]) * w));
         };
 
+        // --- ?lines=1 prototype: sky base + rain-streak overlay -----------
+        // Reverses DR-1 in the rain view only, behind a URL flag: the block
+        // colour becomes a picture of the sky (lighter = sunnier, darker =
+        // cloudier; overcast capped at medium grey, storm violet darkest),
+        // and rain lives entirely in a streak overlay. Chance = left-to-right
+        // fill extent (nothing below 8%); intensity = one density/weight ramp
+        // (gamma 0.4, capped at 8 mm) under three texture bands (nothing
+        // under 0.3 mm, ticks to 1, broken runs to 2, solid above); line
+        // colour = adaptive -50% shade of the base, carrying no data. Above
+        // 4 mm the base blends along the old blue ramp into storm violet,
+        // full at the 25 mm ceiling (escalation B); a warning mark joins
+        // above 20 mm. Lines lean with the wind: angle = 55deg x clamp(E-W
+        // wind component / 40 km/h), calibrated on 5y wet-hour data (p50
+        // ~11deg, p90 ~21-28deg, saturation only at 5-year extremes).
+        // Config locked 2026-07-24 (Maybe Rain Precipitation note).
+        const LINES = new URLSearchParams(location.search).get('lines') === '1';
+        const SKY = {
+            sun:        [255, 207, 51],
+            lightCloud: [205, 209, 214],
+            cloud:      [163, 168, 174],
+            overcast:   [120, 126, 133], // capped medium grey, never out-darkens rain
+            storm:      [70, 26, 120]
+        };
+        const LN = { sp0: 15, sp1: 4.7, sw0: 0.85, sw1: 2.6, gamma: 0.4, cap: 8,
+                     floor: 0.3, b1: 1, tlen: 3.7, tgap: 5.1, b2: 2, blen: 14, bgap: 6,
+                     shade: 0.5, alpha: 0.6, popFloor: 8, esc0: 4, warn: 20, ceil: 25,
+                     maxAngle: 55, windSat: 40 };
+        // Old blue rain ramp, now only the escalation target path.
+        const RAIN_RAMP = [[8, [26, 46, 120]], [14, [17, 30, 84]], [25, [70, 26, 120]]];
+        const lnLum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
+        const lnMix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * t));
+        const lnShade = b => lnLum(b) > 135 ? lnMix(b, [0, 0, 0], LN.shade) : lnMix(b, [255, 255, 255], LN.shade);
+        const rampAt = mm => {
+            if (mm <= RAIN_RAMP[0][0]) return RAIN_RAMP[0][1];
+            for (let i = 0; i < RAIN_RAMP.length - 1; i++) {
+                const [m0, c0] = RAIN_RAMP[i], [m1, c1] = RAIN_RAMP[i + 1];
+                if (mm <= m1) return lnMix(c0, c1, (mm - m0) / (m1 - m0));
+            }
+            return RAIN_RAMP[RAIN_RAMP.length - 1][1];
+        };
+        // The sky an hour shows: for precipitation hours it derives from
+        // cloud cover (the sky the rain falls from), otherwise from the
+        // condition itself. Storm is always the violet; snow keeps its white
+        // block for now (streaks are rain vocabulary; snow treatment open).
+        const skyRGB = h => {
+            const c = COND[h.condition];
+            if (c.key === 'thunderstorm') return SKY.storm;
+            if (c.key === 'snow') return hexRGB(c.color);
+            if (c.group === 'rain') {
+                const cl = h.cloud ?? 100;
+                return cl > 90 ? SKY.overcast : cl > 60 ? SKY.cloud
+                     : cl > 25 ? SKY.lightCloud : SKY.sun;
+            }
+            return { sunny: SKY.sun, 'partly-cloudy': SKY.lightCloud,
+                     cloudy: SKY.cloud, overcast: SKY.overcast }[c.key] || hexRGB(c.color);
+        };
+        // Escalation B: above 4 mm the base leaves the pure sky and blends
+        // toward the old ramp, fully there at the 25 ceiling.
+        const escSky = (sky, mm) => {
+            if (mm == null || mm <= LN.esc0) return sky;
+            const m = Math.min(mm, LN.ceil);
+            return lnMix(sky, rampAt(m), (m - LN.esc0) / (LN.ceil - LN.esc0));
+        };
+        // Wind lean: signed E-W component of travel (wind blows toward
+        // dir+180), linear to 55deg at a 40 km/h component. Positive SVG
+        // rotation = drifting east. No wind data = vertical fall.
+        const windLean = h => {
+            if (h.wind == null || h.windDir == null) return 0;
+            const u = h.wind * Math.sin((h.windDir + 180) * Math.PI / 180);
+            return LN.maxAngle * Math.max(-1, Math.min(1, u / LN.windSat));
+        };
+        let lnId = 0; // unique per-render pattern ids
+        // The streak overlay for one block, or ''. The wrapper span is the
+        // chance channel (width = pop%, anchored left, bare front edge); the
+        // SVG pattern is the intensity channel. Chance unknown = full width
+        // (the amount is a real forecast; the chance channel is just absent).
+        const rainLinesSVG = h => {
+            if (h.mm == null || h.mm < LN.floor) return '';
+            if (h.pop != null && h.pop < LN.popFloor) return '';
+            if (COND[h.condition].key === 'snow') return '';
+            const base = escSky(skyRGB(h), h.mm);
+            const t = Math.pow(Math.min(h.mm, LN.cap) / LN.cap, LN.gamma);
+            const sp = LN.sp0 + (LN.sp1 - LN.sp0) * t;
+            const sw = LN.sw0 + (LN.sw1 - LN.sw0) * t;
+            const c = lnShade(base);
+            const col = `rgba(${c[0]},${c[1]},${c[2]},${LN.alpha})`;
+            const ang = windLean(h).toFixed(1);
+            const id = 'mrln' + (lnId++);
+            let dl = 0, dg = 0; // dash pattern: ticks, then broken runs, then solid
+            if (h.mm < LN.b1) { dl = LN.tlen; dg = LN.tgap; }
+            else if (h.mm < LN.b2) { dl = LN.blen; dg = LN.bgap; }
+            let pat;
+            if (dl > 0) { // two columns, dash phase staggered so breaks never align
+                const per = dl + dg;
+                const line = (x, off) =>
+                    `<line x1="${x.toFixed(2)}" y1="${(-per).toFixed(2)}" x2="${x.toFixed(2)}" y2="${(2 * per).toFixed(2)}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-dasharray="${dl} ${dg}" stroke-dashoffset="${off.toFixed(2)}"/>`;
+                pat = `<pattern id="${id}" width="${(sp * 2).toFixed(2)}" height="${per.toFixed(2)}" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})">${line(sp / 2, 0)}${line(sp * 1.5, per / 2)}</pattern>`;
+            } else {
+                pat = `<pattern id="${id}" width="${sp.toFixed(2)}" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})"><line x1="${(sp / 2).toFixed(2)}" y1="-2" x2="${(sp / 2).toFixed(2)}" y2="16" stroke="${col}" stroke-width="${sw.toFixed(2)}"/></pattern>`;
+            }
+            const wp = h.pop == null ? 100 : Math.min(100, h.pop);
+            return `<span class="rain-ov" style="width:${wp}%"><svg xmlns="http://www.w3.org/2000/svg"><defs>${pat}</defs><rect width="100%" height="100%" fill="url(#${id})"/></svg></span>`;
+        };
+
         // --- Sky events: moon phase + notable lunar eclipses -------------
         // Marked as a bare glyph on each day's 21:00 block (bottom-left, so
         // it never collides with a bottom-right hazard). Text glyphs match
@@ -1723,6 +1839,7 @@
             fog: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 8h12\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 12h13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 16h11\"/></svg>",
             freeze: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 3C14.3 7 15.6 8.6 15.6 10.8A3.6 3.6 0 1 1 8.4 10.8C8.4 8.6 9.7 7 12 3Z\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M7 17.5h10\"/><path vector-effect=\"non-scaling-stroke\" d=\"M9 17.5v3\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 17.5v3.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M15 17.5v3\"/></g></svg>",
             snow: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.5V20.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.6 7.75 19.4 16.25\"/><path vector-effect=\"non-scaling-stroke\" d=\"M19.4 7.75 4.6 16.25\"/></svg>",
+            rainwarn: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3 21 19.5H3Z\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 9v5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 16.8v.01\"/></svg>",
             heat: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"17.6\" r=\"3.4\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5V14.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 7.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 10.8h2.2\"/><path vector-effect=\"non-scaling-stroke\" d=\"M14.6 13.8h2.2\"/></g></svg>",
             uv: "<svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"4.8\" fill=\"currentColor\"/><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.4V5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M12 18.2V20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M3.4 12H5.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18.2 12H20.6\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 6.1 7.8 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M16.2 16.2 17.9 17.9\"/><path vector-effect=\"non-scaling-stroke\" d=\"M17.9 6.1 16.2 7.8\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.1 17.9 7.8 16.2\"/></g></svg>",
             new: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle vector-effect=\"non-scaling-stroke\" cx=\"12\" cy=\"12\" r=\"7\"/></svg>",
@@ -2261,7 +2378,7 @@
         const forecastURL = p =>
             'https://api.open-meteo.com/v1/forecast' +
             `?latitude=${p.latitude}&longitude=${p.longitude}` +
-            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
+            '&hourly=temperature_2m,weather_code,cloud_cover,precipitation,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
             '&daily=sunrise,sunset' +
             '&timezone=auto&forecast_days=7';
 
@@ -2435,7 +2552,7 @@
         const processData = payload => {
             state.tz = payload.timezone || state.tz;
             state.utcOffset = payload.utc_offset_seconds || 0; // for city-local sky-event day windows
-            const { time, temperature_2m, weather_code, cloud_cover, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
+            const { time, temperature_2m, weather_code, cloud_cover, precipitation, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
 
             // Daily sunrise/sunset (local ISO strings) → per-date {h, m}.
             state.sun = {};
@@ -2459,6 +2576,8 @@
                     hour: +time[i].slice(11, 13),
                     temp: Math.round(temperature_2m[i]),
                     pop: precipitation_probability?.[i] ?? null, // null = unknown, never faked
+                    mm: precipitation?.[i] ?? null,           // mm/h; drives the ?lines=1 streaks
+                    cloud: cloud_cover?.[i] ?? null,          // %, for the lines-mode sky base
                     uv: uv_index?.[i] ?? null,
                     wind: wind_speed_10m?.[i] ?? null,        // km/h; converted at render
                     windDir: wind_direction_10m?.[i] ?? null, // bearing the wind comes from
@@ -2521,6 +2640,10 @@
                 return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
             }).join('');
 
+            // ?lines=1: the rain view swaps DR-1's probability fade for the
+            // sky-base + streak-overlay system; temp and wind views unchanged.
+            const linesMode = LINES && view === 'rain';
+
             $('grid').innerHTML = shownDays.map((dayData, dayIndex) => {
                 const isToday = dayMeta[dayIndex].isToday;
                 const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
@@ -2547,8 +2670,13 @@
                     const rgb = view === 'temp' ? heatRGB(h.temp)
                         : view === 'wind'
                             ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
-                            : (PRECIP.has(cond.group) && h.pop != null
-                                ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
+                            : linesMode
+                                // Base = the sky (+ escalation B above 4 mm).
+                                // Snow keeps its white block (treatment open).
+                                ? (cond.key === 'snow' ? hexRGB(cond.color)
+                                    : escSky(skyRGB(h), h.mm))
+                                : (PRECIP.has(cond.group) && h.pop != null
+                                    ? fadeRGB(cond.color, h.pop) : hexRGB(cond.color));
                     // Hazard icons (DR-10): every applicable hazard shows,
                     // packed into the bottom-right corner in a fixed order so
                     // two never swap places: the weather-coded hazard first
@@ -2565,11 +2693,17 @@
                     const arrow = view === 'wind' && h.windDir != null && h.wind != null
                         ? `<span class="wind-arrow" style="transform:rotate(${windOctant(h.windDir) * 45 + 180}deg)">${MR_ICON.wind}</span>` : '';
                     const hazGlyph = view === 'wind' ? ''
-                        : mrIcon(h.glyph) + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '');
+                        : mrIcon(h.glyph)
+                        + (linesMode && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
+                        + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '');
                     // Sky event (moon phase / lunar eclipse): a night fact, so
                     // it rides the day's 21:00 block, bottom-left, in all views.
                     const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
                     const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
+                    // Lines mode: the exact amount lives here, never in the
+                    // cell (the clamp at 25 is visual only; this stays honest).
+                    const mmText = linesMode && h.mm != null && h.mm >= 0.1
+                        ? ` · ${h.mm} mm/h` : '';
                     const windText = h.wind != null
                         ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
                         : '';
@@ -2587,10 +2721,12 @@
                     const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
                     const pulse = state.pulsePending && movedInView ? ' changed' : '';
                     const chText = changeLines(ch).map(l => ` · ${l}`).join('');
-                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${windText}${hazText}${sunText}${skyText}${chText}`);
-                    // Marks: centred wind arrow (wind view) + bottom-right
-                    // hazard glyph + bottom-left sky glyph. Any may be empty.
-                    const marks = arrow
+                    const info = esc(`${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${mmText}${windText}${hazText}${sunText}${skyText}${chText}`);
+                    // Marks: rain-streak overlay first (under the glyphs) +
+                    // centred wind arrow (wind view) + bottom-right hazard
+                    // glyph + bottom-left sky glyph. Any may be empty.
+                    const marks = (linesMode ? rainLinesSVG(h) : '')
+                        + arrow
                         + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
                         + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
                     blocks.push(
@@ -2651,6 +2787,21 @@
                 return [-5, 0, 5, 10, 15, 20, 25, 30, 35].map(t => ({
                     bg: `rgb(${heatRGB(t)})`, label: `${displayTemp(t)}°`
                 }));
+            }
+            // ?lines=1: the strip becomes the sky ramp (lighter = sunnier,
+            // darker = cloudier, storm darkest) plus one hatched swatch
+            // teaching "lines = rain". Final legend design is open; this is
+            // the prototype's minimum.
+            if (LINES) {
+                const hatch = `repeating-linear-gradient(118deg, rgba(82,84,87,0.6) 0 1.5px, transparent 1.5px 8px), rgb(${SKY.cloud})`;
+                return [
+                    { bg: `rgb(${SKY.sun})`, label: 'sun' },
+                    { bg: `rgb(${SKY.lightCloud})`, label: '' },
+                    { bg: `rgb(${SKY.cloud})`, label: 'cloud' },
+                    { bg: `rgb(${SKY.overcast})`, label: '' },
+                    { bg: hatch, label: 'rain' },
+                    { bg: `rgb(${SKY.storm})`, label: 'storm' }
+                ];
             }
             // Group label sits under the middle cell of its group.
             const members = {};
@@ -2898,6 +3049,10 @@
             });
             if (p.admin1) q.set('admin1', p.admin1);
             if (p.country) q.set('country', p.country);
+            // Keep the ?lines=1 prototype flag sticky: the URL is rewritten
+            // on every city change, and losing the flag there would silently
+            // drop out of the experiment on the next reload.
+            if (LINES) q.set('lines', '1');
             return `${location.origin}${location.pathname}?${q}`;
         };
         // Keep the address bar shareable, without stacking history entries.
