@@ -3106,6 +3106,9 @@
                 return cells;
             });
             paintGrid($('grid'), cols, anim);
+            // Keep an open block tooltip in sync with the repaint (city swap,
+            // view switch, background refresh) even when the mouse hasn't moved.
+            refreshActiveTooltip();
 
             // DR-6: the first render after a rotation consumes the pulse, so
             // settings and view re-renders rebuild without .changed and the
@@ -3280,6 +3283,10 @@
             // freshness tooltips keep the plain single-line style.
             tooltip.classList.toggle('block', el.id !== 'statusInfo' && el.dataset.cond == null);
             tooltip.style.pointerEvents = el.id === 'statusInfo' ? 'auto' : 'none';
+            // Cleared here; the grid-block branch re-arms it so a repaint (city
+            // swap, view switch, background refresh) can re-render the open
+            // tooltip against the new data at the same grid position.
+            activeBlock = null;
             if (el.id === 'statusInfo') { // freshness line: what it means
                 const title = '<div class="tip-title"><strong>Forecast freshness</strong></div>';
                 const docs = '<div class="tip-link"><a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules updates</a></div>';
@@ -3303,6 +3310,9 @@
                 const day = state.days[di];
                 const h = state.data[di]?.find(x => x.hour === +el.dataset.hour);
                 if (!day || !h) return;
+                // Remember this cell by grid position (column + hour), which is
+                // stable across a city swap, so refreshActiveTooltip can re-render.
+                activeBlock = { day: di, hour: h.hour };
                 const sun = state.sun[day.date] || {};
 
                 // Header: day + date left, the hour range right (kept whole so
@@ -3373,11 +3383,23 @@
             tooltip.style.top = `${rect.top < th + 16 ? rect.bottom + 8 : rect.top - th - 8}px`;
         };
         let tappedBlock = null; // element whose tooltip was opened by tap
+        let activeBlock = null; // {day,hour} of the open block tooltip, for re-render on repaint
         const hideTooltip = () => {
             const t = $('tooltip');
             t.style.opacity = '0';
             t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
             tappedBlock = null;
+            activeBlock = null;
+        };
+        // Re-render an open block tooltip after the grid repaints. The mouse
+        // hasn't moved (no mouseover fires), so swapping city with the keyboard
+        // would otherwise leave the old city's tooltip on screen. Re-target the
+        // block at the same grid position and re-show it from fresh state.
+        const refreshActiveTooltip = () => {
+            if (!activeBlock || $('tooltip').style.opacity !== '1') return;
+            const el = $('grid').querySelector(
+                `.weather-block[data-day="${activeBlock.day}"][data-hour="${activeBlock.hour}"]`);
+            if (el) showTooltip(el); else hideTooltip();
         };
 
         // --- City search (Open-Meteo geocoding, URL-encoded) --------------
