@@ -6,13 +6,21 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 ## v36 (2026-07-26)
 
 ### temperature view
-- frost contour on actual air temp for temperature view
-- Region-level 0 °C frost line (solid) at each crossing between adjacent hours
+- temperature view is now colored based on feels-like temperature, which is more relevant to actual day to day usage
+- 0 °C frost line (solid) countour at each crossing between adjacent hours, based on actual temp
 - bannering a fully-frozen column's top
-- dashed possible-frost line at +3 °C, computed on actual temperature_2m, not feels-like
+- dashed possible-frost line at +2 °C
 - added a ▲ glyph on feels-like <= -20 (frostbite) or >= 38 (heat-stress), temperature view only
-- color source moves from raw temp heat scale to apparent_temperature
-- snapped to eight absolute comfort bands (Bitter..Very hot), 30% within-band shading to still have some differentiation
+- snapped to eight absolute comfort bands:
+  Bitter    Below-8
+  Freezing  -8 to 0
+  Cold       0 to 8
+  Cool       8 to 13
+  Comfort   13 to 22
+  Warm      22 to 27
+  Hot       27 to 32
+  Very hot  32+
+- 30% within-band shading to still have some differentiation
 - legend rebanded to the eight bands
 
 ## v35 (2026-07-25)

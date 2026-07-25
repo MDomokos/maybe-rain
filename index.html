@@ -487,23 +487,19 @@
         }
         .block-mark svg { width: 1em; height: 1em; display: block; }
         .block-mark.sky { right: auto; left: 2px; }
-        /* DR-17 frost lines: a region-level contour on ACTUAL air temp, drawn on
-           the block's top edge where the 0 ° boundary crosses (or bannering the
-           top of a frozen column). Solid = certain freezing, dashed = possible
-           frost at +3 °, reusing the rain view's dashed = possible / solid =
-           certain grammar. Lines only, never a fill: lightness is the temperature
-           axis, so a wash would make a near-freezing cell read warmer. */
-        .frost-line {
+        /* DR-17 frost contour: a region-level outline on ACTUAL air temp. An
+           overlay inset over the block; the render sets a border only on the
+           sides that face out of the frozen (solid, 0 °) or near-freezing
+           (dashed, +3 °) region, so the borders of adjacent cells join into one
+           contour around the region. Solid = certain freezing, dashed = possible
+           frost, reusing the rain view's dashed = possible / solid = certain
+           grammar. Lines only, never a fill: lightness is the temperature axis,
+           so a wash would make a near-freezing cell read warmer. */
+        .frost {
             position: absolute;
-            top: 0; left: 0; right: 0;
-            height: 0;
-            border-top: 2px solid rgba(146, 224, 255, 0.95);
-            border-radius: var(--radius) var(--radius) 0 0;
+            inset: 0;
+            border-radius: var(--radius);
             pointer-events: none;
-        }
-        .frost-line.possible {
-            border-top-style: dashed;
-            border-top-color: rgba(152, 221, 255, 0.92);
         }
         /* Rain-streak overlay: the wrapper's width is the chance
            channel (fill extent, anchored left, bare front edge); the SVG
@@ -1707,10 +1703,12 @@
         // first-pass -10 / 32 edges cried wolf on the record and were dropped.
         const TEMP_DANGER_COLD = -20, TEMP_DANGER_HOT = 38;
         // DR-17 possible-frost buffer: frost and black ice form at reported air
-        // temps of +2..+4 ° (surfaces radiate below the 2 m air on clear calm
-        // nights; advisories fire there, not at 0 °), and the buffer also honours
-        // the forecast's own uncertainty. Solid line at true 0 °, dashed at +3 °.
-        const FROST_POSSIBLE = 3;
+        // temps a couple of degrees above zero (surfaces radiate below the 2 m
+        // air on clear calm nights; advisories fire there, not at 0 °), and the
+        // buffer also honours the forecast's own uncertainty. Solid line at true
+        // 0 °, dashed possible-frost at the +2 ° edge, so the marker only appears
+        // below +2 °.
+        const FROST_POSSIBLE = 2;
         // Wind: calm grey → breeze teal → fresh green → strong gold → gale
         // red, anchored in km/h (≈ Beaufort 0 / 3 / 5 / 7 / 9+).
         const WIND_STOPS = [[0, [58, 58, 58]], [12, [72, 143, 138]], [29, [80, 200, 120]], [50, [255, 215, 0]], [75, [229, 72, 77]]];
@@ -3099,6 +3097,17 @@
             // overlay; temp and wind views draw their own scales.
             const rainView = view === 'rain';
 
+            // DR-17 frost contour needs each cell's four neighbours (hour above /
+            // below in the same day, same hour in the day either side), on ACTUAL
+            // air temp. Null when the neighbour is off the shown window or missing
+            // (an honest gap), which the outline treats as the region's edge.
+            const lastDay = shownDays.length - 1;
+            const actualTemp = (di, hh) => {
+                const dd = shownDays[di];
+                const c = dd && dd.find(x => x.hour === hh);
+                return c ? c.temp : null;
+            };
+
             const cols = shownDays.map((dayData, dayIndex) => {
                 const isToday = dayMeta[dayIndex].isToday;
                 const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
@@ -3144,20 +3153,65 @@
                         + (dangerCold || dangerHot ? MR_ICON.danger : '');
                     // DR-17 frost contour (temperature view only), on ACTUAL air
                     // temp, decoupled from the feels-like colour: ice, frost and
-                    // rain->snow are real-temperature events. A crossing between
-                    // this hour and the one above draws the line; at the top of
-                    // the window a still-frozen cell banners it, so an all-frozen
-                    // column never loses the marker. Solid at 0 °, dashed at the
-                    // +3 ° possible-frost edge; solid wins a shared edge.
+                    // rain->snow are real-temperature events. The marker outlines
+                    // the whole region, not just a crossing: a cell inside the
+                    // region draws an edge on each side where the neighbour is on
+                    // the warm side of the threshold, so the border traces the
+                    // 0 ° (solid) and +3 ° possible-frost (dashed) contours around
+                    // the frozen / near-freezing blocks. The top of the shown
+                    // window banners, so an all-frozen column never loses it.
+                    // Solid on the frozen cells (< 0), dashed on the near-freezing
+                    // ones (0 up to +3); a cell is only ever one or the other.
                     let frost = '';
                     if (view === 'temp' && h.temp != null) {
-                        const prev = hour > start ? dayData.find(x => x.hour === hour - 1) : null;
-                        const pt = prev ? prev.temp : null;
-                        const crosses = thr => pt != null
-                            ? (h.temp < thr) !== (pt < thr)
-                            : (hour === start && h.temp < thr);
-                        if (crosses(0)) frost = '<span class="frost-line"></span>';
-                        else if (crosses(FROST_POSSIBLE)) frost = '<span class="frost-line possible"></span>';
+                        const t = h.temp, buf = FROST_POSSIBLE;
+                        const solid = t < 0, dashed = !solid && t < buf;
+                        if (solid || dashed) {
+                            const thr = solid ? 0 : buf; // edge sits where the neighbour is warmer than this
+                            const above = actualTemp(dayIndex, hour - 1);
+                            const below = actualTemp(dayIndex, hour + 1);
+                            const left = actualTemp(dayIndex - 1, hour);
+                            const right = actualTemp(dayIndex + 1, hour);
+                            const out = n => n == null || n >= thr; // warm side, off-window, or gap
+                            const sides = [];
+                            if (hour === start || (above != null && above >= thr)) sides.push('top');
+                            if (hour < end && out(below)) sides.push('bottom');
+                            if (dayIndex > 0 && out(left)) sides.push('left');
+                            if (dayIndex < lastDay && out(right)) sides.push('right');
+                            if (sides.length) {
+                                let style;
+                                if (solid) {
+                                    // Certain freezing: each active side is a band
+                                    // strongest at the block edge and fading toward
+                                    // the middle, so the 0 ° contour reads as a
+                                    // frosty haze rather than a hard line.
+                                    const D = 9; // how far the frost reaches inward
+                                    const C = 'rgba(146,224,255,0.9)';
+                                    const fade = { top: 'to bottom', bottom: 'to top', left: 'to right', right: 'to left' };
+                                    const place = {
+                                        top: `left top/100% ${D}px`, bottom: `left bottom/100% ${D}px`,
+                                        left: `left top/${D}px 100%`, right: `right top/${D}px 100%`
+                                    };
+                                    const bg = sides.map(s => `linear-gradient(${fade[s]}, ${C}, transparent) ${place[s]} no-repeat`).join(',');
+                                    style = `background:${bg}`;
+                                } else {
+                                    // Possible-frost: a crisp 2px dashed line (no
+                                    // fade) so it stays sharply distinct from the
+                                    // soft certain-frost haze; drawn per side as a
+                                    // repeating gradient for exact dash and gap.
+                                    const C = 'rgba(152,221,255,0.92)', DASH = 6, GAP = 5, TH = 2;
+                                    const grad = dir => `repeating-linear-gradient(to ${dir}, ${C} 0 ${DASH}px, transparent ${DASH}px ${DASH + GAP}px)`;
+                                    const layer = {
+                                        top: `${grad('right')} left top/100% ${TH}px no-repeat`,
+                                        bottom: `${grad('right')} left bottom/100% ${TH}px no-repeat`,
+                                        left: `${grad('bottom')} left top/${TH}px 100% no-repeat`,
+                                        right: `${grad('bottom')} right top/${TH}px 100% no-repeat`
+                                    };
+                                    style = `background:${sides.map(s => layer[s]).join(',')}`;
+                                }
+                                frost = `<span class="frost" style="${style}"></span>`;
+                            }
+                        }
                     }
                     // Sky event (moon phase / lunar eclipse): a night fact, so
                     // it rides the day's 21:00 block, bottom-left, in all views.
