@@ -3,6 +3,13 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
+## v36 (2026-07-26)
+
+### temperature view
+- color source moves from raw temp heat scale to apparent_temperature
+- snapped to eight absolute comfort bands (Bitter..Very hot), 30% within-band shading to still have some differentiation
+- legend rebanded to the eight bands
+
 ## v35 (2026-07-25)
 
 ### tooltip update (bug)

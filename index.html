@@ -1636,9 +1636,52 @@
             }
             return stops[stops.length - 1][1];
         };
-        // Heat: cold blue → white → gold → hot red, anchored in °C.
-        const HEAT_STOPS = [[-5, [74, 144, 217]], [10, [245, 245, 245]], [22, [255, 215, 0]], [35, [229, 72, 77]]];
-        const heatRGB = t => scaleRGB(HEAT_STOPS, t);
+        // DR-17 temperature view: colour by apparent temperature (feels-like,
+        // Open-Meteo's apparent_temperature) into eight absolute human comfort
+        // bands, the same edges in every city, so the grid orients across cities
+        // and weeks instead of self-scaling. Comfort-diverging palette: palest at
+        // Comfortable, deepening both ways so darkness reads as distance from
+        // comfortable. Each band carries one prep cue. Danger stays an escalation
+        // glyph (dangerGlyph), not a band, so a normal Minneapolis winter or
+        // Florida summer never cries wolf. Edges, colours and cues are locked in
+        // Weather PWA/Maybe Rain Temperature.md (5y ERA5, four cities).
+        const TEMP_BANDS = [
+            { max: -8,       rgb: [58, 45, 107],   name: 'Bitter',   cue: 'bundle up - gloves and hat, skip the run' },
+            { max: 0,        rgb: [70, 110, 196],  name: 'Freezing', cue: 'below freezing - coat, watch for ice' },
+            { max: 8,        rgb: [110, 160, 220], name: 'Cold',     cue: 'warm coat; layers to bike' },
+            { max: 13,       rgb: [176, 205, 232], name: 'Cool',     cue: 'light jacket or windbreaker' },
+            { max: 22,       rgb: [234, 231, 220], name: 'Comfort',  cue: 'wear whatever - great for a walk or ride' },
+            { max: 27,       rgb: [240, 199, 117], name: 'Warm',     cue: 't-shirt and shorts' },
+            { max: 32,       rgb: [232, 150, 63],  name: 'Hot',      cue: 'hydrate, shade, you will sweat' },
+            { max: Infinity, rgb: [194, 59, 50],   name: 'Very hot', cue: 'extra water, limit midday sun' }
+        ];
+        // Band for a feels-like °C (lower edge inclusive: -8 is Freezing, 0 is
+        // Cold). scaleRGB stays for the wind view; temperature no longer ramps.
+        const bandIndex = feels => {
+            const i = TEMP_BANDS.findIndex(b => feels < b.max);
+            return i < 0 ? TEMP_BANDS.length - 1 : i;
+        };
+        // Snap to the band colour, then shade within the band toward the
+        // neighbouring band by TEMP_BLEND of the gap (mockup mode 5): the cooler
+        // half deepens, the warmer half lightens, so the daily trend reads while
+        // the band step stays visible. 0 would be pure discrete, 0.5 continuous;
+        // 0.30 keeps band identity with enough gradient to see the swing. The
+        // outer half of the two end bands keeps deepening toward black, so a -25 °
+        // cell already looks worse than a -10 ° one before the glyph confirms it.
+        const TEMP_BLEND = 0.30;
+        const bandRGB = feels => {
+            const i = bandIndex(feels), b = TEMP_BANDS[i];
+            const loRaw = i === 0 ? -Infinity : TEMP_BANDS[i - 1].max;
+            const lo = isFinite(loRaw) ? loRaw : b.max - 12;
+            const hi = isFinite(b.max) ? b.max : lo + 12;
+            const p = Math.max(0, Math.min(1, (feels - lo) / (hi - lo)));
+            const s = (p - 0.5) * 2; // -1 at the cold edge, +1 at the warm edge
+            const target = s < 0
+                ? (i > 0 ? TEMP_BANDS[i - 1].rgb : [0, 0, 0])
+                : (i < TEMP_BANDS.length - 1 ? TEMP_BANDS[i + 1].rgb : [0, 0, 0]);
+            const f = Math.abs(s) * TEMP_BLEND;
+            return b.rgb.map((c, j) => Math.round(c + (target[j] - c) * f));
+        };
         // Wind: calm grey → breeze teal → fresh green → strong gold → gale
         // red, anchored in km/h (≈ Beaufort 0 / 3 / 5 / 7 / 9+).
         const WIND_STOPS = [[0, [58, 58, 58]], [12, [72, 143, 138]], [29, [80, 200, 120]], [50, [255, 215, 0]], [75, [229, 72, 77]]];
@@ -3034,11 +3077,12 @@
                     const h = dayData.find(x => x.hour === hour);
                     if (!h) { cells.push({ empty: true }); continue; } // honest gap
                     const isCurrent = isToday && hour === currentHour;
-                    // Temperature view: heat-scale recolor. Wind view: wind
+                    // Temperature view (DR-17): comfort-band colour on feels-like
+                    // (raw temp only if apparent is missing). Wind view: wind
                     // scale. Rain view: the WMO sky colour (tinted for rain,
                     // cloud-spread, night after this hour's local sunset); rain
                     // itself rides on top as the streak overlay, below.
-                    const rgb = view === 'temp' ? heatRGB(h.temp)
+                    const rgb = view === 'temp' ? bandRGB(h.feels != null ? h.feels : h.temp)
                         : view === 'wind'
                             ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
                             : conditionRGB(h, nightFactor(hour, sun));
@@ -3091,7 +3135,12 @@
                     const ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
                     const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
                     const chText = changeLines(ch).map(l => ` · ${l}`).join('');
-                    const info = `${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`;
+                    // DR-17: name the comfort band in the temperature view so the
+                    // colour is spoken, not just seen.
+                    const feelsVal = h.feels != null ? h.feels : h.temp;
+                    const comfortText = view === 'temp' && feelsVal != null
+                        ? ` · ${TEMP_BANDS[bandIndex(feelsVal)].name.toLowerCase()}` : '';
+                    const info = `${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`;
                     // Marks: precipitation overlays first (under the glyphs;
                     // rain lines + snow lattice + hail rings, any subset;
                     // lines + lattice together IS sleet) + centred wind arrow
@@ -3155,9 +3204,10 @@
                 }));
             }
             if (view === 'temp') {
-                return [-5, 0, 5, 10, 15, 20, 25, 30, 35].map(t => ({
-                    bg: `rgb(${heatRGB(t)})`, label: `${displayTemp(t)}°`
-                }));
+                // DR-17: the strip is the eight comfort bands, not a °C ramp;
+                // each swatch is its band colour, the block tooltip carries the
+                // prep cue on tap.
+                return TEMP_BANDS.map(b => ({ bg: `rgb(${b.rgb})`, label: b.name }));
             }
             // Rain view: the strip is the sky ramp (lighter = sunnier, darker
             // = cloudier, storm darkest) plus a blue-hatched "rain" swatch
@@ -3362,6 +3412,14 @@
                 if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) ctx.push(esc(sky.label)); }
                 const ctxLine = `<div class="tip-ctx">${ctx.join(' · ')}</div>`;
 
+                // DR-17: in the temperature view, spell out the comfort band and
+                // its prep cue that the block colour encodes (on feels-like, raw
+                // temp only if apparent is missing).
+                const feelsVal = h.feels != null ? h.feels : h.temp;
+                const comfort = (view === 'temp' && feelsVal != null)
+                    ? `<div class="tip-ctx">${esc(TEMP_BANDS[bandIndex(feelsVal)].name)} - ${esc(TEMP_BANDS[bandIndex(feelsVal)].cue)}</div>`
+                    : '';
+
                 // DR-6: was/now detail, as small muted lines under the context.
                 const chg = changeLines(state.changed?.[`${day.date}|${h.hour}`])
                     .map(l => `<div class="tip-ctx">${l}</div>`).join('');
@@ -3381,7 +3439,7 @@
                 const chipHtml = chips.length
                     ? `<div class="tip-chips">${chips.map(c => `<span class="tip-chip">${esc(c)}</span>`).join('')}</div>` : '';
 
-                tooltip.innerHTML = when + temp + rain + ctxLine + chg + chipHtml;
+                tooltip.innerHTML = when + temp + rain + ctxLine + comfort + chg + chipHtml;
             }
             tooltip.style.opacity = '1';
             // Measure the real size, center on the block, clamp to the
