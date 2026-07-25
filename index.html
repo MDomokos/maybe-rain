@@ -1682,6 +1682,12 @@
             const f = Math.abs(s) * TEMP_BLEND;
             return b.rgb.map((c, j) => Math.round(c + (target[j] - c) * f));
         };
+        // DR-17: danger is an escalation glyph, not a band (rain-parity with the
+        // heavy-rain warning). On feels-like: frostbite at <= -20 (about 430 h/yr
+        // in Minneapolis, near-never elsewhere), heat-stress at >= 38 (the real
+        // heat-index line; ERA5 smooths the tail, live models fire it). The
+        // first-pass -10 / 32 edges cried wolf on the record and were dropped.
+        const TEMP_DANGER_COLD = -20, TEMP_DANGER_HOT = 38;
         // Wind: calm grey → breeze teal → fresh green → strong gold → gale
         // red, anchored in km/h (≈ Beaufort 0 / 3 / 5 / 7 / 9+).
         const WIND_STOPS = [[0, [58, 58, 58]], [12, [72, 143, 138]], [29, [80, 200, 120]], [50, [255, 215, 0]], [75, [229, 72, 77]]];
@@ -2122,6 +2128,7 @@
             close: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 6 18 18\"/><path vector-effect=\"non-scaling-stroke\" d=\"M18 6 6 18\"/></svg>",
             now: "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5 8 19 18 12Z\"/></svg>",
             caret: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 9 12 15 18 9\"/></svg>",
+            danger: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 4 21 20H3Z\"/></svg>",
         };
         // Saved favourite: the plus mark in gold with a heavier stroke.
         const MR_ICON_STAR_SAVED = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5.5V18.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5.5 12H18.5\"/></svg>";
@@ -3095,6 +3102,12 @@
                     // UV, or a storm on a hot day). h.glyph is an MR_ICON key.
                     const hot = h.temp >= settings.heatWarn;
                     const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
+                    // DR-17 danger glyph: temperature view only, on feels-like
+                    // (raw only if apparent is missing). Outside the rain view's
+                    // hazard vocabulary, so it never counts against its glyph cap.
+                    const dv = h.feels != null ? h.feels : h.temp;
+                    const dangerCold = view === 'temp' && dv != null && dv <= TEMP_DANGER_COLD;
+                    const dangerHot = view === 'temp' && dv != null && dv >= TEMP_DANGER_HOT;
                     // Wind view: the arrow is the data, centred, pointing where
                     // the wind blows. One SVG (base points up) rotated by the
                     // octant; hazards stay on the other two views, tucked into
@@ -3104,7 +3117,8 @@
                     const hazGlyph = view === 'wind' ? ''
                         : mrIcon(h.glyph)
                         + (rainView && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
-                        + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '');
+                        + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '')
+                        + (dangerCold || dangerHot ? MR_ICON.danger : '');
                     // Sky event (moon phase / lunar eclipse): a night fact, so
                     // it rides the day's 21:00 block, bottom-left, in all views.
                     const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
@@ -3119,7 +3133,8 @@
                         ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
                         : '';
                     const hazText = (hot ? ' · extreme heat' : '')
-                        + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '');
+                        + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '')
+                        + (dangerCold ? ' · dangerous cold' : '') + (dangerHot ? ' · dangerous heat' : '');
                     const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
                         + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
                     const skyText = sky ? ` · ${sky.label}` : '';
@@ -3435,6 +3450,12 @@
                     if (view === 'rain' && h.mm != null && h.mm > LN.warn) chips.push('heavy rain');
                     if (h.temp >= settings.heatWarn) chips.push('extreme heat');
                     if (h.uv != null && h.uv >= settings.uvWarn) chips.push(`very high UV (${Math.round(h.uv)})`);
+                    // DR-17 danger glyph, temperature view only, on feels-like.
+                    if (view === 'temp') {
+                        const dv = h.feels != null ? h.feels : h.temp;
+                        if (dv != null && dv <= TEMP_DANGER_COLD) chips.push('dangerous cold');
+                        else if (dv != null && dv >= TEMP_DANGER_HOT) chips.push('dangerous heat');
+                    }
                 }
                 const chipHtml = chips.length
                     ? `<div class="tip-chips">${chips.map(c => `<span class="tip-chip">${esc(c)}</span>`).join('')}</div>` : '';

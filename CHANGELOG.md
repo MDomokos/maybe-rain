@@ -6,6 +6,8 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 ## v36 (2026-07-26)
 
 ### temperature view
+-added a ▲ glyph on feels-like <= -20 (frostbite) or >= 38
+(heat-stress), temperature view only
 - color source moves from raw temp heat scale to apparent_temperature
 - snapped to eight absolute comfort bands (Bitter..Very hot), 30% within-band shading to still have some differentiation
 - legend rebanded to the eight bands
