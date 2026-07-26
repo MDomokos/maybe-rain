@@ -402,7 +402,7 @@
                swipe gestures (change view / city) read horizontal ones; it
                also blocks an accidental browser pinch on the grid itself. */
             touch-action: pan-y;
-            height: clamp(260px, 52vh, 640px);
+            height: clamp(280px, 56vh, 720px);
             padding-left: var(--gutter);
             /* columns stop short of the right edge, so the full-width
                gridlines overhang the grid on both sides */
@@ -426,6 +426,19 @@
                lines up with its row of blocks */
             transform: translateY(-50%);
             font-weight: 300;
+        }
+        /* With the horizontal gridlines gone, a short tick reaches from each
+           label to the grid's left edge, tying the clock to the rows without
+           any line crossing the blocks. Sits in the 8px gap between the label
+           gutter (--gutter - 8px) and the grid field (--gutter). */
+        .time-label::after {
+            content: '';
+            position: absolute;
+            right: -8px;
+            top: 50%;
+            width: 7px;
+            height: 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.4);
         }
         .chart-grid {
             display: flex;
@@ -597,26 +610,10 @@
             pointer-events: none;
         }
 
-        /* Grid lines: one 1px line at the top of each hour band, where the
-           2px block gap is. Lines span the full chart width (left: 0), so
-           they extend through the label gutter beyond the grid itself. */
-        .chart::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-image: repeating-linear-gradient(
-                to bottom,
-                var(--gridline) 0,
-                var(--gridline) 1px,
-                transparent 1px,
-                transparent var(--band)
-            );
-            pointer-events: none;
-            z-index: 1;
-        }
+        /* Horizontal gridlines removed: the block gaps carry the row rhythm on
+           their own, and the per-label edge ticks (.time-label::after) keep the
+           clock tied to the grid. This is the single biggest declutter — the
+           block grid now reads uninterrupted. */
 
         /* Legend and tooltip.
            Spectrum legend: both views render the same one-line strip of

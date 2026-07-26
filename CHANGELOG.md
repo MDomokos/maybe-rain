@@ -3,6 +3,13 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
+## v37 (2026-07-26)
+
+### cleanup
+- remove whole grid background line for more visual clarity
+- add clock ticks to each our mark to still help with readability
+- update spacing of the whole grid to be slightly taller
+
 ## v36 (2026-07-26)
 
 ### temperature view
