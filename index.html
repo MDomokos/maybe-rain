@@ -4214,8 +4214,8 @@
         // DR-19: a plain tap no longer opens anything on touch (that was
         // the fiddly-to-close pin DR-18 didn't reach; hold now owns the
         // whole job). A hold that's released quickly is just a glance and
-        // closes on release, same as DR-18. Held past a further ~450ms
-        // (~590ms total) it locks: the tooltip gets the `.pinned` cue
+        // closes on release, same as DR-18. Held past a further ~2860ms
+        // (~3s total, DR-21) it locks: the tooltip gets the `.pinned` cue
         // (accent border) and releasing after that point leaves it open,
         // for comparing against another block or view without holding.
         // The next touch anywhere on the grid, tap or fresh hold alike,
@@ -4233,17 +4233,32 @@
         // felt as a series of ticks, not just watched), and a short
         // double-tick when the hold crosses the lock threshold, echoing
         // the `.pinned` border with a distinctly different feel from the
-        // single open/scrub ticks. All unmeasured starting points, same
-        // status as the timing constants below.
-        const VIBE_SHOW = 10, VIBE_SCRUB = 6, VIBE_LOCK = [14, 40, 14];
+        // single open/scrub ticks. DR-21 sharpened all three: shorter and
+        // milder pulses read as a crisp tick rather than a buzz. All
+        // unmeasured starting points, same status as the timing constants
+        // below.
+        const VIBE_SHOW = 6, VIBE_SCRUB = 4, VIBE_LOCK = [8, 20, 8];
         const vibrate = pattern => { try { navigator.vibrate?.(pattern); } catch {} };
-        const HOLD_MS = 140, LOCK_MS = 450, HOLD_SLOP = 10;
+        const HOLD_MS = 140, LOCK_MS = 2860, HOLD_SLOP = 10; // DR-21: HOLD_MS + LOCK_MS = ~3s to lock
         let swipeStart = null, holdTimer = null, lockTimer = null, holdActive = false, holdLocked = false, holdEl = null;
         const cancelHoldTimer = () => { clearTimeout(holdTimer); holdTimer = null; };
         const cancelLockTimer = () => { clearTimeout(lockTimer); lockTimer = null; };
+        // DR-22: the lock timer runs against whichever block is currently
+        // under the finger, not the gesture as a whole. Restarted fresh
+        // every time the drag lands on a new block (see touchmove below),
+        // so "pressed for 3s" means 3s continuously on that one block, not
+        // 3s of total hold time spent drifting across several.
+        const armLockTimer = () => {
+            cancelLockTimer();
+            lockTimer = setTimeout(() => {
+                lockTimer = null;
+                holdLocked = true;
+                $('tooltip').classList.add('pinned'); // cue: letting go now keeps it open
+                vibrate(VIBE_LOCK);
+            }, LOCK_MS);
+        };
         const blockAt = (x, y) => document.elementFromPoint(x, y)?.closest('.weather-block[data-info]');
         chart.addEventListener('touchstart', e => {
-            if (touchPinned) hideTooltip(); // any new touch closes a pinned tooltip
             cancelHoldTimer();
             cancelLockTimer();
             holdActive = false;
@@ -4257,13 +4272,7 @@
                 if (!swipeStart) return; // already lifted, or a second finger joined
                 holdActive = true;
                 const el = blockAt(swipeStart.x, swipeStart.y);
-                if (el) { showTooltip(el); holdEl = el; vibrate(VIBE_SHOW); }
-                lockTimer = setTimeout(() => {
-                    lockTimer = null;
-                    holdLocked = true;
-                    $('tooltip').classList.add('pinned'); // cue: letting go now keeps it open
-                    vibrate(VIBE_LOCK);
-                }, LOCK_MS);
+                if (el) { showTooltip(el); holdEl = el; vibrate(VIBE_SHOW); armLockTimer(); }
             }, HOLD_MS);
         }, { passive: true });
         chart.addEventListener('touchmove', e => {
@@ -4277,7 +4286,15 @@
             }
             e.preventDefault(); // a hold scrubs, it doesn't pan
             const el = blockAt(t.clientX, t.clientY);
-            if (el && el !== holdEl) { showTooltip(el); holdEl = el; vibrate(VIBE_SCRUB); }
+            if (el && el !== holdEl) {
+                showTooltip(el); holdEl = el; vibrate(VIBE_SCRUB);
+                // DR-22: landing on a new block un-commits any lock this
+                // gesture already reached on the previous block (it was
+                // never actually pressed for 3s) and restarts the timer.
+                holdLocked = false;
+                $('tooltip').classList.remove('pinned');
+                armLockTimer();
+            }
         }, { passive: false });
         chart.addEventListener('touchend', e => {
             e.preventDefault(); // touch never lets the ghost click through
@@ -4315,6 +4332,42 @@
             holdLocked = false;
             holdEl = null;
             swipeStart = null;
+        });
+
+        // DR-22, bug fix: closing a pinned tooltip used to be handled only
+        // inside the chart's own touchstart (see the `if (touchPinned)`
+        // check that used to open this block), so a touch that landed
+        // outside `.chart` entirely (header, legend, settings, blank
+        // margin) never reached it and left the pin stuck open until a
+        // fresh one was pressed and released on the grid. Centralized here
+        // instead: any touch anywhere on the page closes a pinned tooltip.
+        // For a touch that starts inside the grid, this fires alongside
+        // (just after) the chart's own touchstart handler in the same
+        // event dispatch, so a fresh hold there still opens normally.
+        document.addEventListener('touchstart', () => {
+            if (touchPinned) hideTooltip();
+        }, { passive: true });
+
+        // DR-22: leaving the app (tab hidden, screen locked) shouldn't
+        // leave a stray tooltip on screen for whenever the user returns,
+        // unless it's a genuine pin (touch lock or desktop click-pin),
+        // which is meant to persist through exactly that "step away and
+        // come back" case. Also resets any touch gesture still mid-flight:
+        // the OS can intercept the touchend/touchcancel that would
+        // normally clean it up (e.g. the screen locking mid-hold), which
+        // otherwise left stale hold/lock state behind and made the very
+        // next touch behave oddly until a fresh pin was opened and closed
+        // (the other half of the bug fixed above).
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) return;
+            cancelHoldTimer();
+            cancelLockTimer();
+            holdActive = false;
+            holdLocked = false;
+            holdEl = null;
+            swipeStart = null;
+            const t = $('tooltip');
+            if (t.style.opacity === '1' && !touchPinned && tappedBlock == null) hideTooltip();
         });
 
         document.addEventListener('keydown', e => {
