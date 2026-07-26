@@ -570,25 +570,20 @@
             top: 0;
             bottom: 0;
             width: 2px;
-            background: var(--accent);
+            /* white, not gold: gold is reserved for sun/today/sunrise, and the
+               now-marker reading white cuts the app's overall gold fatigue */
+            background: var(--marker);
             border-radius: 1px;
             pointer-events: none;
         }
-        /* Side "now" indicator: at the current hour, the axis label becomes
-           a gold current-temp marker with a triangle pointing at today's row.
-           Static; gold and weight provide the emphasis, nothing moves. */
+        /* Side "now" indicator: at the current hour the axis label reads the
+           exact current time to the minute, in white bold. The white block bar
+           above is the sole graphic marker — no triangle, no line across the
+           grid, no duplicated temperature. */
         .time-label.now {
-            color: var(--accent);
+            color: var(--text);
             font-weight: 600;
         }
-        .now-mark {
-            display: inline-flex;
-            vertical-align: middle;
-            width: 8px;
-            height: 8px;
-            margin-left: 2px;
-        }
-        .now-mark svg { width: 100%; height: 100%; display: block; }
         .weather-block.empty {
             background: transparent;
             cursor: default;
@@ -2386,12 +2381,14 @@
             const now = cityNow().hour;
             const ti = state.days.findIndex(d => d.isToday);
             const hasNow = ti >= 0 && ti < days && now >= start && now <= end;
-            const nowTemp = hasNow ? state.data[ti].find(x => x.hour === now)?.temp : null;
             $('times').innerHTML = Array(rows).fill().map((_, i) => {
                 const h = start + i;
                 if (hasNow && h === now) {
+                    // Current hour: the label becomes the exact current time to the
+                    // minute (white bold). The white bar on today's current block
+                    // is the graphic marker; no triangle, no temp duplication.
                     return `<div class="time-label now" style="top:${(i + 0.5) * band}%;"
-                                 aria-label="Now">${nowTemp != null ? `${displayTemp(nowTemp)}°` : ''}<span class="now-mark">${MR_ICON.now}</span></div>`;
+                                 aria-label="Now">${runClockLabel(Date.now())}</div>`;
                 }
                 if (h % step) return '';
                 return `<div class="time-label" style="top:${(i + 0.5) * band}%;">${hourLabel(h)}</div>`;
