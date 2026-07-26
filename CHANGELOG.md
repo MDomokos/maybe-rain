@@ -2,12 +2,16 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+
 ## v39 (2026-07-26)
 
 ### tooltip pin fixes
 - leaving the app (switching tabs, locking the screen) now closes an open-but-unpinned tooltip, so you never come back to a stray one; a pinned tooltip is left exactly as it was
 - bug fix: a pinned tooltip now closes on a touch anywhere on the page, not just inside the grid. 
 - bug fix:if the screen locked while a pin was open it could get stuck, only clearing once a new pin opened and closed the previous
+
+### tooltip pin cue
+- swapped the pinned tooltip's gold border for a thin gold bar on the left edge only, mirroring the grid's own current-hour marker instead of ringing the whole tooltip
 
 ### haptics for the touch tooltip
 - vibration feedback on the long-press tooltip: a light tick when it first opens, a lighter tick each time a drag scrubs onto a new block, and a distinct double-tick when a hold locks into a pin

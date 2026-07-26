@@ -670,12 +670,29 @@
             width: max-content;
             pointer-events: none;
             opacity: 0;
-            transition: opacity 0.2s ease, border-color 0.15s ease;
+            transition: opacity 0.2s ease;
             z-index: 1000;
         }
-        /* DR-19: cue that a touch hold has passed the lock threshold, held
-           through release while the tooltip stays pinned open on touch. */
-        .tooltip.pinned { border-color: var(--accent); }
+        /* DR-19/DR-23: cue that a touch hold has passed the lock threshold,
+           held through release while the tooltip stays pinned open on
+           touch. A thin gold bar on the left edge, mirroring the grid's
+           own current-hour marker (an accent bar on the edge, not a ring
+           or border around the whole element, see .weather-block.current
+           above) rather than a full border around the tooltip. `.tooltip`
+           is already `position: absolute` for its own screen placement, so
+           it's already a positioned element and needs nothing extra here
+           for the bar to anchor to it. */
+        .tooltip.pinned::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--accent);
+            border-radius: var(--radius) 0 0 var(--radius);
+            pointer-events: none;
+        }
         /* One fact per line, never wrapped mid-fact ("wind 6 km/h NW"
            stays whole); the tooltip grows to fit instead. */
         .tooltip div { white-space: nowrap; line-height: 1.5; }
