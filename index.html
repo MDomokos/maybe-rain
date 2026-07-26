@@ -641,7 +641,9 @@
         }
         .legend-step .swatch {
             width: 100%;
-            height: 14px;
+            /* slimmed from 14px: the palette still reads at a glance but the
+               strip gives its vertical space back to the grid */
+            height: 8px;
             border-radius: var(--radius);
             display: flex;
             align-items: center;
