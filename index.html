@@ -427,18 +427,18 @@
             transform: translateY(-50%);
             font-weight: 300;
         }
-        /* With the horizontal gridlines gone, a short tick reaches from each
-           label to the grid's left edge, tying the clock to the rows without
-           any line crossing the blocks. Sits in the 8px gap between the label
-           gutter (--gutter - 8px) and the grid field (--gutter). */
-        .time-label::after {
-            content: '';
+        /* Hour label separators: a 1px line spans the full label gutter at the
+           top of each labeled row, marking it off from the label above. Confined
+           to .time-labels (gutter - 8px wide), so it stops short of the 8px gap
+           and never touches the grid field. Skipped before the first label and
+           after the last, so the grid's own top/bottom edges stay bare. */
+        .hour-sep {
             position: absolute;
-            right: -8px;
-            top: 50%;
-            width: 7px;
-            height: 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.4);
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.35);
+            pointer-events: none;
         }
         .chart-grid {
             display: flex;
@@ -2383,17 +2383,25 @@
             const now = cityNow().hour;
             const ti = state.days.findIndex(d => d.isToday);
             const hasNow = ti >= 0 && ti < days && now >= start && now <= end;
+            // Separator lines run above every labeled row except the first
+            // (that boundary is the grid's own top edge, left bare) so the
+            // grid's top and bottom stay free of lines.
+            let firstLabel = true;
             $('times').innerHTML = Array(rows).fill().map((_, i) => {
                 const h = start + i;
                 if (hasNow && h === now) {
                     // Current hour: the label becomes the exact current time to the
                     // minute (white bold). The white bar on today's current block
                     // is the graphic marker; no triangle, no temp duplication.
-                    return `<div class="time-label now" style="top:${(i + 0.5) * band}%;"
+                    const sep = firstLabel ? '' : `<div class="hour-sep" style="top:${i * band}%;"></div>`;
+                    firstLabel = false;
+                    return `${sep}<div class="time-label now" style="top:${(i + 0.5) * band}%;"
                                  aria-label="Now">${runClockLabel(Date.now())}</div>`;
                 }
                 if (h % step) return '';
-                return `<div class="time-label" style="top:${(i + 0.5) * band}%;">${hourLabel(h)}</div>`;
+                const sep = firstLabel ? '' : `<div class="hour-sep" style="top:${i * band}%;"></div>`;
+                firstLabel = false;
+                return `${sep}<div class="time-label" style="top:${(i + 0.5) * band}%;">${hourLabel(h)}</div>`;
             }).join('');
         };
 
