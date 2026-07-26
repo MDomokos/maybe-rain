@@ -1,5 +1,5 @@
 // Bump this version on every deploy so installed PWAs pick up changes.
-const CACHE_NAME = 'maybe-rain-v37';
+const CACHE_NAME = 'maybe-rain-v38';
 // Base path of wherever the app is served from (works at a domain root
 // or under a subpath like GitHub Pages' /repo-name/).
 const BASE = new URL('./', self.location).pathname;

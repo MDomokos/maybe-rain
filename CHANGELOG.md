@@ -4,6 +4,14 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ## v38 (2026-07-26)
 
+### tooltip touch redesign, part 2
+- dropped tap-to-open on touch. it was still fiddly to close (needed the exact same tiny block re-tapped)
+- press-and-hold is now the only way to open a tooltip on touch: release quickly and it's just a glance, closes right away
+- drag while holding scrubs it live across whichever block is under the finger
+- hold longer (about 600ms) and it locks in, shown by a gold border. let go after that and it stays open, so you can compare it against another block or view without holding
+- the next touch anywhere, tap or fresh hold alike, closes a pinned tooltip immediately
+- a ~140ms/10px dwell gate decides hold vs swipe before showing anything, so the tooltip never flashes open on an ordinary swipe
+
 ### bug fixes
 - increased size of the status info icon padding to 8px to become a better touch target on mobile
 
