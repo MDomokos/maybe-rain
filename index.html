@@ -76,6 +76,7 @@
             /* Extra text greys past the main three, brightest to faintest. */
             --tip-body: #d0d0d0;   /* tooltip body copy */
             --tip-rain: #cfe4f7;   /* the rain figure in the block tooltip, tied to the streak blue */
+            --tip-wind: #a9d9cf;   /* the wind figure in the block tooltip, echoes the wind-view scale */
             --text-dim: #666;      /* temp separator, dismiss, hints */
             --text-dimmer: #555;   /* the off (unfavorited) star */
             /* Status line states. */
@@ -696,22 +697,39 @@
         .tooltip a { color: var(--accent); text-decoration: underline; }
         .tooltip a:hover { color: var(--text); }
 
-        /* Block hover tooltip: two hero lines (temperature, then rain in the
-           streak blue), one muted context line, and hazard chips. Capped width
-           so a long context line wraps instead of stretching the tooltip; the
-           header and hero lines keep the default nowrap and stay single-line. */
+        /* Block hover tooltip: header, three view-ordered main lines (temp,
+           rain, wind — always present, only the active view's line gets the
+           big/bright treatment), a divider, one muted detail line, and hazard
+           chips. Capped width so the detail line wraps instead of stretching
+           the tooltip; the header and main lines keep the default nowrap and
+           stay single-line. */
         .tooltip.block { width: max-content; max-width: min(240px, calc(100vw - 16px)); }
-        .tooltip .tip-when { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 3px; }
+        .tooltip .tip-when {
+            display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+            padding-bottom: 4px; margin-bottom: 5px; border-bottom: 1px solid var(--divider);
+        }
         .tooltip .tip-when .d { color: var(--text-muted); font-weight: 600; }
         .tooltip .tip-when .t { color: var(--text-faint); }
-        .tooltip .tip-hero { font-size: 21px; font-weight: 600; line-height: 1.15; }
+        /* Active-view main line: big and bright. Inactive views share one
+           quieter size/weight/color so nothing drops out, it just recedes. */
+        .tooltip .tip-hero { font-size: 21px; font-weight: 600; line-height: 1.15; color: var(--text); }
+        .tooltip .tip-hero.dim { font-size: 15px; font-weight: 500; color: #eee; }
         .tooltip .tip-temp { margin-top: 2px; }
-        .tooltip .tip-feels { font-size: 11px; font-weight: 400; color: var(--text-faint); }
         .tooltip .tip-rain { margin: 1px 0 5px; }
-        .tooltip .tip-rain .tip-hero { color: var(--tip-rain); }
-        /* Snow (sleet) drops to its own line under the rain amount. */
+        .tooltip .tip-wind { margin: 1px 0 5px; }
+        /* Accent tint applies only when that view's line is the active one
+           (temp gets no tint — the block colour already carries the comfort
+           band, so the text stays plain white). */
+        .tooltip .tip-rain .tip-hero:not(.dim) { color: var(--tip-rain); }
+        .tooltip .tip-wind .tip-hero:not(.dim) { color: var(--tip-wind); }
+        /* Snow (sleet) drops to its own line under the rain amount, inheriting
+           whatever weight/size the rain line has for the active view. */
         .tooltip .tip-snow { display: block; }
+        .tooltip .tip-divider { border-top: 1px solid var(--divider); margin: 6px 0 5px; }
         .tooltip .tip-ctx { white-space: normal; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+        /* Detail line: active-view fact leads, shared facts trail on the same
+           line, wrapping to a second line only when it doesn't fit. */
+        .tooltip .tip-detail { color: var(--text-muted); }
         .tooltip .tip-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
         /* Reuse the amber status button (see .status.outdated) for the chips. */
         .tooltip .tip-chip {
@@ -3471,7 +3489,7 @@
                 const c = CONDITIONS[+el.dataset.cond];
                 tooltip.innerHTML =
                     `<div><strong>${esc(c.label)}</strong></div><div>${namesFor(c.key).map(esc).join(' · ')}</div>`;
-            } else { // grid block: hero temp + rain, one context line, hazard chips
+            } else { // grid block: view-ordered main lines, one detail line, hazard chips
                 const di = +el.dataset.day;
                 const day = state.days[di];
                 const h = state.data[di]?.find(x => x.hour === +el.dataset.hour);
@@ -3482,18 +3500,28 @@
                 const sun = state.sun[day.date] || {};
 
                 // Header: day + date left, the hour range right (kept whole so
-                // it never wraps onto a second line).
+                // it never wraps onto a second line). The hairline under it
+                // (--divider, .tip-when's border-bottom) separates it from the
+                // stats block below.
                 const range = `${hourLabel(h.hour)}–${hourLabel((h.hour + 1) % 24)}`;
                 const when = `<div class="tip-when"><span class="d">${day.isToday ? 'Today' : day.text} ${dateLabel(day.date)}</span><span class="t">${range}</span></div>`;
 
-                // Hero 1 — temperature, feels-like always shown when known.
-                const feels = h.feels != null ? ` <span class="tip-feels">feels ${displayTemp(h.feels)}°</span>` : '';
-                const temp = `<div class="tip-temp"><span class="tip-hero">${displayTemp(h.temp)}°</span>${feels}</div>`;
+                // Three main lines, fixed order (temp, rain, wind) in every
+                // view — only the line matching the active view gets the
+                // big/bright .tip-hero treatment; the other two share one
+                // quieter "dim" size/weight/color so nothing disappears.
+                const dimClass = v => v === view ? '' : ' dim';
 
-                // Hero 2 — rain: chance then rainfall amount (always shown, even
-                // 0 mm/h, so a "% rain" never appears without an amount). A snow
-                // amount (sleet) wraps to its own line below, so the combined
-                // rain+snow line never overruns the tooltip width.
+                // Temp line — feels-like folded into the same hero styling as
+                // the actual temp (no separate lighter span anymore).
+                const feelsVal = h.feels != null ? h.feels : h.temp;
+                const feelsPart = h.feels != null ? ` feels ${displayTemp(h.feels)}°` : '';
+                const temp = `<div class="tip-temp"><span class="tip-hero${dimClass('temp')}">${displayTemp(h.temp)}°${feelsPart}</span></div>`;
+
+                // Rain line — chance then rainfall amount (always shown, even
+                // 0 mm/h, so a "% rain" never appears without an amount). A
+                // snow amount (sleet) wraps to its own line below, inheriting
+                // whatever weight the rain line gets for the active view.
                 const rainBits = [];
                 let snowBit = '';
                 if (h.pop != null) rainBits.push(`${h.pop}%`);
@@ -3503,38 +3531,53 @@
                 } else if (h.mm != null) {
                     rainBits.push(`${h.mm} mm/h`);
                 }
+                const rainDim = dimClass('rain');
                 const rain = (rainBits.length || snowBit)
                     ? `<div class="tip-rain">`
-                        + (rainBits.length ? `<span class="tip-hero">${rainBits.join(' · ')}</span>` : '')
-                        + (snowBit ? `<span class="tip-hero tip-snow">${snowBit}</span>` : '')
+                        + (rainBits.length ? `<span class="tip-hero${rainDim}">${rainBits.join(' · ')}</span>` : '')
+                        + (snowBit ? `<span class="tip-hero tip-snow${rainDim}">${snowBit}</span>` : '')
                         + `</div>`
                     : '';
 
-                // Context line — condition, wind (+ gusts only when notably
-                // above the sustained wind), humidity, the day's next sun event,
-                // and any 21:00 sky event.
-                const ctx = [esc(h.description)];
-                if (h.wind != null) {
-                    ctx.push(`wind ${displayWind(h.wind)} ${windUnitLabel()}`
-                        + (h.windDir != null ? ` ${COMPASS[windOctant(h.windDir)]}` : ''));
-                    if (h.gust != null && h.gust - h.wind >= GUST_MIN) ctx.push(`gusts ${displayWind(h.gust)}`);
-                }
-                if (h.humidity != null) ctx.push(`humidity ${h.humidity}%`);
-                if (sun.rise && sun.set) ctx.push(h.hour < sun.rise.h + sun.rise.m / 60
-                    ? `sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`
-                    : `sunset ${timeLabel(sun.set.h, sun.set.m)}`);
-                if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) ctx.push(esc(sky.label)); }
-                const ctxLine = `<div class="tip-ctx">${ctx.join(' · ')}</div>`;
-
-                // DR-17: in the temperature view, spell out the comfort band and
-                // its prep cue that the block colour encodes (on feels-like, raw
-                // temp only if apparent is missing).
-                const feelsVal = h.feels != null ? h.feels : h.temp;
-                const comfort = (view === 'temp' && feelsVal != null)
-                    ? `<div class="tip-ctx">${esc(TEMP_BANDS[bandIndex(feelsVal)].name)} - ${esc(TEMP_BANDS[bandIndex(feelsVal)].cue)}</div>`
+                // Wind line — new: wasn't its own line before. Omitted only
+                // when the hour has no wind reading at all, same "never
+                // blank" fallback the rain line already uses for missing data.
+                const wind = h.wind != null
+                    ? `<div class="tip-wind"><span class="tip-hero${dimClass('wind')}">${displayWind(h.wind)} ${windUnitLabel()}`
+                        + (h.windDir != null ? ` ${COMPASS[windOctant(h.windDir)]}` : '') + `</span></div>`
                     : '';
 
-                // DR-6: was/now detail, as small muted lines under the context.
+                const divider = '<div class="tip-divider"></div>';
+
+                // Detail line — active-view fact leads (brighter source data,
+                // same muted color as the rest of the line), shared facts
+                // trail after it so nothing that used to show is lost; wraps
+                // to a second line on its own if it doesn't fit on one.
+                let activeDetail = '';
+                let claimedCondition = false, claimedHumidity = false;
+                if (view === 'rain') {
+                    activeDetail = esc(h.description);
+                    claimedCondition = true;
+                } else if (view === 'temp' && feelsVal != null) {
+                    const band = TEMP_BANDS[bandIndex(feelsVal)];
+                    activeDetail = `${esc(band.name)} - ${esc(band.cue)}`;
+                } else if (view === 'wind') {
+                    const bits = [];
+                    if (h.gust != null && h.wind != null && h.gust - h.wind >= GUST_MIN) bits.push(`gusts ${displayWind(h.gust)}`);
+                    if (h.windDir != null) bits.push(COMPASS[windOctant(h.windDir)]);
+                    activeDetail = bits.join(' · ');
+                }
+                const shared = [];
+                if (!claimedCondition) shared.push(esc(h.description));
+                if (h.humidity != null && !claimedHumidity) shared.push(`humidity ${h.humidity}%`);
+                if (sun.rise && sun.set) shared.push(h.hour < sun.rise.h + sun.rise.m / 60
+                    ? `sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`
+                    : `sunset ${timeLabel(sun.set.h, sun.set.m)}`);
+                if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) shared.push(esc(sky.label)); }
+                const detailText = [activeDetail, ...shared].filter(Boolean).join(' · ');
+                const detailLine = detailText ? `<div class="tip-ctx tip-detail">${detailText}</div>` : '';
+
+                // DR-6: was/now detail, as small muted lines under the detail line.
                 const chg = changeLines(state.changed?.[`${day.date}|${h.hour}`])
                     .map(l => `<div class="tip-ctx">${l}</div>`).join('');
 
@@ -3559,7 +3602,7 @@
                 const chipHtml = chips.length
                     ? `<div class="tip-chips">${chips.map(c => `<span class="tip-chip">${esc(c)}</span>`).join('')}</div>` : '';
 
-                tooltip.innerHTML = when + temp + rain + ctxLine + comfort + chg + chipHtml;
+                tooltip.innerHTML = when + temp + rain + wind + divider + detailLine + chg + chipHtml;
             }
             tooltip.style.opacity = '1';
             // Measure the real size, center on the block, clamp to the

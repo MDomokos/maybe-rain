@@ -5,6 +5,13 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ## v37 (2026-07-26)
 
+### tooltip redesign
+- tooltip now highlights whichever stat matches the view you're on. bigger and brighter text for temp in the temp view, rain in the rain view, wind in the wind view
+- wind now gets its own line in the tooltip, wasn't shown as clearly before
+- feels-like temperature is now equal weight to actual temp, instead of being smaller and greyed out
+- added a divider line under the date so the header and the numbers read separately
+- condensed the description text (condition, humidity, sunrise/sunset) into a single line under the numbers, leading with whichever detail matches the active view
+
 ### visual cleanup
 - slimmed the legend step swatch height to 8px to give vertical space back to the grid
 - changed hour mark do display current time instead of temp, and reduce visual noise by making in white
