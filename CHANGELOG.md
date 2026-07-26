@@ -11,6 +11,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - feels-like temperature is now equal weight to actual temp, instead of being smaller and greyed out
 - added a divider line under the date so the header and the numbers read separately
 - condensed the description text (condition, humidity, sunrise/sunset) into a single line under the numbers, leading with whichever detail matches the active view
+- add color to the currently highlighted tooltip data. temp - yellow, rain - blue, wind - green
 
 ### visual cleanup
 - slimmed the legend step swatch height to 8px to give vertical space back to the grid

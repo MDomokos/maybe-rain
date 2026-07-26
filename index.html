@@ -75,8 +75,9 @@
             --line-strong: rgba(255,255,255,0.6); /* button hover border, above --line */
             /* Extra text greys past the main three, brightest to faintest. */
             --tip-body: #d0d0d0;   /* tooltip body copy */
-            --tip-rain: #cfe4f7;   /* the rain figure in the block tooltip, tied to the streak blue */
-            --tip-wind: #a9d9cf;   /* the wind figure in the block tooltip, echoes the wind-view scale */
+            --tip-temp: #E0D875;   /* the temp figure in the block tooltip, muted yellow-gold */
+            --tip-rain: #87CEEB;   /* the rain figure in the block tooltip, from CONDITIONS light-rain */
+            --tip-wind: #50C878;   /* the wind figure in the block tooltip, from WIND_STOPS fresh green */
             --text-dim: #666;      /* temp separator, dismiss, hints */
             --text-dimmer: #555;   /* the off (unfavorited) star */
             /* Status line states. */
@@ -717,9 +718,8 @@
         .tooltip .tip-temp { margin-top: 2px; }
         .tooltip .tip-rain { margin: 1px 0 5px; }
         .tooltip .tip-wind { margin: 1px 0 5px; }
-        /* Accent tint applies only when that view's line is the active one
-           (temp gets no tint — the block colour already carries the comfort
-           band, so the text stays plain white). */
+        /* Accent tint applies only when that view's line is the active one. */
+        .tooltip .tip-temp .tip-hero:not(.dim) { color: var(--tip-temp); }
         .tooltip .tip-rain .tip-hero:not(.dim) { color: var(--tip-rain); }
         .tooltip .tip-wind .tip-hero:not(.dim) { color: var(--tip-wind); }
         /* Snow (sleet) drops to its own line under the rain amount, inheriting
