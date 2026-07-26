@@ -2,6 +2,10 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v38 (2026-07-26)
+
+### bug fixes
+- increased size of the status info icon padding to 8px to become a better touch target on mobile
 
 ## v37 (2026-07-26)
 

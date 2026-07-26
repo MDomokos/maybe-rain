@@ -848,9 +848,7 @@
            currentColor, so hover just brightens it. */
         .status-info {
             flex: none;
-            width: 16px;
-            height: 16px;
-            padding: 0;
+            padding: 8px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -3989,18 +3987,20 @@
         }
 
         document.addEventListener('mouseover', e => {
-            if (e.target.matches(TIP_SEL)) showTooltip(e.target);
+            const el = e.target.closest(TIP_SEL);
+            if (el) showTooltip(el);
         });
         document.addEventListener('mouseout', e => {
-            if (e.target.matches(TIP_SEL)) hideTooltip();
+            if (e.target.closest(TIP_SEL)) hideTooltip();
         });
         // Keyboard: blocks and legend cells are tabbable; focus shows the
         // same tooltip.
         document.addEventListener('focusin', e => {
-            if (e.target.matches(TIP_SEL)) showTooltip(e.target);
+            const el = e.target.closest(TIP_SEL);
+            if (el) showTooltip(el);
         });
         document.addEventListener('focusout', e => {
-            if (e.target.matches(TIP_SEL)) hideTooltip();
+            if (e.target.closest(TIP_SEL)) hideTooltip();
         });
         // Tap toggles the tooltip, since hover-only left mobile without
         // hourly detail. Tapping the same element or anywhere else dismisses.
