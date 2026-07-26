@@ -9,6 +9,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - slimmed the legend step swatch height to 8px to give vertical space back to the grid
 - changed hour mark do display current time instead of temp, and reduce visual noise by making in white
 - remove whole grid background line for more visual clarity
+- added hour label separators to the internal borders of the hours
 - add clock ticks to each our mark to still help with readability
 - update spacing of the whole grid to be slightly taller
 
