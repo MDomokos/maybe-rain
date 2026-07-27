@@ -1611,7 +1611,7 @@
         // copy keeps the literal token, so the post-update note just never fires.
         const APP_VERSION = '__APP_VERSION__';
         const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
-        const MAX_FAVORITES = 6; // cap on ★ favorites (user must unfavorite to add more)
+        const MAX_FAVORITES = 9; // cap on ★ favorites (user must unfavorite to add more)
         // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
         const MOD = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';
 
