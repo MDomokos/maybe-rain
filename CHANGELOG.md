@@ -3,6 +3,25 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
+## v40 (2026-07-27)
+
+### tooltip touch: back to a single tap
+- reverted the press-and-hold tooltip (v38/v39): it was fiddly to trigger deliberately in daily use
+- a single tap on a grid block opens and pins the tooltip immediately again, same as before v38, no waiting
+- tapping the same block, tapping anywhere else, or a swipe closes it
+- the hold gesture, its haptic feedback, and the lock threshold are gone with it
+
+### long press to pin (for comparing across a swipe)
+- a long press on a grid block is meant for holding a tooltip in place while you swipe through other cities or views to compare against it
+- shown with a thin gold bar on the tooltip's left edge, so it's clear it's the one you meant to keep
+- unpin the same way as any pinned tooltip: tap the block again, or tap anywhere else
+- a light haptic tick (Android only) the instant it pins, so you feel the lock as well as see it
+
+### drag to scrub across blocks (once pinned)
+- after a long press pins, keep your finger down and drag to sweep the tooltip live across whichever block is underneath
+- a lighter haptic tick each time the drag crosses onto a new block
+- lift your finger and it stays pinned wherever you land
+
 ## v39 (2026-07-26)
 
 ### tooltip pin fixes
