@@ -5,46 +5,11 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ## v40 (2026-07-27)
 
-### tooltip touch: back to a single tap
-- reverted the press-and-hold tooltip (v38/v39): it was fiddly to trigger deliberately in daily use
-- a single tap on a grid block opens and pins the tooltip immediately again, same as before v38, no waiting
-- tapping the same block, tapping anywhere else, or a swipe closes it
-- the hold gesture, its haptic feedback, and the lock threshold are gone with it
-
-### long press to pin (for comparing across a swipe)
-- a long press on a grid block is meant for holding a tooltip in place while you swipe through other cities or views to compare against it
-- shown with a thin gold bar on the tooltip's left edge, so it's clear it's the one you meant to keep
-- unpin the same way as any pinned tooltip: tap the block again, or tap anywhere else
-- a light haptic tick (Android only) the instant it pins, so you feel the lock as well as see it
-
-### drag to scrub across blocks (once pinned)
-- after a long press pins, keep your finger down and drag to sweep the tooltip live across whichever block is underneath
-- a lighter haptic tick each time the drag crosses onto a new block
-- lift your finger and it stays pinned wherever you land
-
-## v39 (2026-07-26)
-
-### tooltip pin fixes
-- leaving the app (switching tabs, locking the screen) now closes an open-but-unpinned tooltip, so you never come back to a stray one; a pinned tooltip is left exactly as it was
-- bug fix: a pinned tooltip now closes on a touch anywhere on the page, not just inside the grid. 
-- bug fix:if the screen locked while a pin was open it could get stuck, only clearing once a new pin opened and closed the previous
-
-### tooltip pin cue
-- swapped the pinned tooltip's gold border for a thin gold bar on the left edge only, mirroring the grid's own current-hour marker instead of ringing the whole tooltip
-
-### haptics for the touch tooltip
-- vibration feedback on the long-press tooltip: a light tick when it first opens, a lighter tick each time a drag scrubs onto a new block, and a distinct double-tick when a hold locks into a pin
-- pinning a tooltip now takes about 3 seconds of holding (was ~0.6s), so a normal glance never accidentally locks one open
+### tooltip touch: single tap
+- tap a grid block to open its tooltip; tap the same block, the tooltip itself, or anywhere else to close it
+- swipe to change view or city without closing an open tooltip, so you can compare it against another city/view in place
 
 ## v38 (2026-07-26)
-
-### tooltip touch redesign, part 2
-- dropped tap-to-open on touch. it was still fiddly to close (needed the exact same tiny block re-tapped)
-- press-and-hold is now the only way to open a tooltip on touch: release quickly and it's just a glance, closes right away
-- drag while holding scrubs it live across whichever block is under the finger
-- hold longer (about 600ms) and it locks in, shown by a gold border. let go after that and it stays open, so you can compare it against another block or view without holding
-- the next touch anywhere, tap or fresh hold alike, closes a pinned tooltip immediately
-- a ~140ms/10px dwell gate decides hold vs swipe before showing anything, so the tooltip never flashes open on an ordinary swipe
 
 ### bug fixes
 - increased size of the status info icon padding to 8px to become a better touch target on mobile

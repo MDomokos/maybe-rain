@@ -673,26 +673,6 @@
             transition: opacity 0.2s ease;
             z-index: 1000;
         }
-        /* DR-25: cue that a touch long-press pinned the tooltip in place
-           (for comparing across a swipe to another city/view), distinct
-           from an ordinary tap-open. A thin gold bar on the left edge,
-           mirroring the grid's own current-hour marker (an accent bar on
-           the edge, not a ring or border around the whole element, see
-           .weather-block.current above) rather than a full border around
-           the tooltip. `.tooltip` is already `position: absolute` for its
-           own screen placement, so it's already a positioned element and
-           needs nothing extra here for the bar to anchor to it. */
-        .tooltip.pinned::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: var(--accent);
-            border-radius: var(--radius) 0 0 var(--radius);
-            pointer-events: none;
-        }
         /* One fact per line, never wrapped mid-fact ("wind 6 km/h NW"
            stays whole); the tooltip grows to fit instead. */
         .tooltip div { white-space: nowrap; line-height: 1.5; }
@@ -3479,12 +3459,20 @@
         const showTooltip = el => {
             const tooltip = $('tooltip');
             // Prose explanation wraps and is interactive (so its link is
-            // clickable); the fact tooltips stay single-line and click-through.
+            // clickable); the fact tooltips stay single-line.
             tooltip.classList.toggle('explain', el.id === 'statusInfo');
             // Block tooltip gets the capped-width, hero-line layout; legend and
             // freshness tooltips keep the plain single-line style.
             tooltip.classList.toggle('block', el.id !== 'statusInfo' && el.dataset.cond == null);
-            tooltip.style.pointerEvents = el.id === 'statusInfo' ? 'auto' : 'none';
+            // DR-28: always interactive, not click-through. #tooltip lives
+            // outside .chart in the DOM (a sibling, absolutely positioned),
+            // so this can never be mistaken for a touch on the grid itself
+            // or feed the chart's own swipe detection; it only ever reaches
+            // the document click handler below, whose "not a TIP_SEL
+            // target" branch closes it. That's the whole feature: tapping
+            // the open tooltip closes it, same as tapping anywhere else
+            // that isn't a block/legend swatch.
+            tooltip.style.pointerEvents = 'auto';
             // Cleared here; the grid-block branch re-arms it so a repaint (city
             // swap, view switch, background refresh) can re-render the open
             // tooltip against the new data at the same grid position.
@@ -3636,7 +3624,6 @@
             const t = $('tooltip');
             t.style.opacity = '0';
             t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
-            t.classList.remove('pinned');
             tappedBlock = null;
             activeBlock = null;
         };
@@ -4033,8 +4020,13 @@
                 if (tappedBlock === el) return hideTooltip();
                 showTooltip(el);
                 tappedBlock = el;
-                $('tooltip').classList.remove('pinned'); // DR-25: an ordinary tap/click always drops the long-press pin cue, even when it lands on a different block than a currently long-press-pinned one
             } else {
+                // DR-28: also reached by tapping/clicking the open tooltip
+                // itself, since it no longer click-through's (see the
+                // pointerEvents assignment in showTooltip) — e.target is
+                // the tooltip or one of its children, which never matches
+                // TIP_SEL, so it falls here and closes, same as any other
+                // outside tap.
                 hideTooltip();
             }
         });
@@ -4232,96 +4224,23 @@
         // the click handler above) does that job instead of same-block
         // re-tap alone. See SPEC.md DR-24 for the full writeup.
         //
-        // DR-25: a long press is a second, deliberate way in, for locking
-        // a tooltip in place while swiping through other cities/views to
-        // compare against it (a tap-opened tooltip already gets refreshed
-        // in place across a repaint via activeBlock/refreshActiveTooltip
-        // above, and a swipe never fires the trailing click that would
-        // close it, so this isn't about surviving the swipe itself; it's
-        // a visibly distinct "I meant to keep this" cue plus a pin that
-        // holds still under casual taps elsewhere while browsing). A
-        // stationary hold past LONG_PRESS_MS pins the block under the
-        // finger with the gold left-edge cue (reusing DR-23's design) and
-        // swallows the trailing click so release doesn't immediately
-        // toggle it back off. No live scrub while held, unlike DR-18: the
-        // finger just needs to stay put past the threshold, and moving
-        // more than HOLD_SLOP before it fires cancels the long press and
-        // lets the touch run as an ordinary swipe/tap candidate instead.
-        // Once pinned this way, an ordinary tap on a different block still
-        // moves the tooltip there (dropping the pin cue, back to a plain
-        // tap-open); the block itself re-tapped, or a tap on empty space,
-        // closes it, same as any other pinned tooltip.
-        //
-        // DR-27: once a long press has pinned (the finger is still down),
-        // dragging now scrubs live across whichever block is underneath,
-        // the mobile answer to "hover and move the mouse" for comparing a
-        // run of blocks in one motion, tying into the tap/long-press system
-        // rather than adding a fourth unrelated gesture. It can't collide
-        // with swipe: swipe is only ever read from a touch that *never*
-        // crossed the long-press threshold (a real swipe covers well more
-        // than HOLD_SLOP long before LONG_PRESS_MS elapses, cancelling the
-        // timer, same guard as DR-25), so by the time `longPressFired` is
-        // true the touch has already committed to not being a swipe. Once
-        // it's true, `touchmove` calls `elementFromPoint` (unlike a Touch's
-        // own `target`, which stays fixed at the original touchstart
-        // element for the whole gesture, so it can't track a drag) and
-        // re-shows the tooltip whenever that resolves to a new block, with
-        // a lighter haptic tick per block crossed and `preventDefault` so
-        // the drag scrubs instead of panning the page. Release just ends
-        // the drag; the tooltip stays pinned wherever it lands, same as
-        // any long-press pin, unpinned the same way (re-tap the block, or
-        // tap elsewhere).
-        const LONG_PRESS_MS = 500, HOLD_SLOP = 10;
-        // DR-26/27: a haptic tick when a long press pins, and a lighter one
-        // per block crossed while scrubbing, felt as well as seen. Android
-        // only; iOS Safari has never implemented the Vibration API and
-        // silently no-ops, nothing to feature-detect around.
-        const VIBE_PIN = [8, 20, 8], VIBE_SCRUB = 4;
-        const vibrate = pattern => { try { navigator.vibrate?.(pattern); } catch {} };
-        const blockAt = (x, y) => document.elementFromPoint(x, y)?.closest('.weather-block[data-info]');
-        let swipeStart = null, longPressTimer = null, longPressFired = false;
-        const cancelLongPress = () => { clearTimeout(longPressTimer); longPressTimer = null; };
+        // DR-25/26/27 (long-press-to-pin, its haptics, and drag-to-scrub
+        // once pinned) were tried on top of this and then dropped, per
+        // DR-28: an open (non-pinned) tooltip already survives a city/view
+        // swipe on its own (activeBlock/refreshActiveTooltip below
+        // re-targets the same grid position on every repaint, and a swipe
+        // never fires the trailing click that would close it), which
+        // turned out to be all the "compare across a swipe" behavior
+        // actually needed; the separate pinned tier and its gestures were
+        // extra complexity without a use it uniquely served. See SPEC.md
+        // DR-28. What's left is exactly the DR-24 shape: swipe detection
+        // only, no timers, no pin state, no haptics.
+        let swipeStart = null;
         chart.addEventListener('touchstart', e => {
-            cancelLongPress();
-            longPressFired = false;
-            if (e.touches.length !== 1) { swipeStart = null; return; }
-            const t = e.touches[0];
-            swipeStart = { x: t.clientX, y: t.clientY };
-            const el = t.target?.closest?.('.weather-block[data-info]');
-            if (el) {
-                longPressTimer = setTimeout(() => {
-                    longPressTimer = null;
-                    longPressFired = true;
-                    showTooltip(el);
-                    tappedBlock = el;
-                    $('tooltip').classList.add('pinned');
-                    vibrate(VIBE_PIN);
-                }, LONG_PRESS_MS);
-            }
+            swipeStart = e.touches.length === 1
+                ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
         }, { passive: true });
-        chart.addEventListener('touchmove', e => {
-            if (!swipeStart || e.touches.length !== 1) return;
-            const t = e.touches[0];
-            if (longPressFired) {
-                e.preventDefault(); // scrubbing, not panning
-                const el = blockAt(t.clientX, t.clientY);
-                if (el && el !== tappedBlock) {
-                    showTooltip(el);
-                    tappedBlock = el;
-                    vibrate(VIBE_SCRUB);
-                }
-                return;
-            }
-            if (longPressTimer && Math.hypot(t.clientX - swipeStart.x, t.clientY - swipeStart.y) >= HOLD_SLOP) cancelLongPress();
-        }, { passive: false });
         chart.addEventListener('touchend', e => {
-            cancelLongPress();
-            if (longPressFired) {
-                longPressFired = false;
-                swipeStart = null;
-                e.preventDefault(); // a long press (and any scrub after it) just pinned it; don't let the ghost click undo that
-                return;
-            }
             if (!swipeStart || e.touches.length) { if (e.touches.length) swipeStart = null; return; }
             const t = e.changedTouches[0];
             const dx = t.clientX - swipeStart.x, dy = t.clientY - swipeStart.y;
@@ -4333,11 +4252,6 @@
             }
             // else: under the swipe threshold, a plain tap. Nothing to do
             // here; the trailing synthetic click opens/pins the tooltip.
-        });
-        chart.addEventListener('touchcancel', () => {
-            cancelLongPress();
-            longPressFired = false;
-            swipeStart = null;
         });
 
         // Leaving the app (tab hidden, screen locked) shouldn't leave a
