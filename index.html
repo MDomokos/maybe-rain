@@ -3478,7 +3478,7 @@
             activeBlock = null;
             if (el.id === 'statusInfo') { // freshness line: what it means
                 const title = '<div class="tip-title"><strong>Forecast freshness</strong></div>';
-                const docs = '<div class="tip-link"><a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules updates</a></div>';
+                const docs = '<div class="tip-link"><a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules updates</a></div><div style="border-bottom: 1px solid var(--line); margin: 6px 0;"></div><div class="tip-link"><a href="https://open-meteo.com" target="_blank" rel="noopener">Data provided by Open-Meteo</a></div>';
                 const body = state.modelRun
                     ? (state.localRun
                         ? [`<strong>Local:</strong> the ${esc(state.localRun.label)} regional model. Drives the near-term hours and refreshes often.`,
