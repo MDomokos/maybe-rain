@@ -2386,8 +2386,7 @@
 
         // Shared time-axis labels (real grid and skeleton alike).
         // (i + 0.5) * band% = vertical middle of hour band i, so each label
-        // sits level with its row of blocks. In the 24h view every 3rd hour
-        // is labelled, since 24 labels don't fit the axis.
+        // sits level with its row of blocks. Every hour is labelled.
         // Side "now" indicator: when today's column and the current
         // hour are both on screen, that hour's label becomes a gold marker
         // with the current temp; no temp data, arrow only (never a guess).
@@ -2395,7 +2394,7 @@
             const { start, end, days } = visibleWindow();
             const rows = end - start + 1;
             const band = 100 / rows;
-            const step = rows > 16 ? 3 : 1;
+            const step = 1;
             const now = cityNow().hour;
             const ti = state.days.findIndex(d => d.isToday);
             const hasNow = ti >= 0 && ti < days && now >= start && now <= end;
