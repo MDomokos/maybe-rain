@@ -494,14 +494,6 @@
         /* Parked in a dwell band: the indicator visibly stops while the finger
            keeps moving. The detent is DRAWN, not just felt. */
         .city-pin.parked { background: var(--accent); }
-        .city-wrapchip {
-            position: absolute;
-            right: 0;
-            bottom: 2px;
-            font-size: 9px;
-            line-height: 1;
-            color: var(--accent);
-        }
         /* Position in the ★ list, alongside the name that is already the
            destination readout. Shown only while the selector is. */
         .city-count {
@@ -1888,6 +1880,11 @@
         // opens on the default week and the default hours (principle 2).
         let dayOff = 0;   // lead day of the leftmost column; latched by the drawer
         let hourOff = 0;  // whole hours the hour window has slid; springs back
+        // Bumped whenever dayOff/hourOff changes for a reason OTHER than the
+        // home-tween's own tick (a fresh drag, a step, a reset), so a tween
+        // already in flight notices it has been superseded and stops touching
+        // the offset instead of fighting whatever set it next.
+        let dayHomeGen = 0, hourHomeGen = 0;
 
         // How far the drawer may reach right now. Capped by the data actually in
         // hand as well as by DAY_OFF_MAX, so a short cached payload can never be
@@ -1919,6 +1916,13 @@
         // exists only while the drawer is away from today. At rest both reveals
         // are invisible and the screen is unchanged.
         let revealTimer = null;
+        // The go-home fn (`dayHome` or `springHours`) the last `armRevealIdle`
+        // call armed, kept even while `revealTimer` itself is paused for an
+        // open tooltip — see `armRevealIdle` and `showTooltip`/`hideTooltip`
+        // below. Shares the single timer's "last one armed wins" model rather
+        // than tracking the two axes independently, same as `revealTimer`
+        // already did before this existed.
+        let pendingRevealFn = null;
         const renderDayHome = () => {
             const chip = $('dayHome');
             chip.hidden = !dayOff;
@@ -1930,6 +1934,8 @@
         // default week and the default hours (principle 2).
         const resetReveal = () => {
             clearTimeout(revealTimer);
+            pendingRevealFn = null;
+            dayHomeGen++; hourHomeGen++;
             dayOff = 0; hourOff = 0;
             renderDayHome();
         };
@@ -4287,6 +4293,13 @@
         const TIP_SEL = '.weather-block[data-info], .legend-swatch';
         const showTooltip = el => {
             const tooltip = $('tooltip');
+            // A tooltip opening means the screen is being read: pause any
+            // reveal-idle countdown already running (the day drawer / hour
+            // peek's own way home) rather than let it fire mid-investigation.
+            // `pendingRevealFn` is left alone, so `hideTooltip` below knows
+            // what to re-arm once this tooltip closes, and `armRevealIdle`
+            // itself skips arming a fresh one while a tooltip is still open.
+            clearTimeout(revealTimer);
             // Prose explanation wraps and is interactive (so its link is
             // clickable); the fact tooltips stay single-line.
             tooltip.classList.toggle('explain', el.id === 'statusInfo');
@@ -4455,6 +4468,15 @@
             t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
             tappedBlock = null;
             activeBlock = null;
+            // The tooltip that was pausing the reveal-idle countdown (see
+            // `showTooltip`) just closed: resume it. `dayHome`/`springHours`
+            // are no-ops once their offset is already back at rest, so
+            // re-arming here even when there is nothing left to do is
+            // harmless rather than something this needs to check first.
+            if (pendingRevealFn) {
+                clearTimeout(revealTimer);
+                revealTimer = setTimeout(pendingRevealFn, REVEAL_IDLE_MS);
+            }
         };
         // Re-render an open block tooltip after the grid repaints. The mouse
         // hasn't moved (no mouseover fires), so swapping city with the keyboard
@@ -5164,30 +5186,52 @@
         // wave now plays under the finger and the outcome is read off where the
         // playhead was left rather than off a distance measured at release.
         //
-        // Vertical travel maps to a CONTINUOUS position in the ★ list, which
-        // wraps in both directions. Each city owns a band whose first half
-        // (DWELL) is PARKED — the target does not change and the indicator
-        // visibly stops while the finger keeps moving — and whose second half
-        // crosses to the next. That is what "somewhere to aim" means
-        // mechanically: the list has detents, like a rotary switch, rather than
-        // knife-edges to balance on. It is safe to add despite DR-18/19/24
-        // because it is a DISTANCE threshold, the class this project already
-        // trusts (the 60px commit, the 10px slop), not the time-or-velocity
-        // class that burned those decisions.
+        // Vertical travel maps to a CONTINUOUS position in the ★ list, which is
+        // CLAMPED at both ends rather than wrapping — the first and last
+        // favourite are hard stops, not neighbours. Each city owns a band whose
+        // first half (DWELL) is PARKED — the target does not change and the
+        // indicator visibly stops while the finger keeps moving — and whose
+        // second half crosses to the next. That is what "somewhere to aim"
+        // means mechanically: the list has detents, like a rotary switch,
+        // rather than knife-edges to balance on. It is safe to add despite
+        // DR-18/19/24 because it is a DISTANCE threshold, the class this
+        // project already trusts (the 60px commit, the 10px slop), not the
+        // time-or-velocity class that burned those decisions.
         const STEP_PX = 90;                     // travel the FIRST city costs
         const DWELL = 0.5;                      // share of each step spent parked
         const RAMP_R = 0.86, RAMP_FLOOR = 0.55; // each city costs 86% of the last
         const CITY_SLOP = 10;                   // a touch is a tap until it moves this far
         const FLICK_VEL = 900, FLICK_MIN = 40;  // read ONCE, at release
-        const VIBE_DETENT = [5];                // one 5ms pulse; Android only
+        const VIBE_DETENT = [2];                // one 2ms tick, barely-there; Android only
         const RUNG_GAP = 17, RAIL_SPAN = 4;
 
         // --- DR-30: the horizontal view scrub -----------------------------
-        // 120 is chosen so that HALF of it, the commit point, is 60px: exactly
-        // the swipe threshold this file already used. The distance needed to
-        // switch a view is therefore unchanged, and the scrub only makes visible
-        // a threshold that was always there and never shown.
-        const SCRUB_PX = 120;
+        // Brought in line with the ★ list's own standard (owner call,
+        // 2026-07-29): a bit more travel than the original 120, and a linger
+        // before the transition starts rather than the screen moving from the
+        // first pixel of the drag. 150 is the raw distance the drag now
+        // spans; `scrubProgress` below is what actually turns that into the
+        // dwell-then-ramp shape, borrowing the city selector's own DWELL
+        // fraction so the two swipes stall the same way before they commit.
+        const SCRUB_PX = 150;
+        // The scrub's own linger: the first DWELL share of SCRUB_PX is a dead
+        // zone where the screen does not move at all (the "pause on the
+        // actual screen" the city selector already has), and only the
+        // remainder ramps the wave toward the destination. Unlike the city
+        // selector's growing list there is only ever one destination to ramp
+        // toward here, so there is nothing beyond that first band to
+        // floor/ceil — this is DWELL applied to a single step, not a list.
+        const scrubProgress = travel => {
+            const dw = DWELL * SCRUB_PX, cr = SCRUB_PX - dw;
+            return travel <= dw ? 0 : Math.min(1, (travel - dw) / cr);
+        };
+        // Half of SCRUB_PX in PROGRESS terms — i.e. where `scrubProgress`
+        // reaches 0.5 — which the dwell above pushes out past SCRUB_PX/2 in
+        // raw pixels. Kept as one derived constant so the live scrub (which
+        // decides off `scrubProgress` directly) and the reduced-motion/
+        // one-view fallback below (which has no progress to read, only a raw
+        // distance) commit at the same pull either way.
+        const SCRUB_COMMIT_PX = SCRUB_PX * (0.5 + 0.5 * DWELL);
         // A rewind is faster than a completion, but not instant: a scrub
         // abandoned at 15px would otherwise snap back inside a single frame.
         const REWIND_MIN_MS = 120;
@@ -5198,8 +5242,9 @@
         // way from its prototypes — those left the scrub following the finger on
         // the reasoning that direct manipulation is not really an animation).
         // With it on, the horizontal axis is byte-for-byte the pre-DR-30
-        // gesture: nothing moves during the drag and the view swaps at 60px on
-        // release, which `paintGrid` already renders instantly.
+        // gesture: nothing moves during the drag and the view swaps at
+        // SCRUB_COMMIT_PX on release, which `paintGrid` already renders
+        // instantly.
         const viewScrubLive = () => enabledViews().length >= 2
             && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -5249,7 +5294,7 @@
             // `waveFrame`, so the scrub, the completion and the rewind all move
             // it by one rule instead of three.
             scrubWave($('grid'), viewColsFor(viewScrub.dest), -viewScrub.dir,
-                Math.min(1, travel / SCRUB_PX), viewScrub.dest);
+                scrubProgress(travel), viewScrub.dest);
         };
 
         // The one decision on this axis, made once, on release. A fast flick and
@@ -5257,14 +5302,15 @@
         // playhead, which is exactly the difference that should matter — so
         // there is no velocity term on this path at all. A flick was never a
         // different intention from a drag, only the same one performed quickly,
-        // and it always travels far past 60px before the finger lifts, so it
-        // already satisfies the only rule left. Removing the detection does not
-        // remove the gesture; it stops treating it as a special case.
+        // and it always travels far past the commit pull before the finger
+        // lifts, so it already satisfies the only rule left. Removing the
+        // detection does not remove the gesture; it stops treating it as a
+        // special case.
         const endViewScrub = () => {
             const vs = viewScrub;
             viewScrub = null;
             if (!vs) return;
-            const commit = vs.travel > SCRUB_PX / 2;   // the shipped 60px
+            const commit = vs.travel > SCRUB_COMMIT_PX;
             if (!wave || !wave.scrub) {
                 // A repaint landed mid-drag and took the sweep with it. Nothing
                 // to complete or rewind; just honour the decision.
@@ -5313,14 +5359,17 @@
             }
             return { sgn, latch: sgn * k, p: 0, pos: sgn * k };
         };
-        const cityWrap = i => { const n = favorites.length; return ((i % n) + n) % n; };
+        // Clamped, not wrapped: the first and last ★ favourite are hard stops.
+        // Swiping past either end simply runs out of list rather than looping
+        // back around to the other side.
+        const cityClamp = i => Math.max(0, Math.min(favorites.length - 1, i));
         // Honesty guard: stepCity cycles ★ favourites only and returns early on
         // fewer than two, so the gesture and every cue it draws are suppressed
         // outright rather than arming and then doing nothing.
         const citySwapLive = () => favorites.length >= 2;
 
         let touchNav = null;   // { x, y, axis, claimed, v, lastY, lastT }
-        let citySel = null;    // { base, pos, latch, parked, armed, laps, lastDetent, target, cache }
+        let citySel = null;    // { base, pos, latch, parked, armed, lastDetent, target, cache }
 
         const renderCitySel = () => {
             const box = $('citySel');
@@ -5332,10 +5381,9 @@
             for (let i = lo; i <= hi; i++) {
                 const y = mid + (i - citySel.pos) * RUNG_GAP;
                 if (y < -8 || y > H + 8) continue;
-                out += `<i class="${cityWrap(citySel.base + i) === citySel.base ? 'home' : ''}" style="top:${(y - 2.5).toFixed(1)}px"></i>`;
+                out += `<i class="${i === 0 ? 'home' : ''}" style="top:${(y - 2.5).toFixed(1)}px"></i>`;
             }
             out += `<div class="city-pin${citySel.parked ? ' parked' : ''}" style="top:${(mid - 5.5).toFixed(1)}px"></div></div>`;
-            if (citySel.laps > 0) out += '<span class="city-wrapchip">↻</span>';
             box.innerHTML = out;
             box.hidden = false;
             // The name already in gold is the destination readout; the counter
@@ -5417,7 +5465,7 @@
                     touchNav.claimed = true;
                     citySel = {
                         base: Math.max(0, favorites.findIndex(c => placeKey(c) === placeKey(state.place))),
-                        pos: 0, latch: 0, parked: true, armed: false, laps: 0, lastDetent: 0,
+                        pos: 0, latch: 0, parked: true, armed: false, lastDetent: 0,
                         target: 0, listDir: 1, cache: new Map()
                     };
                     citySel.target = citySel.base;
@@ -5439,19 +5487,28 @@
             const signed = -dy;   // up is positive: LATER in the list (DR-32 §2)
             const m = mapTravel(signed);
             const prevPos = citySel.pos;
-            citySel.pos = m.pos; citySel.latch = m.latch; citySel.parked = m.p <= 0.0001;
+            // Clamped to the list's own ends (favorite 0 .. favorites.length-1),
+            // relative to where this drag started. Past either end the position
+            // simply stops advancing — the same hard stop a release would land
+            // on — rather than the continuous position running on unbounded and
+            // wrapping the target back around.
+            const minPos = -citySel.base, maxPos = (favorites.length - 1) - citySel.base;
+            const pos = Math.max(minPos, Math.min(maxPos, m.pos));
+            const latch = Math.max(minPos, Math.min(maxPos, m.latch));
+            const atEnd = pos === minPos || pos === maxPos;
+            citySel.pos = pos; citySel.latch = latch;
+            citySel.parked = atEnd || m.p <= 0.0001;
             citySel.travel = signed;
             citySel.armed = Math.abs(signed) > DWELL * STEP_PX;
-            citySel.laps = Math.floor(Math.abs(m.pos) / favorites.length);
 
-            // One 5ms tick the moment the finger settles into a dwell band it
+            // One 2ms tick the moment the finger settles into a dwell band it
             // was not already in. Keyed on WHICH detent rather than on the
             // parked/crossing edge: a single fast touchmove can span a whole
             // crossing band, and an edge test would silently drop the tick for
             // every step the finger jumped over. Nothing on crossings,
             // retargets, release or landing.
-            if (citySel.parked && m.latch !== citySel.lastDetent) {
-                citySel.lastDetent = m.latch;
+            if (citySel.parked && latch !== citySel.lastDetent) {
+                citySel.lastDetent = latch;
                 navigator.vibrate?.(VIBE_DETENT);
             }
 
@@ -5462,8 +5519,8 @@
             // traversal therefore shows one continuous sweep that happens to end
             // on the fourth city; a deliberate one that parks in each dwell band
             // completes each wave and shows every city on the way.
-            const stepNow = Math.round(m.pos), stepWas = Math.round(prevPos);
-            const target = cityWrap(citySel.base + stepNow);
+            const stepNow = Math.round(pos), stepWas = Math.round(prevPos);
+            const target = cityClamp(citySel.base + stepNow);
             // Which way the LIST is moving, read from the change in rounded
             // position rather than from raw finger jitter, and falling back to
             // which side of the origin the finger is on when the position did
@@ -5479,7 +5536,7 @@
             // off the other way with the stagger flipped. Keying on `dy` would
             // leave the direction unchanged and silently retarget instead.
             const listDir = stepNow === stepWas
-                ? (Math.sign(m.pos) || citySel.listDir || 1)
+                ? (Math.sign(pos) || citySel.listDir || 1)
                 : Math.sign(stepNow - stepWas);
             citySel.listDir = listDir;
             if (target !== citySel.target || stepNow !== stepWas) {
@@ -5502,15 +5559,15 @@
 
             if (!nav.claimed) {
                 // The pre-DR-30 horizontal swipe, still the path under reduced
-                // motion and with a single view enabled: >60px, one axis clearly
-                // dominant, decided at release. SCRUB_PX/2 is the same 60, which
-                // is the point of choosing a 120px scrub — the distance needed to
-                // switch a view is identical either way, and the scrub only makes
-                // visible a threshold that was always there. There is no velocity
-                // term here to remove: the horizontal flick DR-30 abolishes was
-                // never a separate code path in this app, only a fast drag past
-                // the same 60px.
-                if (Math.abs(dx) > SCRUB_PX / 2 && Math.abs(dx) > 2 * Math.abs(dy)) stepView(dx < 0 ? 1 : -1);
+                // motion and with a single view enabled: one axis clearly
+                // dominant, decided at release, past SCRUB_COMMIT_PX — the same
+                // pull the live scrub commits at, so the distance needed to
+                // switch a view is identical either way and the scrub only
+                // makes visible a threshold that was always there. There is no
+                // velocity term here to remove: the horizontal flick DR-30
+                // abolishes was never a separate code path in this app, only a
+                // fast drag past the same threshold.
+                if (Math.abs(dx) > SCRUB_COMMIT_PX && Math.abs(dx) > 2 * Math.abs(dy)) stepView(dx < 0 ? 1 : -1);
                 // else a plain tap: the trailing synthetic click opens the tooltip.
                 return;
             }
@@ -5525,7 +5582,7 @@
             const travel = Math.abs(dy);
             const fast = Math.abs(nav.v) > FLICK_VEL && travel > FLICK_MIN;
             const steps = fast ? (-Math.sign(nav.v) || 1) : Math.round(citySel.pos);
-            const target = cityWrap(citySel.base + steps);
+            const target = cityClamp(citySel.base + steps);
             // Same rule as during the drag: the sweep is the negation of the way
             // the list is moving, so a flick that resolves to one step up sweeps
             // upward even if the finger had wandered.
@@ -5582,9 +5639,133 @@
         // ordinary touch on the page.
         const REVEAL_SLOP = 10;   // px before a rail drag is a reveal at all
         const REVEAL_IDLE_MS = 4000; // latched drawer's own way home
+        const REVEAL_HOME_MS = 220;  // the going-home tween's own duration
+        // A straight 1:1 track (one row/column per `per` px) read as too fast to
+        // aim: the reveal was past the notch you meant to land on before the
+        // finger felt like it had gone anywhere. REVEAL_SENS asks for more
+        // travel per notch, and mapRailNotches below borrows the ★ list's own
+        // DWELL fraction so each notch has the same built-in linger a vertical
+        // city swipe has — a dead first half where nothing moves yet, then a
+        // ramp across the second half to the next notch. Unlike the city
+        // selector's bands this one does not shrink; every notch on a rail
+        // costs the same, so there is nothing to ramp beyond that.
+        const REVEAL_SENS = 1.6;
+        // Returns the pieces separately (not just the combined position) so
+        // the EXPERIMENTAL crossfade below can tell which notch is being
+        // departed (`k`) from how far across it is (`p`), rather than only
+        // the rounded whole the shipped instant path needs.
+        const mapRailNotches = (raw, unit) => {
+            const sgn = Math.sign(raw) || 1, a = Math.abs(raw);
+            const k = Math.floor(a / unit);
+            const rem = a - k * unit, dw = DWELL * unit, cr = unit - dw;
+            const p = rem <= dw ? 0 : (cr > 0 ? (rem - dw) / cr : 1);
+            return { sgn, k, p };
+        };
 
+        // ==================================================================
+        // EXPERIMENTAL (2026-07-29): continuous crossfade for the day/hour
+        // rails, reusing the same wave engine the view switch already uses
+        // (`waveTo`/`scrubWave`) instead of the instant per-notch repaint.
+        // Diagnosis: the rails' swipe INPUT was already smooth and tuned
+        // (dwell, sensitivity); the OUTPUT was a hard cut every notch, which
+        // is what read as jittery next to the view switch's gradual colour
+        // swap. Everything this pass touches is tagged EXPERIMENTAL — grep
+        // for it to find every spot: this block, the two `colsFor`/
+        // `stateSetter` lines in each `railDrag(...)` call below, the
+        // `railScrubLive` branch inside `railDrag`, `mapRailNotches`'
+        // return shape (an object now, read by that branch), and the
+        // `setDayOffState`/`setHourOffState` split above (`setDayOff`/
+        // `setHourOff` still do exactly what they always did, just built
+        // from that split). Reverting means undoing all of those, not only
+        // this block.
+        // Known limitation: the day-label row and hour-rail times do not
+        // themselves animate mid-drag (only the coloured grid does), so
+        // they can lag a frame or two behind the blend until it settles.
+        // Off entirely under reduced motion, where there is nothing to
+        // blend and the shipped instant behaviour already degrades cleanly.
+        const railScrubLive = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // Builds the grid for a given day/hour offset without touching the
+        // live dayOff/hourOff, the same trick viewColsFor/cityColsFor use:
+        // swap the state just long enough to call buildCols(), then restore
+        // it. Cached per drag, since a single drag can cross many notches.
+        const dayColsFor = (offset, cache) => {
+            const key = Math.max(0, Math.min(maxDayOff(), offset));
+            if (cache.has(key)) return cache.get(key);
+            const ref = (wave ? wave.to : lastCols) || buildCols();
+            const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
+            const keep = dayOff;
+            let built;
+            try { dayOff = key; built = fitCols(buildCols(), nCols, nRows); }
+            finally { dayOff = keep; }
+            cache.set(key, built);
+            return built;
+        };
+        const hourColsFor = (offset, cache) => {
+            const { min, max } = hourPeekRange();
+            const key = Math.max(min, Math.min(max, offset));
+            if (cache.has(key)) return cache.get(key);
+            const ref = (wave ? wave.to : lastCols) || buildCols();
+            const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
+            const keep = hourOff;
+            let built;
+            try { hourOff = key; built = fitCols(buildCols(), nCols, nRows); }
+            finally { hourOff = keep; }
+            cache.set(key, built);
+            return built;
+        };
+
+        // A scrubWave that also takes the axis — scrubWave itself is
+        // hardcoded to 'x' for the view switch's own use and is left alone
+        // rather than risk it. `p` is 0..1 within the CURRENT notch (0
+        // through mapRailNotches' own dwell, ramping to 1 across the rest),
+        // so the blend pair only retargets when a full notch is crossed,
+        // not on every frame.
+        const scrubReveal = (cols, dir, p, axis) => {
+            const grid = $('grid');
+            if (wave && wave.scrub && (cols !== wave.to || dir !== wave.dir)) {
+                wave.t = 0; wave.to = wave.from; wave.pending = null;
+            }
+            waveTo(grid, cols, dir, { axis, hold: true });
+            if (!wave) return;
+            wave.scrub = true;
+            wave.rewind = false;
+            if (waveRaf) { clearTimeout(waveRaf); waveRaf = 0; }
+            wave.t = Math.max(0, Math.min(wave.total, p * wave.total));
+            waveFrame();
+        };
+
+        // Mirrors `endViewScrub`: the last notch's blend either completes
+        // (≥50% of the way across, the same point the committed offset
+        // already flips at) or rewinds to the notch it started from. Either
+        // way `afterEnd` — the SAME `opts.end` the shipped path already
+        // calls — runs once the wave settles, so springHours/armRevealIdle
+        // fire against a grid that has actually finished moving.
+        const endRailScrub = (p, afterEnd) => {
+            if (!wave || !wave.scrub) { afterEnd(); return; }
+            wave.scrub = false;
+            if (p >= 0.5) {
+                wave.rate = 0;
+                wave.onSettle = afterEnd;
+            } else {
+                wave.rewind = true;
+                wave.rate = wave.t / Math.max(REWIND_MIN_MS, wave.t / REWIND_RATE);
+                wave.onSettle = afterEnd;
+            }
+            waveRelease();
+        };
+        // ==================================================================
+
+        // An open tooltip means the screen is actively being read, so the
+        // countdown must not run out from under it. `pendingRevealFn` is
+        // recorded either way; `showTooltip`/`hideTooltip` below pause and
+        // resume the timer itself around whatever tooltip comes and goes,
+        // without needing to know which reveal (or whether one) is waiting.
+        const tooltipOpen = () => $('tooltip').style.opacity === '1';
         const armRevealIdle = fn => {
             clearTimeout(revealTimer);
+            pendingRevealFn = fn;
+            if (tooltipOpen()) return;
             revealTimer = setTimeout(fn, REVEAL_IDLE_MS);
         };
         const repaint = anim => {
@@ -5598,22 +5779,46 @@
         // So the peek is a glance: it tracks the finger, snaps to whole hours,
         // and has no latched state at all, which makes principle 2 unbreakable
         // by construction rather than by remembering to reset something.
-        const setHourOff = n => {
+        // Just the state half, no repaint: EXPERIMENTAL's rail crossfade
+        // above needs hourOff (and the go-home bookkeeping) kept current on
+        // every pointermove without the instant grid rebuild fighting the
+        // wave it is driving instead. `setHourOff` below is this plus the
+        // paint, unchanged, for every caller that isn't that crossfade.
+        const setHourOffState = n => {
+            hourHomeGen++;                              // a live drag/step owns it now
             const { min, max } = hourPeekRange();
             const v = Math.max(min, Math.min(max, n));  // past the clamp the pull
-            if (v === hourOff) return;                  // simply stops: the window
+            if (v === hourOff) return false;            // simply stops: the window
             hourOff = v;                                // may never leave the day
+            return true;
+        };
+        const setHourOff = n => {
+            if (!setHourOffState(n)) return;
             repaint();  // instant: the hours follow the finger, they don't chase it
         };
-        // Home again. The return sweeps as the grid's own vertical wave, from the
-        // edge the hours are coming back from, so the reveal ends in the same
-        // black-to-colour language every other transition uses. paintGrid drops
-        // the animation under prefers-reduced-motion and cuts to the end state.
+        // Home again. Rather than the grid's full black-to-colour wave (the
+        // language for the grid becoming a DIFFERENT grid — a new view, a new
+        // city), this just keeps playing the same direct-manipulation slide the
+        // peek already tracks under the finger, only now driven by an eased
+        // clock instead of the touch: the same animation that opened it, in
+        // reverse. `repaint()` with no `anim` is the instant, no-wave paint a
+        // drag step already uses, so every tick of the tween looks exactly like
+        // the finger easing back to rest.
         const springHours = () => {
+            clearTimeout(revealTimer);
+            pendingRevealFn = null;
             if (!hourOff) return;
-            const dir = hourOff > 0 ? 1 : -1;
-            hourOff = 0;
-            repaint({ type: 'wave', axis: 'y', dir });
+            const from = hourOff, gen = ++hourHomeGen;
+            if (matchMedia('(prefers-reduced-motion: reduce)').matches) { hourOff = 0; repaint(); return; }
+            const t0 = performance.now();
+            const tick = now => {
+                if (gen !== hourHomeGen) return; // superseded by a new drag/press/reset
+                const p = Math.min(1, (now - t0) / REVEAL_HOME_MS);
+                hourOff = from - Math.round(from * (1 - Math.pow(1 - p, 3))); // ease-out
+                repaint();
+                if (p < 1) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
         };
 
         // --- Days: a latched drawer ---------------------------------------
@@ -5632,20 +5837,45 @@
         // is ~380ms and a drag can cross three days inside that, so the sweep
         // spent the whole drag chasing the hand instead of following it.
         //
-        // One rule, both axes: stepping is instant, going home is a wave. Home is
-        // leaving the reveal rather than moving within it, which is the same
-        // moment the peek marks when it springs back on release.
-        const setDayOff = (n, anim = null) => {
+        // One rule, both axes: stepping is instant, going home is the same slide
+        // played back on its own clock instead of the grid's shared wave — see
+        // `springHours` above for why the wave was dropped for the reveals'
+        // own return trip.
+        // Just the state half, no repaint — see `setHourOffState` above for
+        // why EXPERIMENTAL's rail crossfade needs this split.
+        const setDayOffState = n => {
+            dayHomeGen++;                          // a live drag/step owns it now
             const v = Math.max(0, Math.min(maxDayOff(), n));
             if (v === dayOff) return false;
             dayOff = v;
-            repaint(anim);
             renderDayHome();
             return true;
         };
-        // Earlier days enter from the left, so the return sweeps from index 0,
-        // the same rule the view switch uses for which side a new grid fills from.
-        const dayHome = () => { clearTimeout(revealTimer); setDayOff(0, { type: 'wave', axis: 'x', dir: 1 }); };
+        const setDayOff = n => {
+            const changed = setDayOffState(n);
+            if (changed) repaint();  // instant: a step follows the finger, it doesn't chase it
+            return changed;
+        };
+        // Home again, the same eased tween `springHours` plays: no `anim`, so
+        // every tick is the instant, no-wave repaint a drag step already uses,
+        // and the drawer just slides itself the rest of the way shut.
+        const dayHome = () => {
+            clearTimeout(revealTimer);
+            pendingRevealFn = null;
+            if (!dayOff) return;
+            const from = dayOff, gen = ++dayHomeGen;
+            if (matchMedia('(prefers-reduced-motion: reduce)').matches) { dayOff = 0; repaint(); renderDayHome(); return; }
+            const t0 = performance.now();
+            const tick = now => {
+                if (gen !== dayHomeGen) return; // superseded by a new drag/step/reset
+                const p = Math.min(1, (now - t0) / REVEAL_HOME_MS);
+                dayOff = from - Math.round(from * (1 - Math.pow(1 - p, 3))); // ease-out
+                repaint();
+                renderDayHome();
+                if (p < 1) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+        };
 
         // --- Rail drag, shared by both axes -------------------------------
         // Pointer events rather than touch events, so one path covers finger,
@@ -5657,7 +5887,13 @@
             let drag = null;
             el.addEventListener('pointerdown', e => {
                 if (!e.isPrimary || !opts.enabled()) return;
-                drag = { at: opts.axis === 'y' ? e.clientY : e.clientX, base: opts.base(), moved: false };
+                // `cache`/`lastK`/`lastP` are only read by the EXPERIMENTAL
+                // branch below; a rail with no `colsFor` (none today) simply
+                // never touches them.
+                drag = {
+                    at: opts.axis === 'y' ? e.clientY : e.clientX, base: opts.base(), moved: false,
+                    cache: new Map(), lastK: 0, lastP: 0
+                };
                 el.setPointerCapture?.(e.pointerId);
             });
             el.addEventListener('pointermove', e => {
@@ -5667,7 +5903,7 @@
                 // Measured per move, since the grid is responsive. An
                 // unmeasurable grid (zero height or width) has no scale to drag
                 // against, so the move is ignored rather than divided by zero.
-                const per = opts.scale();
+                const per = opts.scale() * REVEAL_SENS;
                 if (!(per > 0)) return;
                 const d = (opts.axis === 'y' ? e.clientY : e.clientX) - drag.at;
                 if (!drag.moved) {
@@ -5677,14 +5913,47 @@
                 e.preventDefault();
                 // The slop is subtracted rather than ignored, so the content does
                 // not jump by the threshold at the moment the drag is claimed.
-                opts.step(drag.base, Math.round((d - Math.sign(d) * REVEAL_SLOP) / per));
+                // mapRailNotches then spends the first half of each notch's travel
+                // parked (the linger) before ramping to the next, rather than
+                // crossing it at a flat, immediate 1:1 rate.
+                const traveled = d - Math.sign(d) * REVEAL_SLOP;
+                const { sgn, k, p } = mapRailNotches(traveled, per);
+                // EXPERIMENTAL (2026-07-29): continuous crossfade — see the
+                // block above `setHourOffState`/`setDayOffState` for what
+                // this replaces and how to remove it. The committed offset
+                // still flips at the exact point the shipped Math.round
+                // always did, so labels/chip/hourPeekRange are unaffected;
+                // only how the GRID paints changes below.
+                if (railScrubLive() && opts.colsFor) {
+                    drag.lastP = p;
+                    opts.stateSetter(drag.base - Math.round(sgn * (k + p)));
+                    // A fresh notch crossed: promote what the wave was
+                    // blending TOWARD into its new starting point before
+                    // aiming at the notch beyond. The natural timed wave
+                    // would do this itself on completion, but that clock is
+                    // switched off for a scrub's whole lifetime (see
+                    // `waveTick`'s early return on `w.scrub`), so nothing
+                    // else here ever promotes it.
+                    if (wave && wave.scrub && k !== drag.lastK) { wave.from = wave.to; wave.t = 0; }
+                    drag.lastK = k;
+                    const nextCols = opts.colsFor(drag.base - sgn * (k + 1), drag.cache);
+                    scrubReveal(nextCols, sgn, p, opts.axis);
+                    return;
+                }
+                opts.step(drag.base, Math.round(sgn * (k + p)));
             });
             const end = e => {
                 if (!drag) return;
-                const moved = drag.moved;
+                const d = drag;
                 drag = null;
                 if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
-                if (moved) opts.end();
+                if (!d.moved) return;
+                // EXPERIMENTAL: let the last notch's blend finish or rewind
+                // (`endRailScrub`) before `opts.end()` — the shipped
+                // springHours/armRevealIdle(dayHome) — runs, rather than
+                // calling it against a grid still mid-blend.
+                if (railScrubLive() && opts.colsFor && wave && wave.scrub) endRailScrub(d.lastP, opts.end);
+                else opts.end();
             };
             el.addEventListener('pointerup', end);
             el.addEventListener('pointercancel', end);
@@ -5739,7 +6008,11 @@
             // Pull down and earlier hours arrive from above: the window follows
             // the hand rather than opposing it.
             step: (base, rows) => setHourOff(base - rows),
-            end: springHours
+            end: springHours,
+            // EXPERIMENTAL (2026-07-29): remove these two lines to fall back
+            // to the shipped instant-repaint behaviour above.
+            colsFor: hourColsFor,
+            stateSetter: setHourOffState
         });
         railDrag($('dayRail'), {
             axis: 'x',
@@ -5749,7 +6022,11 @@
             // Drag left and later days arrive from the right, matching the
             // direction the view swipe already reads.
             step: (base, cols) => setDayOff(base - cols),
-            end: () => armRevealIdle(dayHome)
+            end: () => armRevealIdle(dayHome),
+            // EXPERIMENTAL (2026-07-29): remove these two lines to fall back
+            // to the shipped instant-repaint behaviour above.
+            colsFor: dayColsFor,
+            stateSetter: setDayOffState
         });
 
         railWheel($('hourRail'), {
@@ -5820,16 +6097,17 @@
             const cur = favorites.length
                 ? favorites.findIndex(c => placeKey(c) === placeKey(state.place)) : -1;
             const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
-            const target = cityWrap(base + dir);
+            const target = cityClamp(base + dir);
             const place = favorites[target];
-            // Honesty guard: with fewer than two favourites the target wraps
-            // straight back to the city already on screen, so nothing commits
-            // and nothing is drawn — the same inertness `stepCity` had.
+            // Honesty guard: with fewer than two favourites, or already at
+            // the list's first/last favourite, the target clamps straight back
+            // to the city already on screen, so nothing commits and nothing is
+            // drawn — the same inertness `stepCity` had.
             if (!place || placeKey(place) === placeKey(state.place)) return;
             clearTimeout(keySelTimer);
             const sel = citySel = {
                 base, pos: 0, latch: 0, parked: false, armed: true,
-                laps: 0, lastDetent: 0, target, listDir: dir, cache: new Map()
+                lastDetent: 0, target, listDir: dir, cache: new Map()
             };
             // Sweep direction opposes the list step, the same rule the drag
             // uses (SPEC.md DR-32, "Direction, and two things the build must

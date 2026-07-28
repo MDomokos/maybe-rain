@@ -3,6 +3,19 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
+## v45 (2026-07-29)
+
+### swiping tweaks
+- swiping through the starred city list no longer loops
+- the haptic tick felt on each city swiped past is much lighter
+- pulling more hours or more days into view and letting go no longer plays the full grid wipe on the way back. it just slides itself home, the same motion that opened it
+- dragging on the hour/day rails is less twitchy: it takes more finger travel to move a notch, and each notch has a short built-in pause before it lets go to the next, matching the linger already in the vertical city swipe
+- the more-hours/more-days reveal no longer scrolls itself home while a tooltip is open, it waits for the tooltip to close first
+- swiping between rain/temp/wind now takes a bit more of a pull, and pauses on the current screen before it starts sliding to the next one, matching the linger the city swipe already has
+
+### experimental
+- dragging the hour/day rails now crossfades the grid's colours continuously under the finger instead of snapping per notch, the same idea as the rain/temp/wind swipe
+
 ## v44 (2026-07-29)
 
 ### documentation
