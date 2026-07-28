@@ -3,7 +3,23 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
-## v41 (2026-07-28)
+## v42 (2026-07-28)
+
+### swiping between cities
+
+- swiping up and down the grid now picks a city from the starred list instead of stepping one at a time. keep pulling and it keeps going down the list, so any favourite is one unbroken swipe away
+- a small rail appears at the right edge while you drag, showing where you are in the list and how much is left
+- the list loops, so nothing is ever more than half a lap away in either direction
+- each city has a little landing spot in the swipe, so you can feel and see where it settles rather than balancing on an edge
+- the list rolls with your finger, so a city arriving from below is a later one
+- a quick flick still swaps one city, however hard you throw it
+- changing direction mid-swipe turns around instead of jumping
+
+### bug fixes
+
+- dragging on the times down the left edge no longer changes city as well as showing more hours
+
+
 
 ### see more hours
 

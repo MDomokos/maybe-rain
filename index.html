@@ -428,6 +428,77 @@
             width: var(--gutter);
             height: 100%;
         }
+        /* --- The city selector (DR-32) ---------------------------------
+           Deliberately absent until the drag has left the first dwell band, so
+           a flick never summons it: under that distance nothing appears on
+           screen at all. It is a ROLLING strip with a FIXED indicator, not a
+           fixed strip with a moving marker — the rungs travel with the finger,
+           exactly as the city name does, so nothing on screen moves against the
+           swipe. Everything is gold, which already means "current state"
+           (now-marker, city name, active view); no hue joins the vocabulary. */
+        #citySel {
+            position: absolute;
+            right: 1px;
+            top: 0;
+            bottom: 0;
+            width: 16px;
+            z-index: 7;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+        }
+        #citySel[hidden] { display: none; }
+        .city-rail {
+            position: relative;
+            width: 16px;
+            overflow: hidden;
+            -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+            mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+        }
+        .city-rail i {
+            position: absolute;
+            left: 50%;
+            width: 5px;
+            height: 5px;
+            margin-left: -2.5px;
+            border-radius: 50%;
+            background: rgba(255, 207, 51, .22);
+        }
+        .city-rail i.home { background: rgba(255, 207, 51, .5); }
+        .city-pin {
+            position: absolute;
+            left: 50%;
+            width: 11px;
+            height: 11px;
+            margin-left: -5.5px;
+            border-radius: 50%;
+            border: 1.5px solid var(--accent);
+            background: rgba(0, 0, 0, .5);
+        }
+        /* Parked in a dwell band: the indicator visibly stops while the finger
+           keeps moving. The detent is DRAWN, not just felt. */
+        .city-pin.parked { background: var(--accent); }
+        .city-wrapchip {
+            position: absolute;
+            right: 0;
+            bottom: 2px;
+            font-size: 9px;
+            line-height: 1;
+            color: var(--accent);
+        }
+        /* Position in the ★ list, alongside the name that is already the
+           destination readout. Shown only while the selector is. */
+        .city-count {
+            margin-left: 6px;
+            font-size: 10px;
+            letter-spacing: .04em;
+            color: var(--dim);
+            vertical-align: middle;
+        }
+        .city-count:empty { display: none; }
+
         /* Home chip: only ever visible while the drawer is latched away from
            today, and it sits in the label row's left gutter, which is empty at
            rest, so it displaces no data and adds no chrome to the glance. */
@@ -1503,7 +1574,7 @@
     <div class="titlebar-drag" aria-hidden="true"></div>
     <div class="container fade-in">
         <div class="location-wrapper">
-            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span><span class="location-caret" id="locationCaret" aria-hidden="true"></span></div>
+            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span><span class="city-count" id="cityCount" aria-hidden="true"></span><span class="location-caret" id="locationCaret" aria-hidden="true"></span></div>
             <div class="search-container" id="searchContainer">
                 <input type="search"
                        class="search-input"
@@ -1552,6 +1623,10 @@
                 <div class="time-labels" id="times"></div>
                 <div class="chart-grid" id="grid"></div>
                 <div class="rail" id="hourRail" aria-hidden="true"></div>
+                <!-- DR-32's city selector. Empty and hidden at rest, and not
+                     drawn at all until a vertical drag has left the FIRST dwell
+                     band, so a flick never summons it. -->
+                <div id="citySel" aria-hidden="true" hidden></div>
             </div>
             <div class="view-toggle" id="viewToggle">
                 <div class="status-wrap">
@@ -3111,11 +3186,32 @@
         //                            dir +1 fills from index 0, −1 from the last
         //   {type:'refresh'}         only changed cells blink, scattered (poll)
         // A random per-cell jitter is added so repeats never reveal identically.
+        //
+        // DR-32 (2026-07-28): the schedule used to be fire-and-forget — one
+        // setTimeout per cell handing the rest to a CSS background-color
+        // transition. That cannot express the two things the detented city
+        // selector needs, because once the timeouts are queued the timeline
+        // belongs to CSS and there is nothing left to read: a sweep must be
+        // RETARGETABLE mid-flight (the finger crosses another detent, so cells
+        // already flipped repaint to the newer city while cells the sweep has
+        // not reached carry on toward the old one) and it must RUN BACKWARDS
+        // (the finger reverses, so the sweep rewinds to the city on screen
+        // before setting off the other way with the stagger flipped).
+        //
+        // So the schedule is now a PLAYHEAD: per-cell delays are computed once
+        // into an array and a single rAF ticker advances one clock `t` across
+        // them. Retarget = swap `to`, keep `t` and the delays. Rewind = run `t`
+        // down. Nothing else about the animation changes — the same delays, the
+        // same 45/45/110 black/hold/colour envelope, so it looks like the wave
+        // that already shipped. Because the delays are stored rather than
+        // recomputed per frame, the per-cell Math.random() jitter above stays
+        // stable for the life of a sweep without needing a positional hash.
         let nextRevealAnim = null; // directional/first hint for the next fresh paint
         let gridTimers = [];       // pending blink timeouts, all cancelled on the next paint
-        let gridBusyUntil = 0;     // timestamp a directional wave finishes settling
-        let pendingRefresh = null; // a refresh deferred until the wave above settles
+        let pendingRefresh = null; // a refresh deferred until a running sweep settles
         const GRID_BLACK_MS = 45, GRID_HOLD_MS = 45, GRID_COLOR_MS = 110;
+        const CELL_MS = GRID_HOLD_MS + GRID_COLOR_MS;  // one cell's whole blink; see cellPhase
+        const REWIND_RATE = 1.7;  // a rewind is quicker than a completion (DR-30)
         const rankStep = n => Math.min(23, 160 / Math.max(1, n - 1));
 
         const cellDelay = (anim, c, r, nCols, nRows, desc) => {
@@ -3139,34 +3235,192 @@
             ? '<div class="weather-block empty"></div>'
             : `<div class="weather-block${desc.current ? ' current' : ''}" style="background:rgb(${desc.rgb});color:${desc.textColor}" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
 
-        // Update an existing cell node in place (no DOM teardown, so a blink can
-        // run old → black → new on the same element).
-        const applyCell = (node, desc, animated) => {
+        // A cell the sweep has not reached yet, or a destination with no data to
+        // paint. Black is the page background rather than a value in any
+        // palette, so it reads as ABSENT and never as a wrong number — which is
+        // what lets an uncached favourite be swept to honestly (DR-32: every
+        // rung is reachable, but only the ones with a cached forecast have
+        // colours to arrive at; the rest land black and fill in on fetch).
+        const blankDesc = { blank: true, rgb: [0, 0, 0], textColor: '#fff', marks: '', info: '', current: false, dayIndex: 0, hour: 0 };
+        const blankCols = (nCols, nRows) =>
+            Array.from({ length: nCols }, () => Array.from({ length: nRows }, () => blankDesc));
+
+        // Swap a cell's CONTENT (marks, labels, dataset). Called once per cell
+        // per sweep, at the moment the playhead flips it from `from` to `to` —
+        // or again if the sweep is retargeted onto a different destination while
+        // that cell is already flipped. Never per frame: only the colour moves
+        // every frame, and it is set directly rather than by a CSS transition,
+        // because the playhead now owns the timeline.
+        const applyCellContent = (node, desc) => {
             if (desc.empty) {
                 node.className = 'weather-block empty';
                 ['tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'].forEach(a => node.removeAttribute(a));
-                node.style.transition = 'none'; node.style.background = 'transparent'; node.innerHTML = '';
+                node.style.transition = 'none'; node.innerHTML = '';
                 return;
             }
             node.className = 'weather-block' + (desc.current ? ' current' : '');
             node.innerHTML = desc.marks;
+            node.style.transition = 'none';
+            node.style.color = desc.textColor;
+            if (desc.blank) {
+                ['tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'].forEach(a => node.removeAttribute(a));
+                return;
+            }
             node.setAttribute('tabindex', '0');
             node.setAttribute('aria-label', desc.info);
             node.dataset.day = desc.dayIndex;
             node.dataset.hour = desc.hour;
             node.dataset.info = desc.info;
-            node.style.color = desc.textColor;
-            node.style.transition = animated ? `background-color ${GRID_COLOR_MS}ms linear` : 'none';
-            node.style.background = `rgb(${desc.rgb})`;
         };
 
-        const blinkCell = (node, desc, delay, viaBlack) => {
-            gridTimers.push(setTimeout(() => {
-                if (!viaBlack) { applyCell(node, desc, true); return; }
-                node.style.transition = `background-color ${GRID_BLACK_MS}ms linear`;
-                node.style.background = '#000';
-                gridTimers.push(setTimeout(() => applyCell(node, desc, true), GRID_HOLD_MS));
-            }, delay));
+        // Where one cell sits on the envelope. `k` is which of the two grids it
+        // is showing (0 = from, 1 = to); `black` is how far it has been pulled
+        // toward the page background. A negative delay means "no blink": the
+        // cell is simply already there.
+        //
+        // This reproduces the SHIPPED timeline exactly rather than the idealised
+        // black/hold/colour one the constants' names suggest. The old scheduler
+        // started a GRID_BLACK_MS transition to black at `delay`, then waited
+        // GRID_HOLD_MS before applying the new colour over GRID_COLOR_MS — and
+        // because those two constants are both 45, the black fade finished at
+        // the same instant the recolour began. There was never a dwell at black.
+        // Adding one here would have lengthened every transition by 45ms per
+        // cell and moved the moment a cell changes hands, so the flip stays at
+        // GRID_HOLD_MS after the blackout starts.
+        const cellPhase = (t, delay) => {
+            if (delay < 0) return { k: 1, black: 0 };
+            const u = t - delay;
+            if (u <= 0) return { k: 0, black: 0 };
+            if (u < GRID_BLACK_MS) return { k: 0, black: u / GRID_BLACK_MS };
+            const v = (u - GRID_HOLD_MS) / GRID_COLOR_MS;
+            return v >= 1 ? { k: 1, black: 0 } : { k: 1, black: 1 - Math.max(0, v) };
+        };
+
+        // --- The playhead ---------------------------------------------------
+        // `from` is the grid as painted, `to` is where it is heading, `t` is the
+        // clock between them. When `t` completes, `to` becomes `from` and the
+        // clock resets — so a sweep that is retargeted again simply carries on
+        // from wherever it is, which is DR-32's "retargets rather than restarts"
+        // falling out of the model rather than being special-cased.
+        // Ticked on a timer rather than requestAnimationFrame, deliberately.
+        // `t` is advanced from real elapsed time, so the animation is
+        // frame-rate independent either way and the interval is only how often
+        // it is sampled; what a timer buys is that it cannot monopolise the
+        // event loop. A rAF chain that reschedules itself every frame runs as
+        // fast as the host will dispatch it, and under jsdom that is a tight
+        // loop with no vsync to pace it, which starves the timer queue outright
+        // — every harness that awaits anything during a sweep hangs. The old
+        // scheduler this replaces was timer-driven for the same practical
+        // reason, and 16ms is finer than the eye needs for a 350ms wipe.
+        const FRAME_MS = 16;
+        let wave = null;      // { grid, from, to, delays, shown, dir, anim, t, total, pending }
+        let waveRaf = 0, waveLast = 0;
+        let lastCols = null;  // the grid as last painted, the `from` of the next sweep
+
+        const gridBusy = () => !!wave && wave.anim.type !== 'refresh';
+        const waveSweeping = w => w.to !== w.from || w.t > 0.001;
+
+        const buildDelays = (anim, from, to, nCols, nRows) => {
+            const delays = new Float64Array(nCols * nRows);
+            let total = 0;
+            for (let c = 0; c < nCols; c++) {
+                for (let r = 0; r < nRows; r++) {
+                    // A refresh only blinks cells whose value actually moved, so
+                    // it asks the DESTINATION desc whether this cell changed.
+                    const d = cellDelay(anim, c, r, nCols, nRows, to[c][r]);
+                    delays[c * nRows + r] = to[c][r].empty ? -1 : d;
+                    if (d > total) total = d;
+                }
+            }
+            return { delays, total: total + CELL_MS };
+        };
+
+        const waveFrame = () => {
+            const w = wave, kids = w.grid.children;
+            let flipped = false;
+            for (let c = 0; c < w.nCols; c++) {
+                const colNode = kids[c];
+                if (!colNode) continue;
+                for (let r = 0; r < w.nRows; r++) {
+                    const node = colNode.children[r];
+                    if (!node) continue;
+                    const i = c * w.nRows + r;
+                    const ph = cellPhase(w.t, w.delays[i]);
+                    const desc = ph.k ? w.to[c][r] : w.from[c][r];
+                    // Identity, not a flag: a retarget hands us different desc
+                    // objects, so cells already flipped repaint to the newer
+                    // destination for free while unreached cells stay put.
+                    if (w.shown[i] !== desc) { applyCellContent(node, desc); w.shown[i] = desc; flipped = true; }
+                    if (desc.empty) { node.style.background = 'transparent'; continue; }
+                    const [cr, cg, cb] = desc.rgb, f = 1 - ph.black;
+                    node.style.background = ph.black > 0
+                        ? `rgb(${Math.round(cr * f)},${Math.round(cg * f)},${Math.round(cb * f)})`
+                        : `rgb(${cr},${cg},${cb})`;
+                }
+            }
+            // DR-28: an open tooltip survives a city change and reads out the
+            // new city's value for the same grid position. Only worth doing on
+            // a frame where a cell actually changed hands, not on every frame
+            // of the colour ramp.
+            if (flipped) refreshActiveTooltip();
+        };
+
+        // What is on screen RIGHT NOW, cell by cell — which mid-sweep is a mix
+        // of `from` and `to`, since the whole point of the stagger is that the
+        // two are visible at once. A sweep can be abandoned at any moment by a
+        // newer paint, and the next sweep has to start from what the eye can
+        // actually see: reporting `from` would claim the grid still shows the
+        // old city when half of it does not, and reporting `to` would claim a
+        // sweep finished that never did. Either way the next sweep starts from
+        // a grid that was never on screen, and cells jump.
+        const endWave = () => {
+            const w = wave;
+            lastCols = [];
+            for (let c = 0; c < w.nCols; c++) {
+                const col = [];
+                for (let r = 0; r < w.nRows; r++) col.push(w.shown[c * w.nRows + r] || w.from[c][r]);
+                lastCols.push(col);
+            }
+            wave = null;
+            if (waveRaf) { clearTimeout(waveRaf); waveRaf = 0; }
+        };
+
+        const waveTick = now => {
+            waveRaf = 0;
+            const w = wave;
+            if (!w) return;
+            const dt = Math.min(64, Math.max(0, now - waveLast));
+            waveLast = now;
+            if (w.to !== w.from) {
+                w.t = Math.min(w.total, w.t + dt);
+                if (w.t >= w.total) { w.from = w.to; w.t = 0; }
+            } else if (w.t > 0) {
+                w.t = Math.max(0, w.t - dt * REWIND_RATE);
+            }
+            // The playhead is at rest, so the stagger can be flipped without a
+            // jump and the queued reversal can set off.
+            if (w.pending && w.t <= 0.0001) {
+                const p = w.pending; w.pending = null;
+                w.dir = p.dir; w.to = p.cols;
+                const built = buildDelays({ ...w.anim, dir: p.dir }, w.from, w.to, w.nCols, w.nRows);
+                w.delays = built.delays; w.total = built.total;
+            }
+            waveFrame();
+            if (waveSweeping(w) || w.pending) { waveRaf = setTimeout(waveStep, FRAME_MS); return; }
+            if (w.hold) return;   // a drag is still holding the sweep open
+            // Only a sweep that ran to its natural end settles. A sweep that is
+            // superseded by another paint is abandoned in paintGrid, which
+            // drops the callback with it.
+            const settled = w.onSettle;
+            endWave();
+            if (settled) settled();
+        };
+
+        const waveStep = () => waveTick(performance.now());
+        const kickWave = () => {
+            if (waveRaf) return;
+            waveLast = performance.now();
+            waveRaf = setTimeout(waveStep, FRAME_MS);
         };
 
         const paintGrid = (grid, cols, anim) => {
@@ -3178,22 +3432,24 @@
             // A refresh that lands while a directional wave is still settling waits
             // for it to finish, so the wave never gets clipped mid-sweep. Any newer
             // navigation supersedes the queued refresh below.
-            if (animated && anim.type === 'refresh' && now < gridBusyUntil) {
+            if (animated && anim.type === 'refresh' && gridBusy()) {
                 if (pendingRefresh) clearTimeout(pendingRefresh);
-                pendingRefresh = setTimeout(() => { pendingRefresh = null; paintGrid(grid, cols, anim); }, gridBusyUntil - now + 16);
+                const left = Math.max(0, wave.total - wave.t);
+                pendingRefresh = setTimeout(() => { pendingRefresh = null; paintGrid(grid, cols, anim); }, left + 16);
                 return;
             }
 
-            // Any other paint supersedes: drop a queued refresh and cancel every
-            // in-flight blink so rapid navigation can't leave half-finished cells.
+            // Any other paint supersedes: drop a queued refresh and abandon a
+            // sweep in flight so rapid navigation can't leave half-finished cells.
             if (pendingRefresh) { clearTimeout(pendingRefresh); pendingRefresh = null; }
             gridTimers.forEach(clearTimeout); gridTimers.length = 0;
-            gridBusyUntil = 0;
+            if (wave) endWave();
 
             // No animation (or reduced motion): rebuild the grid instantly.
             if (!animated) {
                 grid.innerHTML = cols.map(cells =>
                     `<div class="day-column">${cells.map(buildCell).join('')}</div>`).join('');
+                lastCols = cols;
                 return;
             }
 
@@ -3209,30 +3465,307 @@
                 grid.innerHTML = cols.map(cells =>
                     `<div class="day-column">${cells.map(() => '<div class="weather-block" style="background:#000"></div>').join('')}</div>`).join('');
                 kids = grid.children;
+                lastCols = null;
             }
+            // Skeleton cells fill via !important; freeze their grey as an inline
+            // colour and drop the class so the playhead's colours take.
+            Array.prototype.forEach.call(kids, colNode =>
+                Array.prototype.forEach.call(colNode.children, node => {
+                    if (!node.classList.contains('skeleton')) return;
+                    node.classList.remove('skeleton');
+                    node.style.animation = 'none';
+                    node.style.background = '#1c1c1c';
+                }));
 
-            let maxDelay = 0;
-            cols.forEach((cells, c) => {
-                const colNode = kids[c];
-                cells.forEach((desc, r) => {
-                    const node = colNode.children[r];
-                    // Skeleton cells fill via !important; freeze their grey as an
-                    // inline colour and drop the class so the blink transition takes.
-                    if (node.classList.contains('skeleton')) {
-                        node.classList.remove('skeleton');
-                        node.style.animation = 'none';
-                        node.style.background = '#1c1c1c';
-                    }
-                    const delay = cellDelay(anim, c, r, nCols, nRows, desc);
-                    if (delay < 0 || desc.empty) applyCell(node, desc, false);
-                    else { blinkCell(node, desc, delay, true); if (delay > maxDelay) maxDelay = delay; }
-                });
-            });
-            // A directional wave/reveal marks the grid busy until its last cell has
-            // fully blinked in, so a refresh can defer to that moment.
-            if (anim.type === 'wave' || anim.type === 'reveal') {
-                gridBusyUntil = performance.now() + maxDelay + GRID_BLACK_MS + GRID_HOLD_MS + GRID_COLOR_MS;
+            // Nothing painted before (cold start): sweep out of black.
+            const from = lastCols && lastCols.length === nCols && lastCols[0].length === nRows
+                ? lastCols : blankCols(nCols, nRows);
+            const { delays, total } = buildDelays(anim, from, cols, nCols, nRows);
+            wave = {
+                grid, from, to: cols, delays, total, t: 0, nCols, nRows, anim,
+                dir: anim.dir || 1, pending: null, hold: false, onSettle: null,
+                shown: new Array(nCols * nRows).fill(null)
+            };
+            waveFrame();
+            kickWave();
+        };
+
+        // Retarget a running sweep, or start one, without restarting the clock.
+        // This is the entry point the city gesture drives: `cols` is the grid it
+        // is now heading for and `dir` is the sweep direction, which under DR-32
+        // is the sign of the FINGER's travel rather than of the list step.
+        // A destination on the same side retargets in flight; one on the
+        // opposite side is queued, so the running sweep rewinds to the grid on
+        // screen first and only then sets off the other way with the stagger
+        // flipped. Mirroring the stagger under a running playhead would make
+        // already-flipped cells un-flip in place, which reads as a glitch.
+        const waveTo = (grid, cols, dir, opts = {}) => {
+            if (!wave || wave.grid !== grid || wave.nCols !== cols.length
+                || wave.nRows !== (cols[0] ? cols[0].length : 0)) {
+                paintGrid(grid, cols, { type: 'wave', axis: 'y', dir });
+                if (wave) wave.hold = !!opts.hold;
+                return;
             }
+            wave.hold = !!opts.hold;
+            if (cols === wave.to && dir === wave.dir && !wave.pending) return;
+            if (waveSweeping(wave) && dir !== wave.dir) {
+                wave.pending = { cols, dir };
+                if (wave.to !== wave.from) wave.to = wave.from;  // rewind to what is on screen
+                kickWave();
+                return;
+            }
+            wave.pending = null;
+            if (cols === wave.to) { wave.dir = dir; return; }
+            const retarget = waveSweeping(wave);
+            wave.to = cols;
+            if (!retarget) {
+                wave.dir = dir;
+                const built = buildDelays({ type: 'wave', axis: 'y', dir }, wave.from, cols, wave.nCols, wave.nRows);
+                wave.delays = built.delays; wave.total = built.total;
+            }
+            kickWave();
+        };
+
+        // Let a held sweep finish and settle on its own clock.
+        const waveRelease = () => { if (wave) { wave.hold = false; kickWave(); } };
+
+
+        // The 7x16 grid as an array of columns of cell descriptors, a pure
+        // function of `state` + `view` + the reveal windows. Split out of
+        // updateDisplay for DR-32: a city sweep needs the OUTGOING and INCOMING
+        // grids at the same time, so the painter can hold one on the cells the
+        // playhead has not reached yet. `colsForPlace` below builds one for a
+        // city that is not the current one.
+        const buildCols = () => {
+            const { start, end, days, off } = visibleWindow();
+            const shownDays = state.data.slice(off, off + days);
+            const dayMeta = state.days.slice(off, off + days);
+            const currentHour = cityNow().hour;
+
+        // The rain view is the sky base (conditionRGB) plus the streak
+        // overlay; temp and wind views draw their own scales.
+        const rainView = view === 'rain';
+
+        // DR-17 frost contour needs each cell's four neighbours (hour above /
+        // below in the same day, same hour in the day either side), on ACTUAL
+        // air temp. Null when the neighbour is off the shown window or missing
+        // (an honest gap), which the outline treats as the region's edge.
+        const lastDay = shownDays.length - 1;
+        const actualTemp = (di, hh) => {
+            const dd = shownDays[di];
+            const c = dd && dd.find(x => x.hour === hh);
+            return c ? c.temp : null;
+        };
+
+        return shownDays.map((dayData, dayIndex) => {
+            const isToday = dayMeta[dayIndex].isToday;
+            const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
+            const cells = [];
+            for (let hour = start; hour <= end; hour++) {
+                const h = dayData.find(x => x.hour === hour);
+                if (!h) { cells.push({ empty: true }); continue; } // honest gap
+                const isCurrent = isToday && hour === currentHour;
+                // Temperature view (DR-17): comfort-band colour on feels-like
+                // (raw temp only if apparent is missing). Wind view: wind
+                // scale. Rain view: the WMO sky colour (tinted for rain,
+                // cloud-spread, night after this hour's local sunset); rain
+                // itself rides on top as the streak overlay, below.
+                const rgb = view === 'temp' ? bandRGB(h.feels != null ? h.feels : h.temp)
+                    : view === 'wind'
+                        ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
+                        : conditionRGB(h, nightFactor(hour, sun));
+                // Hazard icons (DR-10): every applicable hazard shows,
+                // packed into the bottom-right corner in a fixed order so
+                // two never swap places: the weather-coded hazard first
+                // (storm, fog, freeze, mutually exclusive), then heat, then
+                // UV (the two threshold hazards, from the ⚙-menu
+                // thresholds). Rarely more than two at once (usually heat +
+                // UV, or a storm on a hot day). h.glyph is an MR_ICON key.
+                const hot = h.temp >= settings.heatWarn;
+                const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
+                // DR-17 danger glyph: temperature view only, on feels-like
+                // (raw only if apparent is missing). Outside the rain view's
+                // hazard vocabulary, so it never counts against its glyph cap.
+                const dv = h.feels != null ? h.feels : h.temp;
+                const dangerCold = view === 'temp' && dv != null && dv <= TEMP_DANGER_COLD;
+                const dangerHot = view === 'temp' && dv != null && dv >= TEMP_DANGER_HOT;
+                // Wind view: the arrow is the data, centred, pointing where
+                // the wind blows. One SVG (base points up) rotated by the
+                // octant; hazards stay on the other two views, tucked into
+                // the bottom-right corner (B1).
+                const arrow = view === 'wind' && h.windDir != null && h.wind != null
+                    ? `<span class="wind-arrow" style="transform:rotate(${windOctant(h.windDir) * 45 + 180}deg)">${MR_ICON.wind}</span>` : '';
+                const hazGlyph = view === 'wind' ? ''
+                    : mrIcon(h.glyph)
+                    + (rainView && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
+                    + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '')
+                    + (dangerCold || dangerHot ? MR_ICON.danger : '');
+                // DR-17 frost contour (temperature view only), on ACTUAL air
+                // temp, decoupled from the feels-like colour: ice, frost and
+                // rain->snow are real-temperature events. The marker outlines
+                // the whole region, not just a crossing: a cell inside the
+                // region draws an edge on each side where the neighbour is on
+                // the warm side of the threshold, so the border traces the
+                // 0 ° (solid) and +3 ° possible-frost (dashed) contours around
+                // the frozen / near-freezing blocks. The top of the shown
+                // window banners, so an all-frozen column never loses it.
+                // Solid on the frozen cells (< 0), dashed on the near-freezing
+                // ones (0 up to +3); a cell is only ever one or the other.
+                let frost = '';
+                if (view === 'temp' && h.temp != null) {
+                    const t = h.temp, buf = FROST_POSSIBLE;
+                    const solid = t < 0, dashed = !solid && t < buf;
+                    if (solid || dashed) {
+                        const thr = solid ? 0 : buf; // edge sits where the neighbour is warmer than this
+                        const above = actualTemp(dayIndex, hour - 1);
+                        const below = actualTemp(dayIndex, hour + 1);
+                        const left = actualTemp(dayIndex - 1, hour);
+                        const right = actualTemp(dayIndex + 1, hour);
+                        const out = n => n == null || n >= thr; // warm side, off-window, or gap
+                        const sides = [];
+                        if (hour === start || (above != null && above >= thr)) sides.push('top');
+                        if (hour < end && out(below)) sides.push('bottom');
+                        if (dayIndex > 0 && out(left)) sides.push('left');
+                        if (dayIndex < lastDay && out(right)) sides.push('right');
+                        if (sides.length) {
+                            let style;
+                            if (solid) {
+                                // Certain freezing: each active side is a band
+                                // strongest at the block edge and fading toward
+                                // the middle, so the 0 ° contour reads as a
+                                // frosty haze rather than a hard line.
+                                const D = 9; // how far the frost reaches inward
+                                const C = 'rgba(146,224,255,0.9)';
+                                const fade = { top: 'to bottom', bottom: 'to top', left: 'to right', right: 'to left' };
+                                const place = {
+                                    top: `left top/100% ${D}px`, bottom: `left bottom/100% ${D}px`,
+                                    left: `left top/${D}px 100%`, right: `right top/${D}px 100%`
+                                };
+                                const bg = sides.map(s => `linear-gradient(${fade[s]}, ${C}, transparent) ${place[s]} no-repeat`).join(',');
+                                style = `background:${bg}`;
+                            } else {
+                                // Possible-frost: a crisp 2px dashed line (no
+                                // fade) so it stays sharply distinct from the
+                                // soft certain-frost haze; drawn per side as a
+                                // repeating gradient for exact dash and gap.
+                                const C = 'rgba(152,221,255,0.92)', DASH = 6, GAP = 5, TH = 2;
+                                const grad = dir => `repeating-linear-gradient(to ${dir}, ${C} 0 ${DASH}px, transparent ${DASH}px ${DASH + GAP}px)`;
+                                const layer = {
+                                    top: `${grad('right')} left top/100% ${TH}px no-repeat`,
+                                    bottom: `${grad('right')} left bottom/100% ${TH}px no-repeat`,
+                                    left: `${grad('bottom')} left top/${TH}px 100% no-repeat`,
+                                    right: `${grad('bottom')} right top/${TH}px 100% no-repeat`
+                                };
+                                style = `background:${sides.map(s => layer[s]).join(',')}`;
+                            }
+                            frost = `<span class="frost" style="${style}"></span>`;
+                        }
+                    }
+                }
+                // Sky event (moon phase / lunar eclipse): a night fact, so
+                // it rides the day's 21:00 block, bottom-left, in all views.
+                const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
+                const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
+                // Rain view: the exact amount lives in the tooltip, never
+                // printed in the cell, so the grid stays glanceable.
+                const mmText = rainView && h.mm != null && h.mm >= 0.1
+                    ? ` · ${h.mm} mm/h` : '';
+                const snowText = rainView && h.snow != null && h.snow > 0
+                    ? ` · ${h.snow} cm/h snow` : '';
+                const windText = h.wind != null
+                    ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
+                    : '';
+                const hazText = (hot ? ' · extreme heat' : '')
+                    + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '')
+                    + (dangerCold ? ' · dangerous cold' : '') + (dangerHot ? ' · dangerous heat' : '');
+                const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
+                    + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
+                const skyText = sky ? ` · ${sky.label}` : '';
+                // DR-6: a cell whose forecast meaningfully moved since the
+                // previous model run. The pulse is view-gated (a temp move
+                // pulses in temp view, not rain view) and armed only while
+                // pulsePending, so it fires once per new model run; the
+                // was/now detail stays in the tooltip either way.
+                // DR-6: a cell whose forecast meaningfully moved since the
+                // previous model run drives the one-shot blink on a refresh
+                // (view-gated: a temp move only blinks in temp view). The
+                // was/now detail rides the tooltip either way.
+                const ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
+                const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
+                const chText = changeLines(ch).map(l => ` · ${l}`).join('');
+                // DR-17: name the comfort band in the temperature view so the
+                // colour is spoken, not just seen.
+                const feelsVal = h.feels != null ? h.feels : h.temp;
+                const comfortText = view === 'temp' && feelsVal != null
+                    ? ` · ${TEMP_BANDS[bandIndex(feelsVal)].name.toLowerCase()}` : '';
+                const info = `${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`;
+                // Marks: precipitation overlays first (under the glyphs;
+                // rain lines + snow lattice + hail rings, any subset;
+                // lines + lattice together IS sleet) + the frost contour
+                // (temp view) + centred wind arrow (wind view) + bottom-right
+                // hazard glyph + bottom-left sky glyph. Any may be empty.
+                const marks = (rainView
+                        ? rainLinesSVG(h, rgb) + snowLatticeSVG(h) + hailRingsSVG(h, rgb)
+                        : '')
+                    + frost
+                    + arrow
+                    + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
+                    + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
+                // dataset.day is absolute (an index into state.days), not the
+                // column position, so a tooltip opened while the drawer is
+                // open still reads the right day back out.
+                cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex: off + dayIndex, hour: h.hour, moved: !!movedInView });
+            }
+            return cells;
+        });
+        };
+
+        // The grid for a city that is NOT the current one, built without
+        // disturbing the app's state: the DR-32 selector has to sweep toward a
+        // destination long before it has committed to going there, and may
+        // never commit at all. Only the cached forecast is used — no fetch is
+        // triggered by a drag passing over a rung.
+        //
+        // A favourite with no usable cache (never opened, or expired) has no
+        // colours to arrive at. It returns null, and the caller sweeps to black
+        // instead: black is the page background rather than a value in any
+        // palette, so it reads as ABSENT and never as a wrong number. The real
+        // data arrives on landing, through the ordinary changeCity fetch.
+        const colsForPlace = place => {
+            if (!place) return null;
+            if (placeKey(place) === placeKey(state.place)) return buildCols();
+            const entry = loadForecast(place);
+            if (!entry?.payload || forecastExpired(entry)) return null;
+            const keep = {
+                place: state.place, tz: state.tz, utcOffset: state.utcOffset,
+                sun: state.sun, data: state.data, days: state.days,
+                changed: state.changed, pulsePending: state.pulsePending
+            };
+            try {
+                state.place = place;
+                // Change marks belong to the city that computed them; a preview
+                // of a different city must never inherit its pulses.
+                state.changed = null; state.pulsePending = false;
+                processData(entry.payload);
+                return buildCols();
+            } catch {
+                return null;
+            } finally {
+                Object.assign(state, keep);
+            }
+        };
+
+        // The sweep needs both grids to be the same shape, and a city with a
+        // shorter cached payload can yield fewer than DAY_SPAN columns. Pad
+        // rather than reject: the missing columns sweep to black, which is the
+        // same honest "no data here" the cold-city case above uses.
+        const fitCols = (cols, nCols, nRows) => {
+            const out = [];
+            for (let c = 0; c < nCols; c++) {
+                const col = cols && cols[c];
+                out.push(col && col.length === nRows ? col : Array.from({ length: nRows }, () => blankDesc));
+            }
+            return out;
         };
 
         const updateDisplay = (anim = null) => {
@@ -3278,182 +3811,7 @@
                 return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
             }).join('');
 
-            // The rain view is the sky base (conditionRGB) plus the streak
-            // overlay; temp and wind views draw their own scales.
-            const rainView = view === 'rain';
-
-            // DR-17 frost contour needs each cell's four neighbours (hour above /
-            // below in the same day, same hour in the day either side), on ACTUAL
-            // air temp. Null when the neighbour is off the shown window or missing
-            // (an honest gap), which the outline treats as the region's edge.
-            const lastDay = shownDays.length - 1;
-            const actualTemp = (di, hh) => {
-                const dd = shownDays[di];
-                const c = dd && dd.find(x => x.hour === hh);
-                return c ? c.temp : null;
-            };
-
-            const cols = shownDays.map((dayData, dayIndex) => {
-                const isToday = dayMeta[dayIndex].isToday;
-                const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
-                const cells = [];
-                for (let hour = start; hour <= end; hour++) {
-                    const h = dayData.find(x => x.hour === hour);
-                    if (!h) { cells.push({ empty: true }); continue; } // honest gap
-                    const isCurrent = isToday && hour === currentHour;
-                    // Temperature view (DR-17): comfort-band colour on feels-like
-                    // (raw temp only if apparent is missing). Wind view: wind
-                    // scale. Rain view: the WMO sky colour (tinted for rain,
-                    // cloud-spread, night after this hour's local sunset); rain
-                    // itself rides on top as the streak overlay, below.
-                    const rgb = view === 'temp' ? bandRGB(h.feels != null ? h.feels : h.temp)
-                        : view === 'wind'
-                            ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
-                            : conditionRGB(h, nightFactor(hour, sun));
-                    // Hazard icons (DR-10): every applicable hazard shows,
-                    // packed into the bottom-right corner in a fixed order so
-                    // two never swap places: the weather-coded hazard first
-                    // (storm, fog, freeze, mutually exclusive), then heat, then
-                    // UV (the two threshold hazards, from the ⚙-menu
-                    // thresholds). Rarely more than two at once (usually heat +
-                    // UV, or a storm on a hot day). h.glyph is an MR_ICON key.
-                    const hot = h.temp >= settings.heatWarn;
-                    const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
-                    // DR-17 danger glyph: temperature view only, on feels-like
-                    // (raw only if apparent is missing). Outside the rain view's
-                    // hazard vocabulary, so it never counts against its glyph cap.
-                    const dv = h.feels != null ? h.feels : h.temp;
-                    const dangerCold = view === 'temp' && dv != null && dv <= TEMP_DANGER_COLD;
-                    const dangerHot = view === 'temp' && dv != null && dv >= TEMP_DANGER_HOT;
-                    // Wind view: the arrow is the data, centred, pointing where
-                    // the wind blows. One SVG (base points up) rotated by the
-                    // octant; hazards stay on the other two views, tucked into
-                    // the bottom-right corner (B1).
-                    const arrow = view === 'wind' && h.windDir != null && h.wind != null
-                        ? `<span class="wind-arrow" style="transform:rotate(${windOctant(h.windDir) * 45 + 180}deg)">${MR_ICON.wind}</span>` : '';
-                    const hazGlyph = view === 'wind' ? ''
-                        : mrIcon(h.glyph)
-                        + (rainView && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
-                        + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '')
-                        + (dangerCold || dangerHot ? MR_ICON.danger : '');
-                    // DR-17 frost contour (temperature view only), on ACTUAL air
-                    // temp, decoupled from the feels-like colour: ice, frost and
-                    // rain->snow are real-temperature events. The marker outlines
-                    // the whole region, not just a crossing: a cell inside the
-                    // region draws an edge on each side where the neighbour is on
-                    // the warm side of the threshold, so the border traces the
-                    // 0 ° (solid) and +3 ° possible-frost (dashed) contours around
-                    // the frozen / near-freezing blocks. The top of the shown
-                    // window banners, so an all-frozen column never loses it.
-                    // Solid on the frozen cells (< 0), dashed on the near-freezing
-                    // ones (0 up to +3); a cell is only ever one or the other.
-                    let frost = '';
-                    if (view === 'temp' && h.temp != null) {
-                        const t = h.temp, buf = FROST_POSSIBLE;
-                        const solid = t < 0, dashed = !solid && t < buf;
-                        if (solid || dashed) {
-                            const thr = solid ? 0 : buf; // edge sits where the neighbour is warmer than this
-                            const above = actualTemp(dayIndex, hour - 1);
-                            const below = actualTemp(dayIndex, hour + 1);
-                            const left = actualTemp(dayIndex - 1, hour);
-                            const right = actualTemp(dayIndex + 1, hour);
-                            const out = n => n == null || n >= thr; // warm side, off-window, or gap
-                            const sides = [];
-                            if (hour === start || (above != null && above >= thr)) sides.push('top');
-                            if (hour < end && out(below)) sides.push('bottom');
-                            if (dayIndex > 0 && out(left)) sides.push('left');
-                            if (dayIndex < lastDay && out(right)) sides.push('right');
-                            if (sides.length) {
-                                let style;
-                                if (solid) {
-                                    // Certain freezing: each active side is a band
-                                    // strongest at the block edge and fading toward
-                                    // the middle, so the 0 ° contour reads as a
-                                    // frosty haze rather than a hard line.
-                                    const D = 9; // how far the frost reaches inward
-                                    const C = 'rgba(146,224,255,0.9)';
-                                    const fade = { top: 'to bottom', bottom: 'to top', left: 'to right', right: 'to left' };
-                                    const place = {
-                                        top: `left top/100% ${D}px`, bottom: `left bottom/100% ${D}px`,
-                                        left: `left top/${D}px 100%`, right: `right top/${D}px 100%`
-                                    };
-                                    const bg = sides.map(s => `linear-gradient(${fade[s]}, ${C}, transparent) ${place[s]} no-repeat`).join(',');
-                                    style = `background:${bg}`;
-                                } else {
-                                    // Possible-frost: a crisp 2px dashed line (no
-                                    // fade) so it stays sharply distinct from the
-                                    // soft certain-frost haze; drawn per side as a
-                                    // repeating gradient for exact dash and gap.
-                                    const C = 'rgba(152,221,255,0.92)', DASH = 6, GAP = 5, TH = 2;
-                                    const grad = dir => `repeating-linear-gradient(to ${dir}, ${C} 0 ${DASH}px, transparent ${DASH}px ${DASH + GAP}px)`;
-                                    const layer = {
-                                        top: `${grad('right')} left top/100% ${TH}px no-repeat`,
-                                        bottom: `${grad('right')} left bottom/100% ${TH}px no-repeat`,
-                                        left: `${grad('bottom')} left top/${TH}px 100% no-repeat`,
-                                        right: `${grad('bottom')} right top/${TH}px 100% no-repeat`
-                                    };
-                                    style = `background:${sides.map(s => layer[s]).join(',')}`;
-                                }
-                                frost = `<span class="frost" style="${style}"></span>`;
-                            }
-                        }
-                    }
-                    // Sky event (moon phase / lunar eclipse): a night fact, so
-                    // it rides the day's 21:00 block, bottom-left, in all views.
-                    const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
-                    const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
-                    // Rain view: the exact amount lives in the tooltip, never
-                    // printed in the cell, so the grid stays glanceable.
-                    const mmText = rainView && h.mm != null && h.mm >= 0.1
-                        ? ` · ${h.mm} mm/h` : '';
-                    const snowText = rainView && h.snow != null && h.snow > 0
-                        ? ` · ${h.snow} cm/h snow` : '';
-                    const windText = h.wind != null
-                        ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
-                        : '';
-                    const hazText = (hot ? ' · extreme heat' : '')
-                        + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '')
-                        + (dangerCold ? ' · dangerous cold' : '') + (dangerHot ? ' · dangerous heat' : '');
-                    const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
-                        + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
-                    const skyText = sky ? ` · ${sky.label}` : '';
-                    // DR-6: a cell whose forecast meaningfully moved since the
-                    // previous model run. The pulse is view-gated (a temp move
-                    // pulses in temp view, not rain view) and armed only while
-                    // pulsePending, so it fires once per new model run; the
-                    // was/now detail stays in the tooltip either way.
-                    // DR-6: a cell whose forecast meaningfully moved since the
-                    // previous model run drives the one-shot blink on a refresh
-                    // (view-gated: a temp move only blinks in temp view). The
-                    // was/now detail rides the tooltip either way.
-                    const ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
-                    const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
-                    const chText = changeLines(ch).map(l => ` · ${l}`).join('');
-                    // DR-17: name the comfort band in the temperature view so the
-                    // colour is spoken, not just seen.
-                    const feelsVal = h.feels != null ? h.feels : h.temp;
-                    const comfortText = view === 'temp' && feelsVal != null
-                        ? ` · ${TEMP_BANDS[bandIndex(feelsVal)].name.toLowerCase()}` : '';
-                    const info = `${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`;
-                    // Marks: precipitation overlays first (under the glyphs;
-                    // rain lines + snow lattice + hail rings, any subset;
-                    // lines + lattice together IS sleet) + the frost contour
-                    // (temp view) + centred wind arrow (wind view) + bottom-right
-                    // hazard glyph + bottom-left sky glyph. Any may be empty.
-                    const marks = (rainView
-                            ? rainLinesSVG(h, rgb) + snowLatticeSVG(h) + hailRingsSVG(h, rgb)
-                            : '')
-                        + frost
-                        + arrow
-                        + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
-                        + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
-                    // dataset.day is absolute (an index into state.days), not the
-                    // column position, so a tooltip opened while the drawer is
-                    // open still reads the right day back out.
-                    cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex: off + dayIndex, hour: h.hour, moved: !!movedInView });
-                }
-                return cells;
-            });
+            const cols = buildCols();
             paintGrid($('grid'), cols, anim);
             // Keep an open block tooltip in sync with the repaint (city swap,
             // view switch, background refresh) even when the mouse hasn't moved.
@@ -4444,8 +4802,12 @@
         // --- Grid gestures: one-finger swipe + arrow keys ----------------
         const chart = document.querySelector('.chart');
         // Shared navigation steps so swipe and arrow-key gestures stay in
-        // lockstep. dir +1 = next (↓ / → / swipe down / swipe right);
-        // dir -1 = previous (↑ / ← / swipe up / swipe left).
+        // lockstep. dir +1 = next (↓ / →); dir -1 = previous (↑ / ←).
+        // The touch gesture no longer routes through here on the vertical axis:
+        // DR-32's selector picks an absolute list position rather than stepping,
+        // and under it swipe UP means NEXT (the rungs travel with the finger, so
+        // a rung arriving at the indicator from below is a LATER entry). The
+        // keyboard keeps ↑ = previous, matching every other list on the page.
         // Cycles ★ favorites only (recents are not part of the quick-swap set).
         const stepCity = dir => {
             if (!favorites.length) return;
@@ -4454,7 +4816,10 @@
             const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
             const c = favorites[(base + dir + n) % n];
             // stable order (no MRU reorder) so it cycles the whole list
-            // Vertical wave: next (↓) fills top→bottom, previous (↑) bottom→top.
+            // Vertical wave: dir +1 fills top→bottom, −1 bottom→top. This is the
+            // KEYBOARD's coupling of list step to sweep direction; DR-32 decouples
+            // the two for touch, where the sweep direction is the sign of the
+            // finger's travel and has nothing to do with which way the list moved.
             if (c && placeKey(c) !== placeKey(state.place)) changeCity(c, false, { type: 'wave', axis: 'y', dir: Math.sign(dir) });
         };
         const stepView = dir => {
@@ -4466,11 +4831,11 @@
             setView(enabled[(i + dir + enabled.length) % enabled.length], { type: 'wave', axis: 'x', dir: -Math.sign(dir) });
         };
 
-        // One-finger swipe on the grid: horizontal cycles views (swipe
-        // left = next, carousel-style), vertical steps ★ favorites (up =
-        // previous, down = next, matching ↑/↓). The toggle buttons remain
-        // the visible state indicator. Guarded (>60px, one axis clearly
-        // dominant, single finger) so taps and sloppy scrolls never flip.
+        // One-finger gestures on the grid. HORIZONTAL cycles views (swipe
+        // left = next, carousel-style), guarded as before: >60px, one axis
+        // clearly dominant, single finger, decided on release. The toggle
+        // buttons remain the visible state indicator. VERTICAL is no longer a
+        // one-shot step — see the DR-32 selector below.
         //
         // A touch that stays under the swipe threshold is a plain tap and
         // is left alone here: it falls through to the browser's own
@@ -4498,23 +4863,261 @@
         // extra complexity without a use it uniquely served. See SPEC.md
         // DR-28. What's left is exactly the DR-24 shape: swipe detection
         // only, no timers, no pin state, no haptics.
-        let swipeStart = null;
-        chart.addEventListener('touchstart', e => {
-            swipeStart = e.touches.length === 1
-                ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
-        }, { passive: true });
-        chart.addEventListener('touchend', e => {
-            if (!swipeStart || e.touches.length) { if (e.touches.length) swipeStart = null; return; }
-            const t = e.changedTouches[0];
-            const dx = t.clientX - swipeStart.x, dy = t.clientY - swipeStart.y;
-            swipeStart = null;
-            if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
-                stepView(dx < 0 ? 1 : -1);        // swipe left = next view, right = previous
-            } else if (Math.abs(dy) > 60 && Math.abs(dy) > 2 * Math.abs(dx)) {
-                stepCity(dy < 0 ? -1 : 1);        // swipe up = previous city, down = next
+        // DR-32 (2026-07-28) replaces the vertical half of the above with a
+        // detented multi-step selector. The horizontal half is unchanged and
+        // still commits at 60px on release; DR-30's horizontal scrub is a
+        // separate, later piece of work.
+        //
+        // Vertical travel maps to a CONTINUOUS position in the ★ list, which
+        // wraps in both directions. Each city owns a band whose first half
+        // (DWELL) is PARKED — the target does not change and the indicator
+        // visibly stops while the finger keeps moving — and whose second half
+        // crosses to the next. That is what "somewhere to aim" means
+        // mechanically: the list has detents, like a rotary switch, rather than
+        // knife-edges to balance on. It is safe to add despite DR-18/19/24
+        // because it is a DISTANCE threshold, the class this project already
+        // trusts (the 60px commit, the 10px slop), not the time-or-velocity
+        // class that burned those decisions.
+        const STEP_PX = 90;                     // travel the FIRST city costs
+        const DWELL = 0.5;                      // share of each step spent parked
+        const RAMP_R = 0.86, RAMP_FLOOR = 0.55; // each city costs 86% of the last
+        const CITY_SLOP = 10;                   // a touch is a tap until it moves this far
+        const FLICK_VEL = 900, FLICK_MIN = 40;  // read ONCE, at release
+        const VIBE_DETENT = [5];                // one 5ms pulse; Android only
+        const RUNG_GAP = 17, RAIL_SPAN = 4;
+
+        // The k-th city costs less than the one before it, BY DISTANCE rather
+        // than by speed. A rate-scaled mapping would have to be integrated (the
+        // multiplier depends on how fast the finger was moving at each moment,
+        // not on where it now is), so going out fast and returning slowly to the
+        // identical pixel would not return to the starting city. That breaks
+        // both reversibility and aiming; a distance ramp keeps the benefit and
+        // loses neither.
+        const bandSize = k => Math.max(STEP_PX * RAMP_FLOOR, STEP_PX * Math.pow(RAMP_R, k));
+        const mapTravel = signedPx => {
+            const sgn = Math.sign(signedPx) || 1, a = Math.abs(signedPx);
+            let acc = 0, k = 0;
+            while (k < 80) {
+                const s = bandSize(k);
+                if (a < acc + s) {
+                    const rem = a - acc, dw = DWELL * s, cr = s - dw;
+                    const p = rem <= dw ? 0 : (cr > 0 ? (rem - dw) / cr : 1);
+                    return { sgn, latch: sgn * k, p, pos: sgn * (k + p) };
+                }
+                acc += s; k++;
             }
-            // else: under the swipe threshold, a plain tap. Nothing to do
-            // here; the trailing synthetic click opens/pins the tooltip.
+            return { sgn, latch: sgn * k, p: 0, pos: sgn * k };
+        };
+        const cityWrap = i => { const n = favorites.length; return ((i % n) + n) % n; };
+        // Honesty guard: stepCity cycles ★ favourites only and returns early on
+        // fewer than two, so the gesture and every cue it draws are suppressed
+        // outright rather than arming and then doing nothing.
+        const citySwapLive = () => favorites.length >= 2;
+
+        let touchNav = null;   // { x, y, axis, claimed, v, lastY, lastT }
+        let citySel = null;    // { base, pos, latch, parked, armed, laps, lastDetent, target, cache }
+
+        const renderCitySel = () => {
+            const box = $('citySel');
+            if (!citySel || !citySel.armed) { box.hidden = true; box.innerHTML = ''; return; }
+            const n = favorites.length;
+            const H = (2 * RAIL_SPAN + 1) * RUNG_GAP, mid = H / 2;
+            const lo = Math.floor(citySel.pos) - RAIL_SPAN, hi = Math.ceil(citySel.pos) + RAIL_SPAN;
+            let out = `<div class="city-rail" style="height:${H}px">`;
+            for (let i = lo; i <= hi; i++) {
+                const y = mid + (i - citySel.pos) * RUNG_GAP;
+                if (y < -8 || y > H + 8) continue;
+                out += `<i class="${cityWrap(citySel.base + i) === citySel.base ? 'home' : ''}" style="top:${(y - 2.5).toFixed(1)}px"></i>`;
+            }
+            out += `<div class="city-pin${citySel.parked ? ' parked' : ''}" style="top:${(mid - 5.5).toFixed(1)}px"></div></div>`;
+            if (citySel.laps > 0) out += '<span class="city-wrapchip">↻</span>';
+            box.innerHTML = out;
+            box.hidden = false;
+            // The name already in gold is the destination readout; the counter
+            // says where that sits in the list, which is the standing "know
+            // where you are in the swap order" gap.
+            $('locationName').textContent = favorites[citySel.target].name;
+            $('cityCount').textContent = `${citySel.target + 1}/${n}`;
+        };
+        const clearCitySel = () => {
+            citySel = null;
+            $('citySel').hidden = true; $('citySel').innerHTML = '';
+            $('cityCount').textContent = '';
+        };
+
+        // The destination grid for a rung, built once per drag and reused: a
+        // 90px step can be crossed many times in one sweep, and rebuilding the
+        // whole grid on every touchmove would drop frames for no gain.
+        const cityColsFor = idx => {
+            if (citySel.cache.has(idx)) return citySel.cache.get(idx);
+            // The frame's shape comes from the grid as it currently stands, NOT
+            // from a wave: at the start of a drag there is nothing in flight to
+            // ask, and a zero-row shape here would have paintGrid rebuild the
+            // grid as seven empty columns.
+            const ref = (wave ? wave.to : lastCols) || buildCols();
+            const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
+            const built = fitCols(colsForPlace(favorites[idx]), nCols, nRows);
+            citySel.cache.set(idx, built);
+            return built;
+        };
+
+        chart.addEventListener('touchstart', e => {
+            // Origin gate (DR-29): a drag that starts on a rail belongs to that
+            // rail's reveal. The rails sit INSIDE .chart, so their touches also
+            // bubble here — without this the hour peek would peek hours and
+            // switch city off the same finger.
+            if (e.target.closest?.('.rail')) { touchNav = null; return; }
+            if (e.touches.length !== 1) { touchNav = null; return; }
+            const t = e.touches[0];
+            touchNav = { x: t.clientX, y: t.clientY, axis: null, claimed: false, v: 0, lastY: t.clientY, lastT: performance.now() };
+        }, { passive: true });
+
+        chart.addEventListener('touchmove', e => {
+            if (!touchNav || e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const dx = t.clientX - touchNav.x, dy = t.clientY - touchNav.y;
+
+            // A touch is a TAP until it has moved CITY_SLOP. Below that nothing
+            // renders and nothing is preventDefault-ed, so the touch falls
+            // through to the browser's trailing synthetic click and the existing
+            // tap-to-open-tooltip path runs untouched. The two paths are
+            // mutually exclusive by construction, not by a race.
+            if (!touchNav.axis) {
+                if (Math.hypot(dx, dy) < CITY_SLOP) return;
+                touchNav.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+                if (touchNav.axis === 'x') return;            // the view swipe, decided on release
+                if (!citySwapLive()) { touchNav = null; return; }
+                // Deliberately NOT closing an open tooltip and NOT clearing
+                // tappedBlock. DR-28: a tap-opened tooltip survives a city
+                // change and re-targets the same grid position, which is the
+                // whole "compare across a swap" behaviour. The scrub calls
+                // preventDefault from here on, so no trailing synthetic click
+                // ever arrives and this touch cannot retroactively become a tap
+                // — by construction, without disturbing the tooltip that is
+                // already open.
+                touchNav.claimed = true;
+                citySel = {
+                    base: Math.max(0, favorites.findIndex(c => placeKey(c) === placeKey(state.place))),
+                    pos: 0, latch: 0, parked: true, armed: false, laps: 0, lastDetent: 0,
+                    target: 0, listDir: 1, cache: new Map()
+                };
+                citySel.target = citySel.base;
+            }
+            if (!touchNav.claimed) return;
+            e.preventDefault();   // scrub, don't pan the page
+
+            // Velocity is measured throughout but ACTED ON only once, at release,
+            // and only by the flick rule.
+            const now = performance.now(), dt = Math.max(8, now - touchNav.lastT);
+            touchNav.v = touchNav.v * 0.7 + ((t.clientY - touchNav.lastY) / dt * 1000) * 0.3;
+            touchNav.lastY = t.clientY; touchNav.lastT = now;
+
+            const signed = -dy;   // up is positive: LATER in the list (DR-32 §2)
+            const m = mapTravel(signed);
+            const prevPos = citySel.pos;
+            citySel.pos = m.pos; citySel.latch = m.latch; citySel.parked = m.p <= 0.0001;
+            citySel.travel = signed;
+            citySel.armed = Math.abs(signed) > DWELL * STEP_PX;
+            citySel.laps = Math.floor(Math.abs(m.pos) / favorites.length);
+
+            // One 5ms tick the moment the finger settles into a dwell band it
+            // was not already in. Keyed on WHICH detent rather than on the
+            // parked/crossing edge: a single fast touchmove can span a whole
+            // crossing band, and an edge test would silently drop the tick for
+            // every step the finger jumped over. Nothing on crossings,
+            // retargets, release or landing.
+            if (citySel.parked && m.latch !== citySel.lastDetent) {
+                citySel.lastDetent = m.latch;
+                navigator.vibrate?.(VIBE_DETENT);
+            }
+
+            // The aim is whichever rung a release would land on, so what is on
+            // screen is always what you would get. The playhead is NOT driven by
+            // the finger: the finger only chooses a destination and the wave
+            // runs at the shipped tempo however fast it got there. A fast
+            // traversal therefore shows one continuous sweep that happens to end
+            // on the fourth city; a deliberate one that parks in each dwell band
+            // completes each wave and shows every city on the way.
+            const stepNow = Math.round(m.pos), stepWas = Math.round(prevPos);
+            const target = cityWrap(citySel.base + stepNow);
+            // Which way the LIST is moving, read from the change in rounded
+            // position rather than from raw finger jitter, and falling back to
+            // which side of the origin the finger is on when the position did
+            // not change. The sweep is the negation of it, so an upward pull
+            // (later entries, +1) sweeps with dir −1 and rises from the bottom
+            // row: everything visible moves WITH the finger.
+            //
+            // Reading it from the list rather than from the sign of `dy`
+            // matters in exactly one case, and it is the case this DR cares
+            // about: coming back down from three cities up, the finger is still
+            // above where it started but the list is now moving the other way,
+            // so the sweep must reverse — rewind to what is on screen, then set
+            // off the other way with the stagger flipped. Keying on `dy` would
+            // leave the direction unchanged and silently retarget instead.
+            const listDir = stepNow === stepWas
+                ? (Math.sign(m.pos) || citySel.listDir || 1)
+                : Math.sign(stepNow - stepWas);
+            citySel.listDir = listDir;
+            if (target !== citySel.target || stepNow !== stepWas) {
+                citySel.target = target;
+                waveTo($('grid'), cityColsFor(target), -listDir, { hold: true });
+            }
+            renderCitySel();
+        }, { passive: false });
+
+        const endTouchNav = e => {
+            const nav = touchNav;
+            touchNav = null;
+            if (!nav) return;
+            const t = e.changedTouches[0];
+            const dx = t.clientX - nav.x, dy = t.clientY - nav.y;
+
+            if (!nav.claimed) {
+                // Horizontal is unchanged: >60px, one axis clearly dominant.
+                if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) stepView(dx < 0 ? 1 : -1);
+                // else a plain tap: the trailing synthetic click opens the tooltip.
+                return;
+            }
+
+            // A flick's outcome is DEFINED as ±1, not computed from distance, so
+            // it cannot overshoot: a fast 200px throw is one step, not two. This
+            // is the one code path in the app whose behaviour depends on how fast
+            // you moved. Three things contain it: it is read once, here, never
+            // during the drag; its outcome is defined rather than derived; and a
+            // misread gives one city instead of the aimed one, recoverable in a
+            // second gesture rather than an unrecoverable wrong state.
+            const travel = Math.abs(dy);
+            const fast = Math.abs(nav.v) > FLICK_VEL && travel > FLICK_MIN;
+            const steps = fast ? (-Math.sign(nav.v) || 1) : Math.round(citySel.pos);
+            const target = cityWrap(citySel.base + steps);
+            // Same rule as during the drag: the sweep is the negation of the way
+            // the list is moving, so a flick that resolves to one step up sweeps
+            // upward even if the finger had wandered.
+            const dir = -(Math.sign(steps) || citySel.listDir || 1);
+            const place = favorites[target];
+            const cols = place ? cityColsFor(target) : null;
+
+            clearCitySel();
+            renderLocation();
+
+            if (!place || placeKey(place) === placeKey(state.place)) {
+                // Back where it started: let whatever is in flight rewind and
+                // settle on the city already on screen. Nothing commits.
+                waveRelease();
+                return;
+            }
+            // Sweep to the destination on the wave's own clock, then commit once
+            // it settles. changeCity then repaints instantly onto exactly the
+            // grid the sweep just landed on, so the commit itself is invisible.
+            waveTo($('grid'), cols, dir);
+            waveRelease();
+            if (wave) wave.onSettle = () => changeCity(place, true, null);
+            else changeCity(place, true, null);
+        };
+        chart.addEventListener('touchend', endTouchNav);
+        chart.addEventListener('touchcancel', () => {
+            if (touchNav?.claimed) { clearCitySel(); waveRelease(); renderLocation(); }
+            touchNav = null;
         });
 
         // --- The two reveals: more hours, more days (DR-29) ---------------
