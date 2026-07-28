@@ -26,6 +26,15 @@
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
+/* Themed scrollbar, matching the app's own (see .changelog-body in
+   index.html): a hairline-thin gold thumb on a transparent track. This page
+   is also shown inside index.html's hourly-data modal via an iframe, which
+   is its own document/scroll context, so the host page's scrollbar rule
+   can't reach in here — it has to be repeated on this page's own root. */
+html{scrollbar-width:thin;scrollbar-color:var(--gold) transparent}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--gold);border:2px solid var(--bg);background-clip:padding-box;border-radius:2px}
 body{margin:0;background:var(--bg);color:var(--fg);
      font:400 16px/1.6 var(--sans);padding:0 0 80px;-webkit-text-size-adjust:100%}
 .wrap{max-width:680px;margin:0 auto;padding:0 18px}
