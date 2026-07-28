@@ -397,6 +397,61 @@
             font-weight: 500;
         }
 
+        /* --- Reveal rails (DR-29) ---------------------------------------
+           Two transparent, never-rebuilt gesture layers. Nothing is drawn at
+           rest, so the resting screen is unchanged: the rails are pure hit
+           boxes. Each covers the origin that arms its reveal, and `touch-action:
+           none` on them keeps the browser from claiming the drag as a page pan
+           (the grid itself keeps pan-y, so the view/city swipes are untouched).
+
+           The day rail overhangs the label row above and below. The drawn labels
+           are about 14px tall against a 44px minimum touch target, so the hit box
+           grows without the row growing and eating grid height. */
+        .day-row { position: relative; }
+        .rail {
+            position: absolute;
+            touch-action: none;
+            z-index: 2;
+        }
+        #dayRail {
+            left: 0;
+            right: 0;
+            top: -15px;
+            bottom: -15px;
+        }
+        /* The hour rail is the time-label gutter: the hour axis is what the peek
+           moves, so the axis is where you pull it. It stops at the gutter's edge,
+           leaving every block free for tap-to-open-tooltip. */
+        #hourRail {
+            left: 0;
+            top: 0;
+            width: var(--gutter);
+            height: 100%;
+        }
+        /* Home chip: only ever visible while the drawer is latched away from
+           today, and it sits in the label row's left gutter, which is empty at
+           rest, so it displaces no data and adds no chrome to the glance. */
+        .home-chip {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 3;
+            width: calc(var(--gutter) - 8px);
+            padding: 3px 0;
+            background: none;
+            border: none;
+            border-radius: 4px;
+            color: var(--accent);
+            font: inherit;
+            font-size: 12px;
+            line-height: 1;
+            text-align: center;
+            cursor: pointer;
+        }
+        .home-chip[hidden] { display: none; }
+        .home-chip:focus-visible { outline: 1px solid var(--accent); }
+
         /* Chart and grid */
         .chart {
             position: relative;
@@ -1474,12 +1529,29 @@
         </div>
 
         <div id="content">
-            <div class="day-labels" id="days"></div>
+            <!-- #dayRail and #hourRail are the reveal gestures' touch targets
+                 (DR-29). Both are transparent, created once here, and never
+                 rebuilt: touch dispatches every touchmove/touchend to whatever
+                 element was under the finger at touchstart, so a listener living
+                 on markup that a mid-drag re-render replaces (the day labels,
+                 the time labels) would be detached after one frame and the
+                 gesture would die. Mouse is immune, so that bug looks fine on
+                 desktop and is total on a phone. Each is also its own origin
+                 gate: what separates "more days" from the view swipe, and "more
+                 hours" from the city swipe, is where the drag starts, not how
+                 fast it moves. -->
+            <div class="day-row">
+                <div class="day-labels" id="days"></div>
+                <div class="rail" id="dayRail" aria-hidden="true"></div>
+                <button class="home-chip" id="dayHome" type="button" hidden
+                        aria-label="Back to today"></button>
+            </div>
             <div class="temp-row" id="temps"></div>
             <div class="chart">
                 <div id="sunLines"></div>
                 <div class="time-labels" id="times"></div>
                 <div class="chart-grid" id="grid"></div>
+                <div class="rail" id="hourRail" aria-hidden="true"></div>
             </div>
             <div class="view-toggle" id="viewToggle">
                 <div class="status-wrap">
@@ -1619,15 +1691,71 @@
         // settings + view are initialised below, after loadJSON is defined.
         let settings, view;
 
-        const hourRange = () => settings.allHours
-            ? { start: 0, end: 23 } : { start: HOUR_START, end: HOUR_END };
+        // --- The reveal windows (DR-29) ----------------------------------
+        // The grid frame never changes size. Both reveals slide a fixed window
+        // over more data instead of growing the grid: the viewport is already
+        // full at 7x16, so more rows or columns could only come out of block
+        // size, and shrinking blocks to fit a temporary look degrades the
+        // resting glance to pay for it. A block therefore always holds exactly
+        // one hour, never a blend of two.
+        const DAY_SPAN = 7;      // columns in the frame, at rest and revealed
+        const DAY_OFF_MAX = 7;   // drawer's hard cap: leftmost column = lead day 7,
+                                 // so the rightmost is lead day 13, the 14th day
+        // The fetch horizon is derived from the cap rather than set beside it, so
+        // the two can never drift: everything the drawer can reach, plus the
+        // rollover spare the app has always carried (at local midnight the past
+        // day drops out and the spare slides in, so the window stays full without
+        // waiting on the network).
+        const FORECAST_DAYS = DAY_SPAN + DAY_OFF_MAX + 1; // 15
+        const HOUR_SPAN = HOUR_END - HOUR_START + 1; // 16 slots
+        // Both offsets are transient view state, never persisted: the app always
+        // opens on the default week and the default hours (principle 2).
+        let dayOff = 0;   // lead day of the leftmost column; latched by the drawer
+        let hourOff = 0;  // whole hours the hour window has slid; springs back
 
-        // The window rendered: the full week (up to 7 days of real data) across
-        // the whole hour range. Kept as a function so its callers still read
-        // { start, end, days } unchanged.
+        // How far the drawer may reach right now. Capped by the data actually in
+        // hand as well as by DAY_OFF_MAX, so a short cached payload can never be
+        // stepped into columns that do not exist (principle 4).
+        const maxDayOff = () => Math.max(0, Math.min(DAY_OFF_MAX, state.data.length - DAY_SPAN));
+        // Hour peek travel, in whole hours, either side of the default window.
+        // Clamped so the window can never leave the real day: earliest slot
+        // 00:00, latest 23:00. In 24-hour mode the window already fills the day,
+        // so the range collapses to zero and the peek has nothing to reveal.
+        const hourPeekRange = () => settings.allHours
+            ? { min: 0, max: 0 } : { min: -HOUR_START, max: 24 - HOUR_SPAN - HOUR_START };
+
+        const hourRange = () => {
+            if (settings.allHours) return { start: 0, end: 23 };
+            const { min, max } = hourPeekRange();
+            const s = HOUR_START + Math.max(min, Math.min(max, hourOff));
+            return { start: s, end: s + HOUR_SPAN - 1 };
+        };
+
+        // The window rendered: 7 columns from the current day offset, across the
+        // current hour window. Kept as a function so its callers still read
+        // { start, end, days } unchanged; `off` is the day the frame starts on.
         const visibleWindow = () => {
             const { start, end } = hourRange();
-            return { start, end, days: 7 };
+            return { start, end, days: DAY_SPAN, off: Math.min(dayOff, maxDayOff()) };
+        };
+
+        // The drawer's ⌂ chip is the only thing either reveal ever draws, and it
+        // exists only while the drawer is away from today. At rest both reveals
+        // are invisible and the screen is unchanged.
+        let revealTimer = null;
+        const renderDayHome = () => {
+            const chip = $('dayHome');
+            chip.hidden = !dayOff;
+            chip.textContent = dayOff ? '⌂' : '';
+        };
+        // Send both windows home without repainting, for callers that are about
+        // to repaint anyway (a view or city change, which own the whole grid).
+        // Neither offset is ever persisted, so the app always opens on the
+        // default week and the default hours (principle 2).
+        const resetReveal = () => {
+            clearTimeout(revealTimer);
+            dayOff = 0; hourOff = 0;
+            renderDayHome();
         };
         const applyBand = () => {
             const w = visibleWindow();
@@ -2205,11 +2333,27 @@
         // a purged cache answers nothing.
         const forecastCacheKey = p => `${LS_FORECAST}:${placeKey(p)}`;
         const loadForecast = p => loadJSON(forecastCacheKey(p));
-        const saveForecast = (p, entry) => saveJSON(forecastCacheKey(p), entry);
+        // Every write stamps the horizon the payload was fetched with, so there
+        // is one place to keep it honest rather than four call sites.
+        const saveForecast = (p, entry) => saveJSON(forecastCacheKey(p), { ...entry, days: FORECAST_DAYS });
         // Fully expired: the payload's hourly times are place-local ISO
         // strings and it carries utc_offset_seconds, so "is the last hour in
         // the past?" is a string compare against place-local now. For a
         // 7-day payload this fires ~7 days after fetch.
+        // An entry also carries the horizon it was fetched with, because that is
+        // the one thing about a cached payload that can go out of date without
+        // the payload itself being wrong. When the drawer's reach grows, every
+        // cached entry is still perfectly good data covering a shorter span, and
+        // the freshness window would otherwise hold it for another 10 minutes
+        // while the drawer sat clamped at whatever the old payload happened to
+        // reach. So a short horizon is not a cache miss (the entry still paints
+        // instantly, principle 6) but it does force the revalidation through,
+        // regardless of freshness. Recorded rather than measured from the payload
+        // on purpose: measuring would re-fire every day as the payload ages past
+        // its own horizon, where this fires exactly once per place, on the first
+        // load after the reach changed. Entries written before this existed have
+        // no `days` and read as 0, which is correct, they predate it.
+        const staleHorizon = entry => (entry?.days || 0) < FORECAST_DAYS;
         const forecastExpired = entry => {
             const t = entry?.payload?.hourly?.time;
             if (!t?.length) return true;
@@ -2391,13 +2535,16 @@
         // hour are both on screen, that hour's label becomes a gold marker
         // with the current temp; no temp data, arrow only (never a guess).
         const renderTimes = () => {
-            const { start, end, days } = visibleWindow();
+            const { start, end, days, off } = visibleWindow();
             const rows = end - start + 1;
             const band = 100 / rows;
             const step = 1;
             const now = cityNow().hour;
             const ti = state.days.findIndex(d => d.isToday);
-            const hasNow = ti >= 0 && ti < days && now >= start && now <= end;
+            // Today has to be inside the *shown* columns as well as the shown
+            // hours: with the day drawer open past today, or the hour window
+            // peeked away from the current hour, there is no now to mark.
+            const hasNow = ti >= off && ti < off + days && now >= start && now <= end;
             // Separator lines run above every labeled row except the first
             // (that boundary is the grid's own top edge, left bare) so the
             // grid's top and bottom stay free of lines.
@@ -2691,13 +2838,22 @@
             `?latitude=${p.latitude}&longitude=${p.longitude}` +
             '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
             '&daily=sunrise,sunset' +
-            // Fetch 8 days but only ever display 7 (visibleWindow). The spare
-            // trailing day is a rollover buffer: at local midnight the past day
-            // drops out and the cached 8th day slides into the 7th slot, so the
-            // week stays full without waiting on a network fetch (the cache
-            // could otherwise only ever supply 6 forward days once the date
-            // ticks over, since forecast_days is anchored to the request date).
-            '&timezone=auto&forecast_days=8';
+            // FORECAST_DAYS (15) fetched, 7 columns ever displayed at once
+            // (visibleWindow). 14 of them are reachable: the shipped week is lead
+            // days 0-6 and the day drawer slides that frame out to lead day 13.
+            // The 15th is the rollover spare, as above. Open-Meteo's ceiling is
+            // forecast_days=16, so this sits one day inside it.
+            //
+            // Every day is fetched hourly, on the same request and the same
+            // fields as the shipped week, so a revealed column is an ordinary
+            // column. DR-29 planned to coarsen the far days to a daily aggregate
+            // on the grounds that hourly data past day 7 does not exist; DR-34
+            // measured that and found it false (Open-Meteo returns an
+            // hourly-shaped value out to the ceiling, interpolated past a model's
+            // native cadence). The coarsening may still be right, but it is a
+            // resolution and confidence question, not a data-availability one,
+            // and it waits on the confidence pass with the rest of DR-33/35.
+            `&timezone=auto&forecast_days=${FORECAST_DAYS}`;
 
         // Parse the metadata payload (Unix seconds) into ms state. The next
         // update is computed from the *actual* previous release: the model's
@@ -2786,7 +2942,14 @@
             const place = state.place;
             fetchModelMeta(); // parallel, non-blocking; self-guards on cadence
             fetchLocalMeta(); // regional run time for this place; self-guards too
-            if (!force && state.data.length && (Date.now() - state.fetchedAt) < FRESH_TIME) {
+            // Fresh enough to skip, unless what is cached was fetched over a
+            // shorter horizon than the drawer can now reach: that payload is not
+            // stale, it is just short, and holding it for the rest of the
+            // freshness window would leave the drawer clamped at a reach the user
+            // can see is wrong. Fires once per place, on the first load after the
+            // reach changed, then never again.
+            if (!force && state.data.length && (Date.now() - state.fetchedAt) < FRESH_TIME
+                && !staleHorizon(loadForecast(place))) {
                 updateStatus();
                 return;
             }
@@ -2847,9 +3010,10 @@
                     updateDisplay(hadData ? { type: 'refresh' } : (nextRevealAnim || { type: 'reveal' }));
                     nextRevealAnim = null;
                     setLoading(false);
-                    // Re-arm the midnight tick against this payload's timezone
-                    // (processData refreshed state.utcOffset).
+                    // Re-arm the midnight and hour ticks against this
+                    // payload's timezone (processData refreshed state.utcOffset).
                     scheduleDayRollover();
+                    scheduleHourTick();
                 }
             } catch (error) {
                 // A supersede abort (a newer fetch replaced this one) stays silent;
@@ -3072,10 +3236,12 @@
         };
 
         const updateDisplay = (anim = null) => {
-            const { start, end, days } = visibleWindow();
+            const { start, end, days, off } = visibleWindow();
             const rows = end - start + 1;
-            const shownDays = state.data.slice(0, days);   // today-first, up to 7
-            const dayMeta = state.days.slice(0, days);
+            // The 7-column frame, starting at the drawer's day offset (0 at rest,
+            // so this is today-first and byte-identical to the pre-drawer render).
+            const shownDays = state.data.slice(off, off + days);
+            const dayMeta = state.days.slice(off, off + days);
 
             $('days').innerHTML = dayMeta.map(day =>
                 `<div class="day-label ${day.isToday ? 'today' : ''}">${day.text}</div>`
@@ -3281,7 +3447,10 @@
                         + arrow
                         + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
                         + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
-                    cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex, hour: h.hour, moved: !!movedInView });
+                    // dataset.day is absolute (an index into state.days), not the
+                    // column position, so a tooltip opened while the drawer is
+                    // open still reads the right day back out.
+                    cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex: off + dayIndex, hour: h.hour, moved: !!movedInView });
                 }
                 return cells;
             });
@@ -3389,6 +3558,10 @@
         const setView = (v, anim) => {
             const prev = view;
             view = v;
+            // A view change owns the whole grid, so both reveals go home with it
+            // rather than carrying a peeked or drawered window into the new view
+            // (DR-29: a view or city change is one of the drawer's ways home).
+            resetReveal();
             saveJSON(LS_VIEW, v);
             renderViewToggle();
             renderLegend();
@@ -3409,6 +3582,9 @@
 
         // Re-render everything that depends on a preference.
         const applyPrefs = () => {
+            // The 6-21 / 24h choice redefines what the hour window even is, so a
+            // peek in progress has nothing left to mean.
+            hourOff = 0;
             applyBand();
             renderLegend();
             if (state.data.length) updateDisplay(); else renderSkeleton();
@@ -3420,8 +3596,9 @@
         // midnight the grid keeps the previous day's slice (a now-past day
         // still flagged "today") until the next poll happens to land. This
         // schedules a tick at the city's next local midnight that re-slices
-        // from the cached payload — which now carries a spare 8th day, so the
-        // dropped day is replaced in the same frame — then revalidates from
+        // from the cached payload, which carries a spare trailing day past the
+        // furthest the drawer reaches, so the dropped day is replaced in the
+        // same frame even with the drawer open, then revalidates from
         // the network. Self-arming, so it also picks up a timezone that moved
         // with a city switch.
         let dayRolloverTimer = null;
@@ -3451,6 +3628,73 @@
                 if (!document.hidden && !state.loading) fetchWeather(true);
                 scheduleDayRollover(); // arm the next midnight (fresh offset)
             }, msUntilCityMidnight() + 2000);
+        };
+
+        // --- Current-hour marker keep-alive --------------------------------
+        // `currentHour` is computed fresh every time `updateDisplay` runs,
+        // but that only ever happens on a fetch, a city/view switch, or the
+        // midnight tick above — so the "now" time label, the grid's current-
+        // hour ring, and the night background can all sit stuck on a past
+        // hour indefinitely: `fetchWeather` no-ops past a status update when
+        // the cached data is still within FRESH_TIME (10 min), which paints
+        // nothing, so a tab left open (or backgrounded and returned to)
+        // inside that window shows a stale hour until the next real poll
+        // happens to land.
+        //
+        // The fix is *not* a bare `updateDisplay()` (tried first, reverted):
+        // that rebuilds the grid's `innerHTML` wholesale, replacing every
+        // block element, which silently detaches `tappedBlock` from the live
+        // DOM the moment a pinned tooltip's block is recreated (its "tap the
+        // same block again to close it" check would then compare against an
+        // element no longer on screen). None of that is actually needed
+        // here: only three things depend on the *hour itself* rather than
+        // the date or the fetched data, so `refreshNowMarkers` below updates
+        // exactly those three in place, without touching a single grid
+        // block's identity: `renderTimes()` (its own small subtree, already
+        // safe to call standalone — `renderSkeleton` already does), the
+        // `.current` class toggled onto whichever block should now carry it
+        // (found via the day-label already marked `.today`, not re-derived
+        // maths, so it can't drift from what `updateDisplay` itself would
+        // compute), and the night/day background class. Not process
+        // intensive either way: one timer firing once an hour (not a per-
+        // second/minute poll), and this version does less work than the
+        // rejected one, not more — a couple of class toggles and one small
+        // `innerHTML` rebuild, cheaper than the grid repaint the app already
+        // performs on every ordinary city/view switch without a second
+        // thought.
+        const refreshNowMarkers = () => {
+            if (!state.data.length) return;
+            renderTimes();
+            const grid = $('grid');
+            const dayCols = [...grid.children];
+            const todayIdx = [...$('days').children].findIndex(l => l.classList.contains('today'));
+            const currentHour = cityNow().hour;
+            const nowEl = todayIdx >= 0
+                ? dayCols[todayIdx]?.querySelector(`.weather-block[data-hour="${currentHour}"]`)
+                : null;
+            const prevEl = grid.querySelector('.weather-block.current');
+            if (prevEl !== nowEl) {
+                prevEl?.classList.remove('current');
+                nowEl?.classList.add('current');
+            }
+            const todayMeta = state.days.find(d => d.isToday);
+            const sunToday = (todayMeta && state.sun[todayMeta.date]) || {};
+            document.body.classList.toggle('night', nightFactor(currentHour, sunToday) >= 0.5);
+        };
+        let hourTickTimer = null;
+        const msUntilNextHour = () => {
+            const local = new Date(Date.now() + (state.utcOffset || 0) * 1000);
+            const since = (local.getUTCMinutes() * 60 + local.getUTCSeconds()) * 1000 + local.getUTCMilliseconds();
+            return 3600000 - since;
+        };
+        const scheduleHourTick = () => {
+            clearTimeout(hourTickTimer);
+            // +1s cushion, same idea as day rollover's +2s: land safely past
+            // the boundary rather than racing it.
+            hourTickTimer = setTimeout(() => {
+                refreshNowMarkers();
+                scheduleHourTick(); // re-arm for the following hour (fresh offset)
+            }, msUntilNextHour() + 1000);
         };
 
         // --- Tooltip: shared by grid blocks and legend cells --------------
@@ -3634,7 +3878,19 @@
             if (!activeBlock || $('tooltip').style.opacity !== '1') return;
             const el = $('grid').querySelector(
                 `.weather-block[data-day="${activeBlock.day}"][data-hour="${activeBlock.hour}"]`);
-            if (el) showTooltip(el); else hideTooltip();
+            if (!el) return hideTooltip();
+            // A grid repaint (city/view switch, the day/hour keep-alive ticks
+            // below) replaces the block DOM nodes wholesale, so a pinned
+            // tooltip's `tappedBlock` reference would otherwise go stale:
+            // still pointing at a detached element, so the click handler's
+            // "tap the same block again to close it" comparison would never
+            // match the live one again. Re-point it at the fresh element for
+            // the same grid position, same as `showTooltip` already keeps
+            // `activeBlock` current; a hover-only (unpinned) tooltip has
+            // `tappedBlock === null` and stays that way.
+            const wasPinned = tappedBlock != null;
+            showTooltip(el);
+            if (wasPinned) tappedBlock = el;
         };
 
         // --- City search (Open-Meteo geocoding, URL-encoded) --------------
@@ -3801,6 +4057,11 @@
         // steps through the whole list instead of toggling the top two.
         const changeCity = (place, remember = true, anim = null) => {
             state.place = place;
+            // A new city arrives on the default week and the default hours, the
+            // same way the app opens (DR-29 "Entry and exit"): a drawer left open
+            // over the old city's day 9 has no meaning against the new one's data,
+            // which may not even reach that far.
+            resetReveal();
             saveJSON(LS_PLACE, place);
             if (remember) rememberCity(place);
             state.data = []; state.days = []; state.fetchedAt = 0;
@@ -3824,6 +4085,7 @@
             nextRevealAnim = cached ? null : (anim || { type: 'reveal' });
             fetchWeather(true);
             scheduleDayRollover(); // new city may sit in a different timezone
+            scheduleHourTick();
         };
 
         // Ordering: ★ favorites first (always, filtered by the query), then
@@ -4085,6 +4347,8 @@
                 `</div></div>` +
                 `<div class="setting-row"><span>What's new</span>` +
                 `<button class="btn" id="whatsNewBtn" style="padding:5px 10px;font-size:12px;" title="See what changed in recent versions">view</button></div>` +
+                `<div class="setting-row"><span>Hourly data</span>` +
+                `<a class="btn" href="how-hourly-data-is-made.html" target="_blank" rel="noopener" style="padding:5px 10px;font-size:12px;display:inline-block;text-decoration:none;" title="How hourly data is made">view</a></div>` +
                 (matchMedia('(pointer: fine)').matches
                     ? `<div class="shortcuts-hint">
                          <div class="sc"><span>Search</span><span>${MOD}K</span></div>
@@ -4253,6 +4517,226 @@
             // here; the trailing synthetic click opens/pins the tooltip.
         });
 
+        // --- The two reveals: more hours, more days (DR-29) ---------------
+        // Both swipe axes were already taken: horizontal switches the view,
+        // vertical switches the city. So "pull for more hours" lands exactly on
+        // the city gesture and "pull for more days" lands on the view gesture,
+        // and there is no free axis to move either onto.
+        //
+        // Both are separated by ORIGIN instead: a reveal is armed only by a drag
+        // that STARTS on its own rail (#hourRail, the time-label gutter;
+        // #dayRail, the day-label row), and a drag that starts anywhere on the
+        // grid field is a view or city swipe exactly as before. That makes the
+        // two collision-free by construction, with no velocity threshold
+        // anywhere and no second gesture recognizer competing with the one in
+        // the handler above. DR-29 designed the hour peek as a velocity-gated
+        // drag on the grid body instead; the rail was chosen over it (owner
+        // call, 2026-07-28), which also removes the last tuned threshold the
+        // design had left, the class of thing DR-18/19 were reverted for.
+        //
+        // Each rail reuses the same movement math as the swipe above: a drag is
+        // nothing at all until it has travelled REVEAL_SLOP, and only then does
+        // it claim the gesture. Below the slop nothing renders and nothing is
+        // preventDefault-ed, so a stray touch on a rail still behaves like an
+        // ordinary touch on the page.
+        const REVEAL_SLOP = 10;   // px before a rail drag is a reveal at all
+        const REVEAL_IDLE_MS = 4000; // latched drawer's own way home
+
+        const armRevealIdle = fn => {
+            clearTimeout(revealTimer);
+            revealTimer = setTimeout(fn, REVEAL_IDLE_MS);
+        };
+        const repaint = anim => {
+            if (state.data.length) updateDisplay(anim); else renderSkeleton();
+        };
+
+        // --- Hours: a spring-loaded peek ----------------------------------
+        // Extra hours cost nothing and are not less certain (every hour is
+        // already in the payload, and 03:00 tomorrow is *more* certain than
+        // 14:00 on day 7, since confidence tracks lead time, not time of day).
+        // So the peek is a glance: it tracks the finger, snaps to whole hours,
+        // and has no latched state at all, which makes principle 2 unbreakable
+        // by construction rather than by remembering to reset something.
+        const setHourOff = n => {
+            const { min, max } = hourPeekRange();
+            const v = Math.max(min, Math.min(max, n));  // past the clamp the pull
+            if (v === hourOff) return;                  // simply stops: the window
+            hourOff = v;                                // may never leave the day
+            repaint();  // instant: the hours follow the finger, they don't chase it
+        };
+        // Home again. The return sweeps as the grid's own vertical wave, from the
+        // edge the hours are coming back from, so the reveal ends in the same
+        // black-to-colour language every other transition uses. paintGrid drops
+        // the animation under prefers-reduced-motion and cuts to the end state.
+        const springHours = () => {
+            if (!hourOff) return;
+            const dir = hourOff > 0 ? 1 : -1;
+            hourOff = 0;
+            repaint({ type: 'wave', axis: 'y', dir });
+        };
+
+        // --- Days: a latched drawer ---------------------------------------
+        // Extra days cost payload and are steeply less certain: they are new
+        // information you have to read, not a glance, so they latch and stay
+        // tappable. The frame stays 7 columns wide and slides; it never grows.
+        //
+        // A step repaints instantly, with no wave, exactly as the hour peek
+        // does. The two reveals move the same way for the same reason: a step is
+        // the window sliding one notch, so each block simply takes the next day's
+        // value and the movement reads as the frame rolling sideways. The
+        // black-to-colour wave is the app's language for the grid becoming a
+        // *different* grid (a new view, a new city), and firing it on every notch
+        // of a slide said "everything changed" seven columns at a time when only
+        // one column of content had entered. It also outran the gesture: a wave
+        // is ~380ms and a drag can cross three days inside that, so the sweep
+        // spent the whole drag chasing the hand instead of following it.
+        //
+        // One rule, both axes: stepping is instant, going home is a wave. Home is
+        // leaving the reveal rather than moving within it, which is the same
+        // moment the peek marks when it springs back on release.
+        const setDayOff = (n, anim = null) => {
+            const v = Math.max(0, Math.min(maxDayOff(), n));
+            if (v === dayOff) return false;
+            dayOff = v;
+            repaint(anim);
+            renderDayHome();
+            return true;
+        };
+        // Earlier days enter from the left, so the return sweeps from index 0,
+        // the same rule the view switch uses for which side a new grid fills from.
+        const dayHome = () => { clearTimeout(revealTimer); setDayOff(0, { type: 'wave', axis: 'x', dir: 1 }); };
+
+        // --- Rail drag, shared by both axes -------------------------------
+        // Pointer events rather than touch events, so one path covers finger,
+        // mouse and stylus; setPointerCapture then routes every move and the
+        // release back to the rail no matter what the repaint did to the DOM
+        // underneath, which is the same detached-target trap the rails exist to
+        // avoid, closed a second way.
+        const railDrag = (el, opts) => {
+            let drag = null;
+            el.addEventListener('pointerdown', e => {
+                if (!e.isPrimary || !opts.enabled()) return;
+                drag = { at: opts.axis === 'y' ? e.clientY : e.clientX, base: opts.base(), moved: false };
+                el.setPointerCapture?.(e.pointerId);
+            });
+            el.addEventListener('pointermove', e => {
+                if (!drag) return;
+                // One unit of travel is one row or one column, so both reveals
+                // move with the finger at the scale of the thing they move.
+                // Measured per move, since the grid is responsive. An
+                // unmeasurable grid (zero height or width) has no scale to drag
+                // against, so the move is ignored rather than divided by zero.
+                const per = opts.scale();
+                if (!(per > 0)) return;
+                const d = (opts.axis === 'y' ? e.clientY : e.clientX) - drag.at;
+                if (!drag.moved) {
+                    if (Math.abs(d) < REVEAL_SLOP) return;
+                    drag.moved = true;
+                }
+                e.preventDefault();
+                // The slop is subtracted rather than ignored, so the content does
+                // not jump by the threshold at the moment the drag is claimed.
+                opts.step(drag.base, Math.round((d - Math.sign(d) * REVEAL_SLOP) / per));
+            });
+            const end = e => {
+                if (!drag) return;
+                const moved = drag.moved;
+                drag = null;
+                if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
+                if (moved) opts.end();
+            };
+            el.addEventListener('pointerup', end);
+            el.addEventListener('pointercancel', end);
+        };
+
+        // A wheel over a rail does what a drag on it does. Same origin gate, same
+        // clamps, same ways home: only the input differs, so a mouse or trackpad
+        // reaches both reveals without a drag, and hovering the axis you want to
+        // move is the whole gesture.
+        //
+        // Direction is deliberately NOT the drag's. A drag is direct
+        // manipulation, so the content follows the hand: pull down and earlier
+        // hours arrive from above. A wheel is scrolling, so the viewport follows
+        // the wheel: scroll down and you move further down the hour axis, which
+        // is later. Matching the drag's sign here would make the wheel feel
+        // backwards, since nothing is being held.
+        const WHEEL_STEP = 50;   // accumulated px before the wheel is one step
+        const WHEEL_GAP_MS = 400; // longer than this and it is a new gesture
+        const railWheel = (el, opts) => {
+            let acc = 0, last = 0;
+            el.addEventListener('wheel', e => {
+                if (!opts.enabled()) return;
+                e.preventDefault(); // the rail scrolls the forecast, not the page
+                const now = performance.now();
+                if (now - last > WHEEL_GAP_MS) acc = 0;
+                last = now;
+                // A horizontal rail takes a horizontal wheel where the hardware
+                // has one, and falls back to the vertical axis, which is all an
+                // ordinary mouse has.
+                const raw = opts.axis === 'y' ? e.deltaY
+                    : (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
+                acc += raw * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+                if (Math.abs(acc) < WHEEL_STEP) return;
+                // At most one step per event, and the remainder is dropped rather
+                // than carried: a single mouse notch is one whole hour or one
+                // whole day, never a jump through several, and a trackpad's fine
+                // stream still accumulates to the same step.
+                const dir = Math.sign(acc);
+                acc = 0;
+                opts.step(dir);
+            }, { passive: false });
+        };
+
+        const hourPeekLive = () => { const r = hourPeekRange(); return r.min !== r.max; };
+        const drawerLive = () => maxDayOff() > 0;
+
+        railDrag($('hourRail'), {
+            axis: 'y',
+            enabled: hourPeekLive,
+            base: () => hourOff,
+            scale: () => { const w = visibleWindow(); return chart.clientHeight / (w.end - w.start + 1); },
+            // Pull down and earlier hours arrive from above: the window follows
+            // the hand rather than opposing it.
+            step: (base, rows) => setHourOff(base - rows),
+            end: springHours
+        });
+        railDrag($('dayRail'), {
+            axis: 'x',
+            enabled: drawerLive,
+            base: () => dayOff,
+            scale: () => $('grid').clientWidth / DAY_SPAN,
+            // Drag left and later days arrive from the right, matching the
+            // direction the view swipe already reads.
+            step: (base, cols) => setDayOff(base - cols),
+            end: () => armRevealIdle(dayHome)
+        });
+
+        railWheel($('hourRail'), {
+            axis: 'y',
+            enabled: hourPeekLive,
+            // A wheel has no release to spring back from, so the peek goes home
+            // on the same idle timer the keyboard route uses. It still cannot
+            // latch: there is no input that leaves it open.
+            step: dir => { setHourOff(hourOff + dir); armRevealIdle(springHours); }
+        });
+        railWheel($('dayRail'), {
+            axis: 'x',
+            enabled: drawerLive,
+            step: dir => { setDayOff(dayOff + dir); armRevealIdle(dayHome); }
+        });
+
+        $('dayHome').addEventListener('click', dayHome);
+
+        // A tap anywhere off the grid and off the day row sends the drawer home,
+        // per DR-29. The grid itself is deliberately excluded: revealed days stay
+        // tappable, and a tap that closed the thing you were reading would make
+        // the reveal useless for the question it exists to answer.
+        document.addEventListener('pointerdown', e => {
+            if (!dayOff) return;
+            if (e.target?.closest?.('.day-row, .chart')) return;
+            dayHome();
+        }, true);
+
         // Leaving the app (tab hidden, screen locked) shouldn't leave a
         // stray unpinned tooltip on screen for whenever the user returns;
         // a genuine pin (tap or click) is meant to persist through exactly
@@ -4279,9 +4763,30 @@
                 closeSearch();
                 toggleSettings(false);
                 hideTooltip();
+                if (dayOff) dayHome();
+                if (hourOff) springHours();
                 return;
             }
             if ((e.target.tagName || '') === 'INPUT') return; // don't hijack typing
+            // Shift+arrows are the keyboard route into the two reveals, so a
+            // keyboard user reaches the same data the rails reveal (the rails are
+            // drags, and a drag has no keyboard equivalent). Shift+←/→ steps the
+            // day drawer, Shift+↑/↓ peeks hours. Both are transient here too: the
+            // drawer keeps its 4s idle timer and the peek springs home on the same
+            // timer, since a key press has no release to spring back from.
+            if (e.shiftKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                const horiz = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+                if (horiz && maxDayOff() < 1) return;
+                const r = hourPeekRange();
+                if (!horiz && r.min === r.max) return;
+                e.preventDefault();
+                if (horiz) { setDayOff(dayOff + (e.key === 'ArrowRight' ? 1 : -1)); armRevealIdle(dayHome); }
+                else {
+                    setHourOff(hourOff + (e.key === 'ArrowDown' ? 1 : -1));
+                    armRevealIdle(springHours);
+                }
+                return;
+            }
             // ↑/↓ step the location through ★ favorites (same as a
             // vertical swipe); ←/→ cycle views (same as a horizontal swipe).
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -4503,8 +5008,20 @@
         // again: fetchWeather no-ops if data is < 10 min old, and fetchModelMeta
         // self-guards on the model cadence, so this is cheap and only does real
         // work when a new run is actually due.
+        //
+        // That freshness no-op is exactly why the current-hour marker needs
+        // its own direct refresh here too, not just scheduleHourTick above:
+        // a backgrounded tab can have its timers frozen entirely by the OS,
+        // so there's no guarantee that timer fired on schedule while
+        // hidden, and even when it did, "hidden" means nothing painted
+        // anyway. `refreshNowMarkers` re-derives from already-cached
+        // `state.data` against the current wall clock, no fetch involved,
+        // so returning to the page always shows the right hour immediately
+        // rather than waiting on the next real poll to happen to land.
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && !state.loading) fetchWeather();
+            if (document.hidden) return;
+            refreshNowMarkers();
+            if (!state.loading) fetchWeather();
         });
 
         // DR-7: connection state flows through the one status line. Going
@@ -4638,11 +5155,13 @@
             paintCachedForecast({ type: 'reveal' });
             fetchWeather(); // refresh in background (skips network if data < 10 min old)
         }
-        // Arm the local-midnight re-slice. The cached paint above already set
-        // state.utcOffset for a returning user; first-visit arms again inside
-        // changeCity once the guessed city resolves, and every fetch re-arms
-        // with the payload's timezone.
+        // Arm the local-midnight re-slice and the current-hour keep-alive.
+        // The cached paint above already set state.utcOffset for a
+        // returning user; first-visit arms again inside changeCity once the
+        // guessed city resolves, and every fetch re-arms with the payload's
+        // timezone.
         scheduleDayRollover();
+        scheduleHourTick();
         // DR-6: cache lifecycle sweep, once per startup, off the critical
         // path so it never delays the first paint.
         setTimeout(sweepForecasts, 4000);

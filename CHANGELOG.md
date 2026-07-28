@@ -3,6 +3,31 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
+## v41 (2026-07-28)
+
+### see more hours
+
+- pull down or up on the times running along the left edge of the grid to see hours outside the usual 6am–9pm
+- or just scroll with the pointer over those times, which does the same thing
+- let go and it slides straight back to the normal day. it's a look, not a setting, so the grid you come back to is always the one you left
+- on a keyboard, shift with the up and down arrows does the same thing
+
+### see more days
+
+- drag sideways on the row of day letters above the grid to look further ahead, out to fourteen days
+- or scroll with the pointer over those letters, same thing
+- the app now keeps two weeks of forecast on hand instead of one, so the far days are already there when you scroll to them. the first time you open it after this update it fetches once more than usual to fill that in
+- worth knowing: a fourteen-day forecast is a much weaker claim than a two-day one
+- a ⌂ appears on the left to jump back to today, and it comes back on its own after a few seconds, or if you tap away, press escape, or switch view or city
+- on a keyboard, shift with the left and right arrows steps through the days
+
+### more favourite cities
+- you can now star up to 9 cities instead of 6
+
+### current-hour marker stays live
+- the "now" time label, the current-hour highlight on the grid, and the day/night background now stay accurate even if you leave the app open, or step away and come back, without needing a fresh forecast
+
+
 ## v40 (2026-07-27)
 
 ### tooltip touch: single tap
