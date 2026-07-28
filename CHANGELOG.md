@@ -3,10 +3,16 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
+## v44 (2026-07-29)
+
+### documentation
+- added a section in setting for documentation about how the hourly weather data is made
+- added more styling to What's New view
+
+
 ## v43 (2026-07-28)
 
 ### swiping between views
-
 - swiping sideways between rain, temperature and wind now happens under the finger instead of after it. the grid changes colour column by column as it is dragged, to indicate the motion
 - swipe without releasing to quickly peek at another screen, works both ways in one swipe
 - a quick flick still works exactly as before. it was never a separate gesture, just a fast drag
@@ -16,7 +22,6 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 ## v42 (2026-07-28)
 
 ### swiping between cities
-
 - swiping up and down the grid now picks a city from the starred list instead of stepping one at a time. keep pulling and it keeps going down the list, so any favourite is one unbroken swipe away
 - a small rail appears at the right edge while you drag, showing where you are in the list and how much is left
 - the list loops, so nothing is ever more than half a lap away in either direction
@@ -26,20 +31,17 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - changing direction mid-swipe turns around instead of jumping
 
 ### bug fixes
-
 - dragging on the times down the left edge no longer changes city as well as showing more hours
 
 
 
 ### see more hours
-
 - pull down or up on the times running along the left edge of the grid to see hours outside the usual 6am–9pm
 - or just scroll with the pointer over those times, which does the same thing
 - let go and it slides straight back to the normal day. it's a look, not a setting, so the grid you come back to is always the one you left
 - on a keyboard, shift with the up and down arrows does the same thing
 
 ### see more days
-
 - drag sideways on the row of day letters above the grid to look further ahead, out to fourteen days
 - or scroll with the pointer over those letters, same thing
 - the app now keeps two weeks of forecast on hand instead of one, so the far days are already there when you scroll to them. the first time you open it after this update it fetches once more than usual to fill that in
