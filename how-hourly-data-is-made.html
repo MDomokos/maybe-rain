@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>How hourly weather data is made</title>
-<meta name="description" content="Most 'hourly' weather forecasts are not hourly. Using live data from a public API, this page measures where a model's own output stops being hourly, how the gaps are filled, and what that implies for displaying a forecast.">
+<meta name="description" content="Most hourly forecasts aren't truly hourly. Models compute at intervals, then gaps are filled. This analysis shows where the real data stops, how it's extended, and what that means for displaying a forecast.">
 <link rel="icon" href="favicon.svg">
 <style>
 /* ---------------------------------------------------------------------------
@@ -39,10 +39,23 @@ nav a{flex:none;font:600 12px/1 var(--mono);letter-spacing:.07em;text-transform:
     color:var(--dim2);text-decoration:none;padding:14px 9px;white-space:nowrap;border-bottom:2px solid transparent}
 nav a.here{color:var(--gold);border-bottom-color:var(--gold)}
 
+/* Three separation levels, each with its own signal, so a reader can tell a
+   topic change from an optional aside without reading the words:
+     SECTION      2px bright rule + big gap + numbered eyebrow
+     DISCLOSURE   1px hairline + gold mono summary row
+     SUBHEADING   short gold tick + mono caps
+   Previously sections and disclosures both used the same 1px hairline, and h3
+   differed from body text by weight alone. */
 h1{font:600 27px/1.2 var(--mono);letter-spacing:-.02em;margin:30px 0 10px}
-h2{font:650 20px/1.28 var(--sans);letter-spacing:-.01em;margin:0 0 10px}
-h3{font:650 16px/1.4 var(--sans);color:var(--fg);margin:20px 0 6px}
-section{border-top:1px solid var(--line);padding-top:22px;margin-top:30px;scroll-margin-top:54px}
+section{border-top:2px solid rgba(255,255,255,.3);padding-top:26px;margin-top:46px;scroll-margin-top:56px}
+.eyebrow{font:600 12px/1.4 var(--mono);letter-spacing:.13em;text-transform:uppercase;
+         color:var(--dim2);margin:0 0 7px}
+.eyebrow b{color:var(--gold);font-weight:600;margin-right:8px}
+h2{font:650 20px/1.28 var(--sans);letter-spacing:-.01em;margin:0 0 12px}
+h3{font:600 14px/1.4 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--fg);
+   margin:30px 0 9px}
+h3::before{content:"";display:block;width:22px;height:2px;background:var(--gold);margin-bottom:10px}
+.mbody h3:first-child{margin-top:6px}
 p{margin:0 0 14px}
 .lede{color:var(--dim);margin-bottom:16px}
 .sm{font-size:14px;color:var(--dim);line-height:1.58;margin:10px 0}
@@ -70,7 +83,24 @@ button.on{border-color:var(--gold);color:var(--gold);background:#1f1c10}
 .seg button:first-child{border-radius:8px 0 0 8px;margin-left:0}
 .seg button:last-child{border-radius:0 8px 8px 0}
 input[type=range]{accent-color:var(--gold);width:100%;height:44px}
-#place{width:100%;font-size:16px}
+
+/* The place picker is a curiosity, not the point of the page, so it reads as one
+   quiet line rather than a panel competing with the opening. */
+.placebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0}
+.placebar .label{margin:0}
+.placebar #place{width:auto;max-width:100%;font-size:14px;height:40px;line-height:40px;padding:0 8px}
+.placebar #placeNote{font:400 12px/1.4 var(--mono);color:var(--dim2)}
+
+/* One live hour of the response, so the field names in the prose have values
+   attached before any of the charts are read. */
+.fields{display:flex;flex-direction:column;gap:2px}
+.frow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+      padding:9px 0;border-top:1px solid var(--line)}
+.frow:first-child{border-top:0}
+.frow .fname{font:400 12px/1.5 var(--mono);color:var(--gold);display:block}
+.frow .fdesc{font-size:14px;color:var(--dim)}
+.frow .fval{font:600 20px/1 var(--mono);color:var(--fg);white-space:nowrap}
+.frow .fval span{font-size:12px;font-weight:400;color:var(--dim2);margin-left:2px}
 
 /* Figures, legends, readouts. */
 svg{display:block;width:100%;height:auto}
@@ -141,7 +171,50 @@ th{font:600 12px/1.4 var(--mono);letter-spacing:.07em;text-transform:uppercase;c
 <p class="lede">Most hourly forecasts are not hourly. Past the first few days the gaps are filled in, and for
 rain that matters more than it sounds.</p>
 
+<details class="more" style="border-top:0;margin-top:10px">
+  <summary>Background: weather models</summary>
+  <div class="mbody">
+    <p class="sm">Weather models predict by simulating physics. A few times a day, supercomputers ingest
+    observations from satellites, balloons, ground stations, aircraft and ships, then calculate how air, heat
+    and moisture move forward in time, step by step.</p>
+    <div class="modeldiagram">
+      <svg viewBox="0 0 200 150" aria-hidden="true">
+        <rect x="4" y="4" width="192" height="142" rx="4" fill="none" stroke="var(--line)"/>
+        <g stroke="var(--line)" stroke-width="1">
+          <line x1="44" y1="4" x2="44" y2="146"/><line x1="84" y1="4" x2="84" y2="146"/>
+          <line x1="124" y1="4" x2="124" y2="146"/><line x1="164" y1="4" x2="164" y2="146"/>
+          <line x1="4" y1="39" x2="196" y2="39"/><line x1="4" y1="74" x2="196" y2="74"/>
+          <line x1="4" y1="109" x2="196" y2="109"/>
+        </g>
+        <path d="M18,95 C10,75 25,55 50,50 C60,30 90,25 105,42 C125,30 155,38 158,58
+                 C178,62 182,85 168,98 C170,118 140,128 118,118 C95,132 55,130 42,112
+                 C22,118 10,105 18,95 Z" fill="var(--dim2)" opacity=".45"/>
+      </svg>
+      <div class="mdplus">+</div>
+      <svg viewBox="0 0 120 150" aria-hidden="true">
+        <rect x="25" y="4" width="70" height="142" rx="4" fill="none" stroke="var(--line)"/>
+        <g stroke="var(--line)" stroke-width="1">
+          <line x1="25" y1="28" x2="95" y2="28"/><line x1="25" y1="52" x2="95" y2="52"/>
+          <line x1="25" y1="76" x2="95" y2="76"/><line x1="25" y1="100" x2="95" y2="100"/>
+          <line x1="25" y1="124" x2="95" y2="124"/>
+        </g>
+        <rect x="25" y="124" width="70" height="22" fill="var(--native)" opacity=".3"/>
+        <rect x="25" y="4" width="70" height="24" fill="var(--gold)" opacity=".15"/>
+      </svg>
+    </div>
+    <p class="sm">The atmosphere is split into a grid of cells stacked in layers from the ground (green) to
+    the upper atmosphere (gold). Smaller cells and more layers give better detail but cost exponentially more
+    computation, so models trade resolution for range at longer lead times.</p>
+    <dl class="glossary">
+      <div><dt>Run</dt><dd>One full simulation from one starting snapshot. A fresh run starts every few hours.</dd></div>
+      <div><dt>Lead time</dt><dd>How far ahead of the run's start a value sits. "Lead hour 90" means 90 hours after
+      that run began.</dd></div>
+    </dl>
+  </div>
+</details>
+
 <nav><div class="navscroll">
+  <a href="#s0">The data</a>
   <a href="#s1">Day four</a>
   <a href="#s2">Filled in</a>
   <a href="#s3">Rain chance</a>
@@ -149,18 +222,58 @@ rain that matters more than it sounds.</p>
   <a href="#s5">Check it</a>
 </div></nav>
 
-<div style="margin:16px 0 0">
-  <span class="label" id="placeLabel">Every chart on this page uses</span>
+<p class="placebar">
+  <span class="label" id="placeLabel">Place</span>
   <select id="place" aria-labelledby="placeLabel"></select>
-  <p class="sm" id="placeNote" style="margin:8px 0 0">Nine places across the major climate types. The pattern holds
-  in all of them; where the boundary falls does not.</p>
+  <span id="placeNote"></span>
+</p>
+
+<!-- ============ 0 ============ -->
+<section id="s0" style="border-top:0;padding-top:0;margin-top:18px">
+<p class="eyebrow"><b>01</b>Background</p>
+<h2>What one request returns</h2>
+<p class="sm">A single request to <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>,
+the free weather API used here, returns hourly values for the next 16 days.
+Three of those fields carry most of a rain forecast:</p>
+
+<details class="more">
+  <summary>What Open-Meteo is, and what a request means</summary>
+  <div class="mbody">
+    <h3>A request is a URL</h3>
+    <p class="sm">Paste it into a browser and a server sends back numbers as plain text rather than a web page.
+    No account or key needed. The exact URL is at the bottom under <a href="#s5">Verify it</a>.</p>
+
+    <h3>Open-Meteo is not a forecaster</h3>
+    <p class="sm">It is an open-data service that collects forecasts national weather agencies already publish
+    &mdash; ECMWF in Europe, NOAA in the United States, DWD in Germany, and others &mdash; converts them into one
+    consistent format, and serves them free of charge.</p>
+    <p class="sm">This distinction matters. The cadence limits below are from the national models. The gap-filling
+    that extends them to hourly is Open-Meteo's, and it's documented.</p>
+
+    <h3>Which model answers a request</h3>
+    <p class="sm">The request carries <code>models=best_match</code>, meaning Open-Meteo picks whichever model it
+    judges best for that location. European and US requests are answered by different agencies, which is why the
+    boundary measured in the next section varies by location.</p>
+  </div>
+</details>
+
+<div class="panel">
+  <span class="label" id="fieldsLabel">The next full hour, live</span>
+  <div id="fields" aria-labelledby="fieldsLabel"></div>
 </div>
+
+<p class="sm">Eleven more arrive in the same response: apparent temperature, humidity, cloud cover, wind speed,
+direction and gusts, UV index, snowfall and a weather code.</p>
+<p class="sm"><b>All of them arrive as one value per hour, out to day 16.</b> But a model doesn't compute each
+one separately. What's here is the API padded to hourly, and only some of those hours are real.</p>
+</section>
 
 <!-- ============ 1 ============ -->
 <section id="s1">
+<p class="eyebrow"><b>02</b>Measured</p>
 <h2>Hourly data runs out around day four</h2>
-<p class="sm">Weather models cost computer time, so they compute less often the further ahead they look. Hourly
-at first, then every 3 hours, then every 6.</p>
+<p class="sm">Computation is expensive, so models step down their cadence as they reach further. Start at hourly,
+drop to every 3 hours, then every 6.</p>
 
 <figure class="panel">
   <div id="f1"></div>
@@ -208,55 +321,15 @@ at first, then every 3 hours, then every 6.</p>
   </div>
 </details>
 
-<details class="more">
-  <summary>Background: what a weather model is</summary>
-  <div class="mbody">
-    <p class="sm">A weather model is a physics simulation rather than a measurement of the future. A few times a
-    day, supercomputers take in observations from satellites, balloons, ground stations, aircraft and ships, then
-    work out what moving air, heat and moisture do next, one time-step after another.</p>
-    <div class="modeldiagram">
-      <svg viewBox="0 0 200 150" aria-hidden="true">
-        <rect x="4" y="4" width="192" height="142" rx="4" fill="none" stroke="var(--line)"/>
-        <g stroke="var(--line)" stroke-width="1">
-          <line x1="44" y1="4" x2="44" y2="146"/><line x1="84" y1="4" x2="84" y2="146"/>
-          <line x1="124" y1="4" x2="124" y2="146"/><line x1="164" y1="4" x2="164" y2="146"/>
-          <line x1="4" y1="39" x2="196" y2="39"/><line x1="4" y1="74" x2="196" y2="74"/>
-          <line x1="4" y1="109" x2="196" y2="109"/>
-        </g>
-        <path d="M18,95 C10,75 25,55 50,50 C60,30 90,25 105,42 C125,30 155,38 158,58
-                 C178,62 182,85 168,98 C170,118 140,128 118,118 C95,132 55,130 42,112
-                 C22,118 10,105 18,95 Z" fill="var(--dim2)" opacity=".45"/>
-      </svg>
-      <div class="mdplus">+</div>
-      <svg viewBox="0 0 120 150" aria-hidden="true">
-        <rect x="25" y="4" width="70" height="142" rx="4" fill="none" stroke="var(--line)"/>
-        <g stroke="var(--line)" stroke-width="1">
-          <line x1="25" y1="28" x2="95" y2="28"/><line x1="25" y1="52" x2="95" y2="52"/>
-          <line x1="25" y1="76" x2="95" y2="76"/><line x1="25" y1="100" x2="95" y2="100"/>
-          <line x1="25" y1="124" x2="95" y2="124"/>
-        </g>
-        <rect x="25" y="124" width="70" height="22" fill="var(--native)" opacity=".3"/>
-        <rect x="25" y="4" width="70" height="24" fill="var(--gold)" opacity=".15"/>
-      </svg>
-    </div>
-    <p class="sm">The atmosphere is divided into a grid of boxes, each stacked in layers from the ground (green)
-    to the high atmosphere (gold). Finer boxes and more layers capture more detail at a much higher cost, which
-    is why models compute less often at longer lead times.</p>
-    <dl class="glossary">
-      <div><dt>Run</dt><dd>One full simulation from one starting snapshot. A fresh run starts every few hours.</dd></div>
-      <div><dt>Lead time</dt><dd>How far ahead of the run's start a value sits. "Lead hour 90" means 90 hours after
-      that run began.</dd></div>
-    </dl>
-  </div>
-</details>
 </section>
 
 <!-- ============ 2 ============ -->
 <section id="s2">
+<p class="eyebrow"><b>03</b>Measured</p>
 <h2>After that, the hours are filled in</h2>
-<p class="sm">A curve is drawn through the computed points and the missing hours are read off it. Hiding every
-hour except every 3rd and redrawing the curve shows which is which: if the hidden hours reappear, they were
-derived from their neighbours rather than computed.</p>
+<p class="sm">A spline is fit through the computed points, then the missing hours are interpolated from it. Hiding
+all but every 3rd hour and refitting the curve shows the difference: if the hidden hours match when revealed, they
+were computed; if they don't, they were filled in from their neighbors.</p>
 
 <!-- The strip is the control and the chart is its output, so they share one
      panel with nothing between them. The chart is absent until a block is
@@ -345,9 +418,10 @@ d = p1</div>
 
 <!-- ============ 3 ============ -->
 <section id="s3">
+<p class="eyebrow"><b>04</b>Measured</p>
 <h2>Chance of rain was never hourly</h2>
-<p class="sm">Rainfall amount and rainfall probability describe the same rain from the same run, so their
-resolutions cannot legitimately differ. They do.</p>
+<p class="sm">Rainfall amount and probability come from the same forecast, so they should have the same resolution.
+They don't.</p>
 
 <div class="panel">
   <span class="label">Measured live, right now</span>
@@ -359,11 +433,10 @@ resolutions cannot legitimately differ. They do.</p>
 hour-to-hour structure, because the model produced one number for the whole block.</p>
 
 <details class="more">
-  <summary>Why a window probability cannot be split into hours</summary>
+  <summary>Why window probabilities can't split to hourly</summary>
   <div class="mbody">
-    <p class="sm">Temperature exists at 15:00 whether or not a model computed it, so estimating it costs accuracy
-    only. A window probability has no equivalent underlying value: a chance stated over three hours is a strictly
-    larger quantity than a chance stated over one.</p>
+    <p class="sm">Temperature is defined at any point in time, so interpolating it only costs precision. A window
+    probability is not: 60% over 3 hours is fundamentally different from 60% in one hour.</p>
     <figure class="panel">
       <div class="ctl">
         <label style="width:100%;font-size:14px;color:var(--dim)">If the window says
@@ -375,30 +448,26 @@ hour-to-hour structure, because the model produced one number for the whole bloc
       <div id="f5diag"></div>
       <div class="readout" id="e6out" aria-live="polite"></div>
     </figure>
-    <p class="sm">Rain is autocorrelated rather than independent, so the true figure sits above the lower bound.
-    It stays below the window figure. Assigning the window's number to every hour inside it takes the top of that
-    range each time.</p>
+    <p class="sm">Rain is correlated hour to hour, so the true hourly chance sits between the independent lower
+    bound and the window value. Assigning the window to each hour claims the upper bound every time.</p>
   </div>
 </details>
 
 <details class="more">
   <summary>Where the hourly probability comes from</summary>
   <div class="mbody">
-    <p class="sm">Of the 63 models in Open-Meteo's run archive, one stores a chance of rain at all: the US
-    National Blend of Models, and only over the continental United States. No global model stores it.</p>
-    <p class="sm">Elsewhere it is computed from an ensemble, and every global ensemble is natively 3-hourly or
-    coarser. ECMWF's ensemble, which covers most of the world, is 3-hourly from lead hour zero. <b>For most
-    locations, hourly chance of rain is therefore derived at every lead time, including day one.</b></p>
-    <p class="sm"><span class="tag">measured, mechanism inferred</span> The rebuild test does not confirm
-    <i>how</i> the smoothing happens for probability the way it does for temperature, because a percentage
-    arrives as a whole number and is far too coarse a signal. The likely explanation is that the pipeline smooths
-    the ensemble members first and computes the probability afterwards. The presence of the smoothing is
-    measured; its mechanism is not.</p>
+    <p class="sm">Of 63 models in Open-Meteo, only one stores a chance of rain: NOAA's National Blend, and only
+    for the continental US. No global model does.</p>
+    <p class="sm">Everywhere else it's derived from an ensemble, and every global ensemble is 3-hourly or coarser.
+    ECMWF's ensemble—which covers most places—is 3-hourly from the start. <b>So for most locations, hourly
+    chance of rain is filled in, even on day one.</b></p>
+    <p class="sm"><span class="tag">measured, mechanism inferred</span> The rebuild test can't identify the
+    smoothing method for probability like it does for temperature, because percentages are integers and too blunt a signal.
+    The smoothing is visible; the method is not.</p>
 
-    <h3>The rebuild test, run on probability anyway</h3>
-    <p class="sm">Included for completeness, with that caveat: a rebuild landing here is consistent with the
-    smoothing rather than proof of it, and a dry forecast reports "can't tell" because a flat run rebuilds from
-    any step.</p>
+    <h3>The rebuild test on probability</h3>
+    <p class="sm">Shown for completeness, but with limits: a successful rebuild indicates smoothing, not proof of it.
+    Dry forecasts report "can't tell" because flat values fit any cadence.</p>
     <div class="panel">
       <div id="e5strip"></div>
       <div id="e5chart" style="margin-top:14px"></div>
@@ -410,9 +479,9 @@ hour-to-hour structure, because the model produced one number for the whole bloc
 <details class="more">
   <summary>The exception: the United States</summary>
   <div class="mbody">
-    <p class="sm">Over the continental US the National Blend of Models value is not smoothed. It is held flat, so
-    the window edges appear directly in the numbers. This is what the data looks like before interpolation, and
-    the same coarseness exists everywhere else, concealed by smoothing.</p>
+    <p class="sm">Over the continental US, the National Blend is stored unsmoothed, held flat across windows. The
+    boundaries jump in the data directly. This is what all raw ensemble data looks like—elsewhere it's masked by
+    smoothing.</p>
     <div class="panel">
       <div id="e7chart"></div>
       <div class="legend">
@@ -425,69 +494,15 @@ hour-to-hour structure, because the model produced one number for the whole bloc
 </details>
 </section>
 
+
 <!-- ============ 4 ============ -->
 <section id="s4">
-<h2>What this means for a forecast display</h2>
-<p class="sm">Everything above is measurement. This is an argument built on it.</p>
-
-<figure class="panel">
-  <div id="f7"></div>
-</figure>
-
-<p class="sm"><b>Neither way of drawing six hours from one number is accurate.</b> Separate cells assert timing
-the forecast does not contain; a merged block asserts uniformity it does not contain either. Where the purpose
-is to answer <i>when</i> rain arrives, false timing is the more damaging, so the rule is to avoid drawing a
-division the model did not make.</p>
-
-<details class="more">
-  <summary>The three consequences that follow</summary>
-  <div class="mbody">
-    <h3>Rain and temperature warrant different treatment</h3>
-    <p class="sm">Rain probability should be merged back to the model's real cadence, because per-hour rain
-    probabilities are not merely imprecise, they are on the wrong scale. Temperature can keep its interpolated
-    hours with only the dividing lines removed: the error there is hundredths of a degree, roughly a hundred
-    times smaller than the forecast's own error at that range, so coarsening it would suppress a real trend to
-    conceal nothing.</p>
-    <h3>The boundary depends on location, not on the calendar</h3>
-    <p class="sm">Hourly data ends at lead hour 90 or 120 depending on the covering model, so a fixed day-7
-    cutoff would be wrong in most places. The rebuild runs on data a client already holds, which requires no
-    extra request and no lookup table to maintain.</p>
-    <h3>Unknown has to resolve toward coarsening</h3>
-    <p class="sm">A band of roughly six hours around each cadence step fits neither a 3-hourly nor a 6-hourly
-    rebuild. Read as "hourly" it would draw 24 separate cells over a day that is certainly not hourly, which is
-    the one failure direction a display cannot absorb.</p>
-  </div>
-</details>
-</section>
-
-<!-- ============ 5 ============ -->
-<section id="s5">
-<h2>Check it yourself</h2>
-<p class="sm">Forecasts are fetched from Open-Meteo's public API on every load of this page. The exact request:</p>
+<p class="eyebrow"><b>06</b>Sources</p>
+<h2>Verify it</h2>
+<p class="sm">Every page load fetches from Open-Meteo's public API. You can see the raw data yourself by pasting this link into your browser:</p>
 <div class="formula" id="srcurl"></div>
-<p class="sm">None of this indicates a fault in Open-Meteo, which documents its interpolation openly. The question
-here is what a display built on that data should show.</p>
 
-<details class="more">
-  <summary>Method, limits, and a comparison against an older run</summary>
-  <div class="mbody">
-    <p class="sm"><b>Measured on every page load:</b> which hours reconstruct and which do not, the cadence per
-    location, rebuild errors, and run lengths for rainfall and probability. <b>Measured elsewhere:</b> the model
-    cadences, read from published run metadata. <b>Inferred:</b> that the curve is specifically Catmull-Rom,
-    which is a close fit rather than a look at the source.</p>
-    <p class="sm"><b>Limits.</b> The transition band around each cadence step fits neither rebuild; the cause is
-    measured but not explained, and those blocks report "can't tell" rather than a guess. All measurements use
-    UTC; whether the boundary sits in the same place for a series starting at local midnight is untested.</p>
-    <div class="panel">
-      <span class="label">Compare against</span>
-      <div class="ctl" style="margin-bottom:0">
-        <span class="seg"><button id="srcLive" class="on">today's run</button><button id="srcHist">~3 months ago</button></span>
-      </div>
-      <p class="sm" id="srcNote" style="margin-bottom:0">The same computed/filled-in pattern in an older run
-      indicates a property of the model schedule rather than of today's weather.</p>
-    </div>
-  </div>
-</details>
+
 
 <p class="status" id="stamp"></p>
 <a class="totop" href="#top">&uarr; back to top</a>
@@ -689,7 +704,8 @@ function drawF1(){
   s+='<text class="tb" x="'+x3+'" y="'+ty+'" text-anchor="end">day 15</text>';
   s+='<text class="t" x="'+x0+'" y="'+(ty+16)+'">every hour</text>';
   s+='<text class="t" x="'+x3+'" y="'+(ty+16)+'" text-anchor="end">every 6 hours</text>';
-  el.innerHTML='<svg viewBox="0 0 '+W+' '+(ty+22)+'" role="img" aria-label="A forecast timeline: computed hourly for about four days, then every three hours to day six, then every six hours to day fifteen.">'+s+'</svg>';
+  s='<text class="t" x="0" y="0" style="fill:var(--fg)">Any hourly field, across one 15-day forecast</text>'+s;
+  el.innerHTML='<svg viewBox="0 -12 '+W+' '+(ty+34)+'" role="img" aria-label="A forecast timeline: computed hourly for about four days, then every three hours to day six, then every six hours to day fifteen.">'+s+'</svg>';
 }
 
 var MODELS = [
@@ -806,6 +822,30 @@ function drawF7(){
   el.innerHTML='<svg viewBox="0 0 '+W+' '+(top+ph+22)+'" role="img" aria-label="Two panels side by side. Six separate cells assert timing that was never predicted. One merged block asserts a uniformity that was never predicted either.">'+s+'</svg>';
 }
 
+/* One real hour of the response, so the three field names carry values before
+   any chart is read. Uses the first hour that actually has data, which on the
+   offline snapshot is not hour 0. */
+var FIELDS = [
+  {f:"temperature_2m",            d:"Air temperature",             u:"°C", dp:1},
+  {f:"precipitation",             d:"Rainfall in that hour",       u:"mm", dp:1},
+  {f:"precipitation_probability", d:"Chance of rain in that hour", u:"%",  dp:0}
+];
+function drawFields(){
+  var el=document.getElementById("fields"); if(!el) return;
+  var d=cur()[city().k]||{}, i=0, s="";
+  while(i<239 && (d.temperature_2m||[])[i]==null) i++;
+  if((d.temperature_2m||[])[i]==null){
+    el.innerHTML='<p class="sm" style="margin:0">Waiting for live data.</p>'; return;
+  }
+  FIELDS.forEach(function(x){
+    var v=(d[x.f]||[])[i];
+    s+='<div class="frow"><span><span class="fname">'+x.f+'</span>'+
+       '<span class="fdesc">'+x.d+'</span></span>'+
+       '<span class="fval">'+(v==null?"&mdash;":(+v).toFixed(x.dp))+'<span>'+x.u+'</span></span></div>';
+  });
+  el.innerHTML=s;
+}
+
 /* ---------------- live charts ---------------- */
 function strip(bs, elId, onPick, selH0){
   var el=document.getElementById(elId); if(!el) return;
@@ -826,7 +866,9 @@ function strip(bs, elId, onPick, selH0){
 }
 
 function chart(el, pts, opts){
-  var W=wOf(el,320), H=opts.h||172, PL=44, PR=8, PT=12, PB=26;
+  var W=wOf(el,320), PL=44, PR=8, PB=26;
+  var PT = opts.title ? 28 : 12;
+  var H = (opts.h||172) + (opts.title ? 16 : 0);
   var vals=[], i;
   for(i=0;i<pts.length;i++) if(pts[i]){ vals.push(pts[i].real); if(opts.showEst) vals.push(pts[i].est); }
   if(!vals.length) return '<p class="sm">No data for this window.</p>';
@@ -837,6 +879,7 @@ function chart(el, pts, opts){
   var X=function(h){ return PL + ((h-first)/((last-first)||1))*(W-PL-PR); };
   var Y=function(v){ return PT + (1-(v-mn)/(mx-mn))*(H-PT-PB); };
   var real="", est="", knots="", bars="", started=false, startedE=false;
+  var knotLines="", interpLines="";
   for(i=0;i<pts.length;i++){
     var p=pts[i]; if(!p) continue;
     real += (started?"L":"M") + X(p.h).toFixed(1) + " " + Y(p.real).toFixed(1) + " "; started=true;
@@ -846,7 +889,12 @@ function chart(el, pts, opts){
         bars += '<line x1="'+X(p.h).toFixed(1)+'" y1="'+Y(p.real).toFixed(1)+'" x2="'+X(p.h).toFixed(1)+
                 '" y2="'+Y(p.est).toFixed(1)+'" stroke="var(--gold)" stroke-width="2"/>';
     }
-    if(p.knot) knots += '<circle cx="'+X(p.h).toFixed(1)+'" cy="'+Y(p.real).toFixed(1)+'" r="3.2" fill="var(--native)"/>';
+    if(p.knot){
+      knots += '<circle cx="'+X(p.h).toFixed(1)+'" cy="'+Y(p.real).toFixed(1)+'" r="3.2" fill="var(--native)"/>';
+      knotLines += '<line x1="'+X(p.h).toFixed(1)+'" y1="'+PT+'" x2="'+X(p.h).toFixed(1)+'" y2="'+(H-PB)+'" stroke="var(--native)" stroke-width="1.6" opacity="0.65"/>';
+    } else {
+      interpLines += '<line x1="'+X(p.h).toFixed(1)+'" y1="'+PT+'" x2="'+X(p.h).toFixed(1)+'" y2="'+(H-PB)+'" stroke="var(--interp)" stroke-width="1" opacity="0.28" stroke-dasharray="2 3"/>';
+    }
   }
   var raw=(mx-mn)/3, mag=Math.pow(10,Math.floor(Math.log(raw)/Math.LN10));
   var stepN=[1,2,2.5,5,10].filter(function(q){return q*mag>=raw;})[0]*mag;
@@ -856,32 +904,44 @@ function chart(el, pts, opts){
     ax += '<text class="t" x="'+(PL-6)+'" y="'+(Y(tv)+4).toFixed(1)+'" text-anchor="end">'+
           (+tv.toFixed(6)).toFixed(opts.dp==null?1:opts.dp)+(opts.unit||"")+'</text>';
   }
-  var xs="", step=Math.max(1,Math.round((last-first)/(W<420?4:6)));
-  for(i=first;i<=last;i+=step) xs += '<text class="t" x="'+X(i).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle">h'+i+'</text>';
+  var xs="", knotHours=[], step=Math.max(1,Math.round((last-first)/(W<420?4:6)));
+  for(i=0;i<pts.length;i++) if(pts[i] && pts[i].knot) knotHours.push(pts[i].h);
+  for(i=0;i<knotHours.length;i++) xs += '<text class="t" x="'+X(knotHours[i]).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle">h'+knotHours[i]+'</text>';
+  for(i=first;i<=last;i+=step) if(knotHours.indexOf(i)<0) xs += '<text class="t" x="'+X(i).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle">h'+i+'</text>';
+  var ttl = opts.title ? '<text class="t" x="0" y="12" style="fill:var(--fg)">'+opts.title+
+      (opts.field && !narrow() ? '<tspan style="fill:var(--dim2)">   '+opts.field+'</tspan>' : '')+'</text>' : '';
   return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+(opts.alt||'Chart comparing returned values with a rebuild from the computed hours only.')+'">'+
-    ax+xs+bars+'<path d="'+real+'" fill="none" stroke="#8d949e" stroke-width="2.4" opacity="0.9"/>'+
+    ttl+ax+xs+interpLines+knotLines+bars+'<path d="'+real+'" fill="none" stroke="#8d949e" stroke-width="2.4" opacity="0.9"/>'+
     (opts.showEst?'<path d="'+est+'" fill="none" stroke="var(--interp)" stroke-width="1.6" stroke-dasharray="4 3"/>':'')+
     knots+'</svg>';
 }
 
 function bars(el, vals, v, h0, opts){
-  var W=wOf(el,320), H=opts.h||150, PL=36, PR=6, PB=24, i;
+  var W=wOf(el,320), H=(opts.h||150)+16, PL=36, PR=6, PB=24, i, TOP=22;
   var mx=0; for(i=0;i<vals.length;i++) if(vals[i].val>mx) mx=vals[i].val;
   if(mx<=0) mx=1;
-  var bw=(W-PL-PR)/vals.length, s="", xs="", seps="";
+  var bw=(W-PL-PR)/vals.length, s="", xs="", seps="", gl="";
   for(i=0;i<vals.length;i++){
-    var hh=(vals[i].val/mx)*(H-PB-16);
+    var hh=(vals[i].val/mx)*(H-PB-TOP);
     var isStart = i===0 ? (v[h0-1]==null || v[h0-1]!==vals[i].val) : (vals[i].val!==vals[i-1].val);
     s+='<rect x="'+(PL+i*bw).toFixed(1)+'" y="'+(H-PB-hh).toFixed(1)+'" width="'+Math.max(0.6,bw-1).toFixed(1)+
        '" height="'+Math.max(hh,opts.minH||0).toFixed(1)+'" fill="'+(isStart?"var(--native)":"url(#hatch)")+'"/>';
     if(opts.seps && i && vals[i].val!==vals[i-1].val)
-      seps+='<line x1="'+(PL+i*bw).toFixed(1)+'" y1="6" x2="'+(PL+i*bw).toFixed(1)+'" y2="'+(H-PB)+
+      seps+='<line x1="'+(PL+i*bw).toFixed(1)+'" y1="'+TOP+'" x2="'+(PL+i*bw).toFixed(1)+'" y2="'+(H-PB)+
             '" stroke="#8d949e" stroke-width="1" stroke-dasharray="2 2" opacity=".55"/>';
     var every=Math.max(1,Math.round(vals.length/(W<420?4:6)));
     if(i%every===0) xs+='<text class="t" x="'+(PL+i*bw).toFixed(1)+'" y="'+(H-6)+'" text-anchor="middle">h'+vals[i].h+'</text>';
   }
-  return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+(opts.alt||'')+'">'+DEFS+
-    '<text class="t" x="'+(PL-6)+'" y="16" text-anchor="end">'+(opts.unit||'')+'</text>'+seps+s+xs+'</svg>';
+  /* A real y scale, so the bar heights read as amounts rather than as shape. */
+  [0,0.5,1].forEach(function(f){
+    var y=H-PB-f*(H-PB-TOP), lv=mx*f;
+    gl+='<line x1="'+PL+'" y1="'+y.toFixed(1)+'" x2="'+(W-PR)+'" y2="'+y.toFixed(1)+'" stroke="var(--line)"/>';
+    gl+='<text class="t" x="'+(PL-6)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end">'+
+        lv.toFixed(opts.dp==null?1:opts.dp)+'</text>';
+  });
+  var ttl = opts.title ? '<text class="t" x="0" y="12" style="fill:var(--fg)">'+opts.title+
+      (opts.field && !narrow() ? '<tspan style="fill:var(--dim2)">   '+opts.field+'</tspan>' : '')+'</text>' : '';
+  return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+(opts.alt||'')+'">'+DEFS+ttl+gl+seps+s+xs+'</svg>';
 }
 
 function runLengths(v,h0,h1){
@@ -943,6 +1003,7 @@ function draw3(){
   var r=rebuild(v, h0, h1, k, MODE);
   var el3=document.getElementById("e3chart");
   if(el3) el3.innerHTML = chart(el3, r.pts, {showEst:true, tol:0.12, unit:"°", dp:1,
+    title:"Air temperature, °C", field:"temperature_2m",
     alt:"Temperature for hours "+h0+" to "+h1+", with a rebuild from every "+k+"th hour drawn over it."});
 
   var el=document.getElementById("e3out"); if(!el) return;
@@ -967,7 +1028,8 @@ function draw4(){
   var el=document.getElementById("e4chart"); if(!el) return;
   if(!vals.length){ el.innerHTML='<p class="sm">The saved snapshot does not reach this far ahead.</p>';
                     set("e4out",""); return; }
-  el.innerHTML = bars(el, vals, v, h0, {unit:"mm", seps:true,
+  el.innerHTML = bars(el, vals, v, h0, {unit:"mm", dp:1, seps:true,
+    title:"Rainfall, mm per hour", field:"precipitation",
     alt:"Rainfall per hour, showing the same value repeated across each model period."});
   var R=runLengths(v.slice(), h0, h1);
   set("e4out", any
@@ -1033,8 +1095,8 @@ function drawWitness(){
     return g;
   }
   var Rp=runLengths(pv,h0,h1), Rq=runLengths(qv,h0,h1);
-  var s = ribbon(pv,22,'rain amount','one value per '+Rp.mode+'h') +
-          ribbon(qv,22+rowH,'chance of rain','one value per '+Rq.mode+'h');
+  var s = ribbon(pv,22,'Rainfall amount, mm','one value per '+Rp.mode+'h') +
+          ribbon(qv,22+rowH,'Chance of rain, %','one value per '+Rq.mode+'h');
   s+='<text class="t" x="0" y="'+(H-4)+'">hours '+h0+'&ndash;'+h1+', one bar per distinct value</text>';
   el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Two ribbons over the same hours. Rain amount is drawn as '+
     Rp.runs.length+' wide bars; chance of rain as '+Rq.runs.length+' narrow ones, one per hour.">'+s+'</svg>';
@@ -1057,6 +1119,7 @@ function draw5(){
   var r=rebuild(v, h0, h1, k, "cr");
   var el5=document.getElementById("e5chart"); if(!el5) return;
   el5.innerHTML = chart(el5, r.pts, {showEst:true, tol:0.6, unit:"%", dp:0,
+    title:"Chance of rain, %", field:"precipitation_probability",
     alt:"Chance of rain for hours "+h0+" to "+h1+", with a rebuild from every "+k+"th hour drawn over it."});
   var el=document.getElementById("e5out"); if(!el) return;
   if(!r.n){ el.innerHTML="No data in this block."; return; }
@@ -1089,14 +1152,15 @@ function draw7(){
   for(i=h0;i<=h1;i++) if(v[i]!=null) vals.push({h:i,val:v[i]});
   var el=document.getElementById("e7chart"); if(!el) return;
   if(!vals.length){ el.innerHTML='<p class="sm">No data.</p>'; set("e7out",""); return; }
-  el.innerHTML = bars(el, vals, v, h0, {unit:"%", h:164, minH:1,
+  el.innerHTML = bars(el, vals, v, h0, {unit:"%", dp:0, h:164, minH:1,
+    title:"Chance of rain, %", field:"precipitation_probability",
     alt:"Chance of rain at Miami: hourly at first, then held flat across six-hour windows."});
   var R=runLengths(v,h0,h1);
   set("e7out", 'Miami, Florida. Most common run length: <span class="num" style="color:var(--native)">'+R.mode+
     ' hours</span>. Four probabilities a day, each repeated six times.');
 }
 
-function drawAll(){ drawF1(); drawF2(); drawF3steps(); drawF7();
+function drawAll(){ drawF1(); drawF2(); drawF3steps(); drawF7(); drawFields();
                     draw3(); draw4(); drawWitness(); draw5(); draw6(); draw7();
                     var u=document.getElementById("srcurl"); if(u) u.textContent = url(city()); }
 
@@ -1122,18 +1186,20 @@ function ensure(keys, cb){
 /* ---------------- wiring ---------------- */
 (function(){
   var s=document.getElementById("place"), i, o;
+  /* The climate lives in the note beside the control, not in the option text:
+     with it inline the select grew to full width and read as a headline. */
   for(i=0;i<CITIES.length;i++){
-    o=document.createElement("option"); o.value=i;
-    o.textContent=CITIES[i].name+" · "+CITIES[i].clim;
-    s.appendChild(o);
+    o=document.createElement("option"); o.value=i; o.textContent=CITIES[i].name; s.appendChild(o);
   }
+  function noteText(){ return city().clim+", one of nine"; }
   s.addEventListener("change", function(){
     SEL.e3=null; SEL.e5=null;
-    if(OFFLINE){ drawAll(); return; }
-    var note=document.getElementById("placeNote"), was=note?note.textContent:"";
-    if(note) note.textContent="Fetching "+city().name+"…";
-    ensure([city().k], function(){ if(note) note.textContent=was; drawAll(); });
+    var note=document.getElementById("placeNote");
+    if(OFFLINE){ if(note) note.textContent=noteText(); drawAll(); return; }
+    if(note) note.textContent="fetching…";
+    ensure([city().k], function(){ if(note) note.textContent=noteText(); drawAll(); });
   });
+  document.getElementById("placeNote").textContent = noteText();
 })();
 
 swatch("lg1","p3"); swatch("lg3a","p3"); swatch("lg3b","p6");
@@ -1146,30 +1212,6 @@ document.getElementById("e3lin").addEventListener("click",function(){
 document.getElementById("e3cr").addEventListener("click",function(){
   MODE="cr"; this.classList.add("on"); document.getElementById("e3lin").classList.remove("on"); draw3(); });
 document.getElementById("e3close").addEventListener("click",function(){ SEL.e3=null; draw3(); });
-
-var SRC_DEFAULT_NOTE = "The same computed/filled-in pattern in an older run indicates a property of the model " +
-  "schedule rather than of today’s weather.";
-document.getElementById("srcLive").addEventListener("click", function(){
-  SRC="live"; this.classList.add("on"); document.getElementById("srcHist").classList.remove("on");
-  document.getElementById("srcNote").textContent = SRC_DEFAULT_NOTE; drawAll();
-});
-document.getElementById("srcHist").addEventListener("click", function(){
-  var btn=this, liveBtn=document.getElementById("srcLive"), note=document.getElementById("srcNote");
-  var wasSrc=SRC;
-  note.textContent = "Loading the run from " + HIST_RUN.replace("T"," ") + " UTC…";
-  SRC="hist";
-  ensure([city().k,"miami"], function(ok){
-    if(ok){
-      btn.classList.add("on"); liveBtn.classList.remove("on");
-      note.textContent = "Comparing against the run from " + HIST_RUN.replace("T"," ") +
-        " UTC, about three months ago. Same cadence boundaries, different weather.";
-    } else {
-      SRC=wasSrc; btn.classList.remove("on"); liveBtn.classList.add("on");
-      note.textContent = "The older run could not be loaded, so this remains today’s live data.";
-    }
-    drawAll();
-  });
-});
 
 document.getElementById("srcurl").textContent = url(CITIES[0]);
 function stamp(msg){ document.getElementById("stamp").textContent = msg; }
