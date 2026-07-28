@@ -6,16 +6,20 @@ A weather PWA that answers one question at a glance: will it rain, and when?
 ## the idea
 
 Maybe Rain shows a full week of hour-by-hour conditions on a single screen, no interaction needed. Open it, glance, done.
+More data is avaible on tap or scroll, so you can get details about any hour or city if you want to go deeper.
 
 ## principles
 
-1. Glanceable first. The core answer (when it will rain this week) reads in under 5 seconds, no scrolling. Extended details on tap.
+1. Glanceable first. The core answer: when it will rain this week
 2. One screen. The whole forecast fits one phone viewport.
 3. Honest data. Never show fabricated or interpolated data as if it were real.
-4. Simple tech. One HTML file, no framework, no build step, no backend, free APIs. The whole source reads in one sitting.
+4. Simple tech. One HTML file, no framework, no build step, no backend, free APIs.
 5. Instant. Renders the cached shell immediately while fresh data loads. First paint under a second.
 6. No ads, no analytics, no tracking. Served as a static site, once PWA is installed the only internet connection is to Open Meteo API.
 
 ## running it
 
 Static site and PWA, nothing to build. Open `index.html`, or install the PWA from GitHub Pages. Live at [mdomokos.github.io/maybe-rain/](https://mdomokos.github.io/maybe-rain/)
+There is a minification step if you want to further reduce file size, that is what is deployed on GitHub Pages. It is available on the `gh-pages` branch.
+
+Whole site is 115kb minified
