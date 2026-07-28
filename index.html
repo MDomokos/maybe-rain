@@ -4947,39 +4947,13 @@
 
         // --- Grid gestures: one-finger swipe + arrow keys ----------------
         const chart = document.querySelector('.chart');
-        // Shared navigation steps. dir +1 = next (↓ / →); dir -1 = previous
-        // (↑ / ←). This used to keep swipe and arrow keys in lockstep, and on
-        // the horizontal axis it still does.
-        //
-        // On the VERTICAL axis it no longer does, and that is worth reading the
-        // spec about before changing anything here. Touch does not route through
-        // this function any more: DR-32's selector picks an absolute list
-        // position rather than stepping, and under it swipe UP means NEXT (the
-        // rungs travel with the finger, so a rung arriving at the indicator from
-        // below is a LATER entry). The keyboard was left at ↑ = previous, which
-        // matches every listbox on every platform but is now the OPPOSITE of the
-        // gesture. DR-32 says nothing about the keyboard either way, so this is
-        // an open owner call, not a settled decision — the argument on both
-        // sides, and the odd consequence that "down" from either input plays the
-        // same animation but lands on a different city, are written up in
-        // SPEC.md under DR-32, "The keyboard was left alone". The current
-        // behaviour is pinned by assertions in research/test-dr32-city.mjs so
-        // that changing it has to be deliberate.
-        //
-        // Cycles ★ favorites only (recents are not part of the quick-swap set).
-        const stepCity = dir => {
-            if (!favorites.length) return;
-            const n = favorites.length;
-            const cur = favorites.findIndex(c => placeKey(c) === placeKey(state.place));
-            const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
-            const c = favorites[(base + dir + n) % n];
-            // stable order (no MRU reorder) so it cycles the whole list
-            // Vertical wave: dir +1 fills top→bottom, −1 bottom→top. This is the
-            // KEYBOARD's coupling of list step to sweep direction; DR-32 decouples
-            // the two for touch, where the sweep direction is the sign of the
-            // finger's travel and has nothing to do with which way the list moved.
-            if (c && placeKey(c) !== placeKey(state.place)) changeCity(c, false, { type: 'wave', axis: 'y', dir: Math.sign(dir) });
-        };
+        // Vertical stepping used to live here as `stepCity`, a plain jump with
+        // no rail, no counter and no animation of its own beyond the grid's
+        // wave. It is gone: DR-32 left the keyboard out of the detented
+        // selector entirely, and `keyStepCity` below (defined next to the rail
+        // machinery it now drives) replaces it, closing that gap. See
+        // SPEC.md's DR-32, "The keyboard was left alone", for the decision
+        // this supersedes.
         const stepView = dir => {
             const enabled = enabledViews();
             if (enabled.length < 2) return;
@@ -5651,6 +5625,71 @@
             if (t.style.opacity === '1' && tappedBlock == null) hideTooltip();
         });
 
+        // --- Keyboard route into the same selector (owner call, 2026-07-28,
+        // closing SPEC.md's DR-32 "The keyboard was left alone") --------------
+        // A key press has no drag underneath it, so there is nothing to read a
+        // distance off — but the rail, the pin's detent state and the position
+        // counter are still the answer to "where am I in the list", and a
+        // keyboard user is owed them exactly as much as a thumb is. Each press
+        // is a complete step in itself (unlike a drag, which withholds the
+        // selector until it clears the first dwell band): it commits
+        // immediately, same as the plain jump this replaces, and plays the
+        // rail rolling into place on top rather than gating the commit on the
+        // animation finishing.
+        //
+        // Direction is inverted from the old call site, closing the divergence
+        // DR-32 left open rather than leaving it split. A drag is direct
+        // manipulation — the rungs travel WITH the finger, so swipe up reaches
+        // the NEXT favourite — but a key press has no finger for the rail to
+        // follow. Rather than fall back to the listbox convention (↑ =
+        // previous, what `stepCity` shipped with), the rail is made to roll in
+        // the direction the arrow itself points: increasing `pos` moves every
+        // rung toward the TOP (`renderCitySel` places rung `i` at
+        // `mid + (i - pos) * RUNG_GAP`), which is the same motion a one-step
+        // swipe-up plays. So ↑ is NEXT and ↓ is PREVIOUS — the keyboard now
+        // matches the gesture instead of opposing it, and "down" from either
+        // input lands on the same city, closing the second-order wrinkle
+        // DR-32's writeup flagged alongside the direction itself.
+        const KEY_TWEEN_MS = 180;      // the rail's own roll into the new rung
+        const KEY_SEL_LINGER_MS = 900; // how long the counter stays up unread
+        let keySelTimer = 0;
+        const keyStepCity = dir => {
+            const cur = favorites.length
+                ? favorites.findIndex(c => placeKey(c) === placeKey(state.place)) : -1;
+            const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
+            const target = cityWrap(base + dir);
+            const place = favorites[target];
+            // Honesty guard: with fewer than two favourites the target wraps
+            // straight back to the city already on screen, so nothing commits
+            // and nothing is drawn — the same inertness `stepCity` had.
+            if (!place || placeKey(place) === placeKey(state.place)) return;
+            clearTimeout(keySelTimer);
+            const sel = citySel = {
+                base, pos: 0, latch: 0, parked: false, armed: true,
+                laps: 0, lastDetent: 0, target, listDir: dir, cache: new Map()
+            };
+            // Sweep direction opposes the list step, the same rule the drag
+            // uses (SPEC.md DR-32, "Direction, and two things the build must
+            // not get wrong"): the rung arriving at the pin comes from the
+            // side the list is moving toward.
+            changeCity(place, false, { type: 'wave', axis: 'y', dir: -dir });
+            renderCitySel();
+            const t0 = performance.now();
+            const tick = now => {
+                if (citySel !== sel) return; // superseded by a newer press
+                const p = Math.min(1, (now - t0) / KEY_TWEEN_MS);
+                sel.pos = dir * (1 - Math.pow(1 - p, 3)); // ease-out: settles rather than snaps
+                sel.parked = p >= 1;
+                renderCitySel();
+                if (p < 1) { requestAnimationFrame(tick); return; }
+                navigator.vibrate?.(VIBE_DETENT); // one tick landing in the new detent, same as a drag
+                keySelTimer = setTimeout(() => {
+                    if (citySel === sel) { clearCitySel(); renderLocation(); }
+                }, KEY_SEL_LINGER_MS);
+            };
+            requestAnimationFrame(tick);
+        };
+
         document.addEventListener('keydown', e => {
             // ⌘/Ctrl+K opens city search from anywhere.
             if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
@@ -5691,12 +5730,15 @@
                 }
                 return;
             }
-            // ↑/↓ step the location through ★ favorites (same as a
-            // vertical swipe); ←/→ cycle views (same as a horizontal swipe).
+            // ↑/↓ step the location through ★ favorites, through the same
+            // rolling selector a vertical swipe draws (see keyStepCity above);
+            // ←/→ cycle views (same as a horizontal swipe). ↑ is NEXT and ↓ is
+            // PREVIOUS — inverted from plain listbox convention so the rail
+            // rolls the way the arrow points, matching swipe-up = next.
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                 if (!favorites.length) return;
                 e.preventDefault();
-                stepCity(e.key === 'ArrowDown' ? 1 : -1);
+                keyStepCity(e.key === 'ArrowUp' ? 1 : -1);
                 return;
             }
             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
