@@ -78,6 +78,10 @@ figure{margin:0}
 figcaption,.legend,.readout{font-size:14px;line-height:1.55;color:var(--dim)}
 figcaption{margin-top:9px}
 .legend{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+/* Horizontal variant, for legends that sit between a control and its output:
+   four stacked rows there pushed the chart most of a screen away from the strip
+   that drives it. */
+.legend.row{flex-direction:row;flex-wrap:wrap;gap:5px 14px;margin-top:8px}
 .legend span{display:flex;gap:8px;align-items:flex-start}
 .legend i,.legend svg{flex:none;width:13px;height:13px;border-radius:2px;margin-top:3px}
 .legend em{font-style:normal;color:var(--fg);font-weight:650}
@@ -148,7 +152,7 @@ rain that matters more than it sounds.</p>
 <div style="margin:16px 0 0">
   <span class="label" id="placeLabel">Every chart on this page uses</span>
   <select id="place" aria-labelledby="placeLabel"></select>
-  <p class="sm" id="placeNote" style="margin:8px 0 0">Ten places across the major climate types. The pattern holds
+  <p class="sm" id="placeNote" style="margin:8px 0 0">Nine places across the major climate types. The pattern holds
   in all of them; where the boundary falls does not.</p>
 </div>
 
@@ -254,37 +258,56 @@ at first, then every 3 hours, then every 6.</p>
 hour except every 3rd and redrawing the curve shows which is which: if the hidden hours reappear, they were
 derived from their neighbours rather than computed.</p>
 
+<!-- The strip is the control and the chart is its output, so they share one
+     panel with nothing between them. The chart is absent until a block is
+     tapped, which keeps the first read short without putting the result of an
+     interaction somewhere the interaction cannot be seen. -->
 <div class="panel">
   <span class="label">Measured live, right now</span>
+  <div class="readout" id="e3sum" style="margin:0 0 12px" aria-live="polite"></div>
   <div id="e3strip"></div>
-  <div class="legend">
-    <span><i style="background:var(--native)"></i><em>computed</em></span>
-    <span><i id="lg3a"></i><em>filled in</em>, every 3rd hour computed</span>
-    <span><i id="lg3b"></i><em>filled in</em>, every 6th hour computed</span>
-    <span><i style="background:#4b4f57"></i><em>can't tell</em>, too flat to leave a signal</span>
+  <div class="legend row">
+    <span><i style="background:var(--native)"></i>computed</span>
+    <span><i id="lg3a"></i>3-hourly</span>
+    <span><i id="lg3b"></i>6-hourly</span>
+    <span><i style="background:#4b4f57"></i>can't tell</span>
   </div>
-  <div class="readout" id="e3sum" aria-live="polite"></div>
+
+  <p class="sm" id="e3hint" style="margin:10px 0 0;color:var(--gold)">Tap any block above to open the hours
+  inside it.</p>
+
+  <div id="e3detail" hidden>
+    <div id="e3chart" style="margin-top:12px"></div>
+    <div class="legend row">
+      <span><i style="background:#8d949e"></i>what the API returned</span>
+      <span><i style="background:var(--interp)"></i>rebuilt from the computed hours</span>
+    </div>
+    <div class="readout" id="e3out" aria-live="polite"></div>
+    <div class="ctl" style="margin:12px 0 0;justify-content:space-between">
+      <span class="seg"><button id="e3lin">straight lines</button><button id="e3cr" class="on">cubic curve</button></span>
+      <button id="e3close" aria-label="Close this block">close</button>
+    </div>
+  </div>
 </div>
 
 <details class="more">
-  <summary>See the test run on a single block</summary>
+  <summary>How the test works</summary>
   <div class="mbody">
     <figure>
       <div id="f3steps"></div>
     </figure>
-    <p class="sm" style="margin-top:16px">Tap any block in the strip above to inspect it here.</p>
-    <div class="panel">
-      <div class="ctl"><span class="seg"><button id="e3lin">straight lines</button><button id="e3cr" class="on">cubic curve</button></span></div>
-      <div id="e3chart"></div>
-      <div class="legend">
-        <span><i style="background:#8d949e"></i>what the API returned</span>
-        <span><i style="background:var(--interp)"></i>the rebuild, from the computed hours only</span>
-      </div>
-      <div class="readout" id="e3out" aria-live="polite"></div>
+    <p class="sm" style="margin-top:16px">A green block near the start does not reconstruct, because those hours
+    are real. An orange block near the end reconstructs almost exactly. Switching to straight lines makes the
+    rebuild miss everywhere, which is what identifies the interpolation as cubic.</p>
+
+    <h3>Reading the strip</h3>
+    <div class="legend">
+      <span><i style="background:var(--native)"></i><em>computed</em> &mdash; a model produced every hour here</span>
+      <span><i id="lg3c"></i><em>3-hourly</em> &mdash; 1 hour in 3 computed, the other 2 filled in</span>
+      <span><i id="lg3d"></i><em>6-hourly</em> &mdash; 1 hour in 6 computed, the other 5 filled in</span>
+      <span><i style="background:#4b4f57"></i><em>can't tell</em> &mdash; too flat to leave a signal, or inside the
+      transition band where neither rebuild fits</span>
     </div>
-    <p class="sm">A green block near the start does not reconstruct, because those hours are real. An orange
-    block near the end reconstructs almost exactly. Switching to straight lines makes the rebuild miss
-    everywhere, which is what identifies the interpolation as cubic.</p>
 
     <h3>The formula</h3>
     <p class="sm">A Catmull-Rom spline: a curve through two computed points <code>p1</code> and <code>p2</code>,
@@ -482,13 +505,13 @@ var FALLBACK = {
     q120: "88,88,89,90,90,90,90,91,91,92,92,92,92,91,89,88,86,85,84,85,87,88,87,85,84,83,83,82,81,81,80,80,80,80,80,80",
     p120: "0.6,0.5,0.5,0.5,0.7,0.7,0.7,0.8,0.8,0.8,0.4,0.4,0.4,1,1,1,1.4,1.4,1.4,0,0,0,0,0,0,2.8,2.8,2.8,2.8,2.8,2.8,1.4,1.4,1.4,1.4,1.4"
   },
-  boca: {
+  miami: {
     q60: "0,3,3,3,3,3,3,24,24,24,24,24,24,2,2,2,2,2,2,0,0,0,0,0,0,4,4,4,4,4,4,43,43,43,43,43,43,7,7,7,7,7,7,3,3,3,3,3,3,10",
     t20: "33.2,32.3,31.9,31.2,30.4,29.1,28.2,27.6,26.8,26.6,26.2,26.2,26.1,26.3,26,25.6,26.9,28.6,30.7,31.2,32.7,33.1,30.9,31.5,32.1,31.9,32.1,32.3,32,31.5,30.2,29.3,28.7,28.3,28.1,27.8,27.5,27.4,27.3,27.2"
   }
 };
 
-/* Ten places spanning the major climate types, so the pattern can be checked
+/* Nine places spanning the major climate types, so the pattern can be checked
    against wet and dry, tropical and subarctic, both hemispheres. `model` and
    `cut` are only filled in where the source model has actually been verified
    against run metadata; elsewhere they are left out and the page reports only
@@ -499,11 +522,10 @@ var CITIES = [
   {k:"cairo",    name:"Cairo, Egypt",           clim:"hot desert",           lat:30.0444, lon:31.2357},
   {k:"monrovia", name:"Monrovia, Liberia",      clim:"tropical monsoon",     lat:6.3005,  lon:-10.7969},
   {k:"singapore",name:"Singapore",              clim:"equatorial",           lat:1.3521,  lon:103.8198},
-  {k:"kolkata",  name:"Kolkata, India",         clim:"monsoon",              lat:22.5726, lon:88.3639},
   {k:"alice",    name:"Alice Springs, Australia",clim:"arid interior",       lat:-23.698, lon:133.8807},
   {k:"whakatane",name:"Whakatane, New Zealand", clim:"oceanic, southern",    lat:-37.9587,lon:176.985,  model:"ECMWF", cut:90},
   {k:"valdivia", name:"Valdivia, Chile",        clim:"temperate rainforest", lat:-39.8196,lon:-73.2452},
-  {k:"boca",     name:"Boca Raton, Florida",    clim:"subtropical, US",      lat:26.3683, lon:-80.1289, model:"GFS", cut:120}
+  {k:"miami",    name:"Miami, Florida",         clim:"subtropical, US",      lat:25.7617, lon:-80.1918, model:"GFS", cut:120}
 ];
 var DATA = {}, DATA_HIST = {}, MODE = "cr", SRC = "live";
 var SEL = {e3:null, e5:null};
@@ -560,11 +582,11 @@ function useFallback(){
   DATA.bergen = { temperature_2m: pad(nums(FALLBACK.bergen.t150),150),
                   precipitation: pad(nums(FALLBACK.bergen.p120),120),
                   precipitation_probability: pad(nums(FALLBACK.bergen.q120),120) };
-  DATA.boca   = { temperature_2m: pad(nums(FALLBACK.boca.t20),20),
-                  precipitation: [], precipitation_probability: pad(nums(FALLBACK.boca.q60),60) };
+  DATA.miami  = { temperature_2m: pad(nums(FALLBACK.miami.t20),20),
+                  precipitation: [], precipitation_probability: pad(nums(FALLBACK.miami.q60),60) };
   var s=document.getElementById("place"), i;
   for(i=0;i<CITIES.length;i++)
-    if(CITIES[i].k!=="bergen" && CITIES[i].k!=="boca"){
+    if(CITIES[i].k!=="bergen" && CITIES[i].k!=="miami"){
       s.options[i].disabled = true;
       s.options[i].textContent += " — not in snapshot";
     }
@@ -880,8 +902,10 @@ function draw3(){
     if(bs[i].k===3||bs[i].k===6) nMade++;
     if(bs[i].k===1){ nReal++; lastReal=bs[i]; }
   }
-  if(SEL.e3===null || v[SEL.e3]==null) SEL.e3 = firstMade ? firstMade.h0 : 0;
-  strip(bs, "e3strip", function(h0){ SEL.e3=h0; draw3(); }, SEL.e3);
+  /* No auto-selection: the detail chart only exists once it has been asked for,
+     and tapping the open block again closes it. */
+  if(SEL.e3!==null && v[SEL.e3]==null) SEL.e3 = null;
+  strip(bs, "e3strip", function(h0){ SEL.e3 = (SEL.e3===h0) ? null : h0; draw3(); }, SEL.e3);
 
   var sum=document.getElementById("e3sum");
   if(sum){
@@ -906,6 +930,11 @@ function draw3(){
           'metadata, so this is measured from the response and nothing else.</span>');
     }
   }
+
+  var detail=document.getElementById("e3detail"), hint=document.getElementById("e3hint");
+  if(detail) detail.hidden = (SEL.e3===null);
+  if(hint) hint.hidden = (SEL.e3!==null);
+  if(SEL.e3===null) return;
 
   var b=null;
   for(i=0;i<bs.length;i++) if(bs[i].h0===SEL.e3) b=bs[i];
@@ -1056,14 +1085,14 @@ function draw6(){
 }
 
 function draw7(){
-  var v=(cur().boca||{}).precipitation_probability||[], h0=30, h1=101, i, vals=[];
+  var v=(cur().miami||{}).precipitation_probability||[], h0=30, h1=101, i, vals=[];
   for(i=h0;i<=h1;i++) if(v[i]!=null) vals.push({h:i,val:v[i]});
   var el=document.getElementById("e7chart"); if(!el) return;
   if(!vals.length){ el.innerHTML='<p class="sm">No data.</p>'; set("e7out",""); return; }
   el.innerHTML = bars(el, vals, v, h0, {unit:"%", h:164, minH:1,
-    alt:"Chance of rain at Boca Raton: hourly at first, then held flat across six-hour windows."});
+    alt:"Chance of rain at Miami: hourly at first, then held flat across six-hour windows."});
   var R=runLengths(v,h0,h1);
-  set("e7out", 'Boca Raton, Florida. Most common run length: <span class="num" style="color:var(--native)">'+R.mode+
+  set("e7out", 'Miami, Florida. Most common run length: <span class="num" style="color:var(--native)">'+R.mode+
     ' hours</span>. Four probabilities a day, each repeated six times.');
 }
 
@@ -1071,7 +1100,7 @@ function drawAll(){ drawF1(); drawF2(); drawF3steps(); drawF7();
                     draw3(); draw4(); drawWitness(); draw5(); draw6(); draw7();
                     var u=document.getElementById("srcurl"); if(u) u.textContent = url(city()); }
 
-/* Only the selected place is fetched, plus Boca Raton for the US exception.
+/* Only the selected place is fetched, plus Miami for the US exception.
    With ten places on the list, loading them all would mean ten requests on
    every page load to draw two charts. Results are cached per place per source. */
 function ensure(keys, cb){
@@ -1107,7 +1136,8 @@ function ensure(keys, cb){
   });
 })();
 
-swatch("lg1","p3"); swatch("lg3a","p3"); swatch("lg3b","p6"); swatch("lg4","h"); swatch("lg6","h");
+swatch("lg1","p3"); swatch("lg3a","p3"); swatch("lg3b","p6");
+swatch("lg3c","p3"); swatch("lg3d","p6"); swatch("lg4","h"); swatch("lg6","h");
 
 document.getElementById("e6p").addEventListener("input",draw6);
 document.getElementById("e6n").addEventListener("change",draw6);
@@ -1115,6 +1145,7 @@ document.getElementById("e3lin").addEventListener("click",function(){
   MODE="lin"; this.classList.add("on"); document.getElementById("e3cr").classList.remove("on"); draw3(); });
 document.getElementById("e3cr").addEventListener("click",function(){
   MODE="cr"; this.classList.add("on"); document.getElementById("e3lin").classList.remove("on"); draw3(); });
+document.getElementById("e3close").addEventListener("click",function(){ SEL.e3=null; draw3(); });
 
 var SRC_DEFAULT_NOTE = "The same computed/filled-in pattern in an older run indicates a property of the model " +
   "schedule rather than of today’s weather.";
@@ -1127,7 +1158,7 @@ document.getElementById("srcHist").addEventListener("click", function(){
   var wasSrc=SRC;
   note.textContent = "Loading the run from " + HIST_RUN.replace("T"," ") + " UTC…";
   SRC="hist";
-  ensure([city().k,"boca"], function(ok){
+  ensure([city().k,"miami"], function(ok){
     if(ok){
       btn.classList.add("on"); liveBtn.classList.remove("on");
       note.textContent = "Comparing against the run from " + HIST_RUN.replace("T"," ") +
@@ -1188,7 +1219,7 @@ window.addEventListener("resize", function(){
   drawF1(); drawF2(); drawF3steps(); drawF7(); draw6();
   var settled=false;
   setTimeout(function(){ if(!settled){ settled=true; offline("Open-Meteo did not respond in time."); } }, 12000);
-  ensure([city().k,"boca"], function(ok){
+  ensure([city().k,"miami"], function(ok){
     if(settled) return; settled=true;
     if(!ok){ offline("Open-Meteo could not be reached."); return; }
     stamp("Fetched from Open-Meteo at " + new Date().toISOString().slice(0,16).replace("T"," ") +
