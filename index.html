@@ -1686,7 +1686,7 @@
         </div>
 
         <div id="content">
-            <!-- #dayRail and #hourRail are the reveal gestures' touch targets
+            <!-- dayRail and hourRail (below) are the reveal gestures' touch targets
                  (DR-29). Both are transparent, created once here, and never
                  rebuilt: touch dispatches every touchmove/touchend to whatever
                  element was under the finger at touchstart, so a listener living
@@ -1694,8 +1694,8 @@
                  the time labels) would be detached after one frame and the
                  gesture would die. Mouse is immune, so that bug looks fine on
                  desktop and is total on a phone. Each is also its own origin
-                 gate: what separates "more days" from the view swipe, and "more
-                 hours" from the city swipe, is where the drag starts, not how
+                 gate: what separates 'more days' from the view swipe, and 'more
+                 hours' from the city swipe, is where the drag starts, not how
                  fast it moves. -->
             <div class="day-row">
                 <div class="day-labels" id="days"></div>
