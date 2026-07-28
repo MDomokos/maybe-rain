@@ -689,7 +689,7 @@
         .search-result .fav svg,
         .search-result .forget svg,
         .install-banner .dismiss svg,
-        .changelog-close svg { width: 1em; height: 1em; display: block; }
+        .modal-close svg { width: 1em; height: 1em; display: block; }
         .tooltip svg { width: 1em; height: 1em; vertical-align: -0.15em; }
         .legend .swatch svg { width: 1em; height: 1em; display: block; }
         .setting-row span svg { width: 1em; height: 1em; vertical-align: -0.15em; }
@@ -882,11 +882,13 @@
             line-height: 1.35;
         }
 
-        /* Changelog ("What's new"): a modal over a scrim, opened only from the
-           settings menu so it never steals attention on its own. The body is a
-           <pre> that shows CHANGELOG.md as-is in the app's monospace; version
-           headers are gilded, code backticks dropped, no real parser. */
-        .changelog-scrim {
+        /* Shared modal shell: a panel over a scrim, opened only from the
+           settings menu so nothing steals attention on its own. Both the
+           changelog ("What's new") and the hourly-data explainer use this
+           same scrim/panel/head/close family; only their body content (and,
+           for the wider explainer, the panel's size) differs, so those stay
+           in modal-specific rules below instead of duplicating the shell. */
+        .modal-scrim {
             position: fixed;
             inset: 0;
             z-index: 2000;
@@ -899,8 +901,8 @@
                      max(20px, env(safe-area-inset-bottom))
                      max(20px, env(safe-area-inset-left));
         }
-        .changelog-scrim.hidden { display: none; }
-        .changelog-panel {
+        .modal-scrim.hidden { display: none; }
+        .modal-panel {
             display: flex;
             flex-direction: column;
             width: min(460px, 100%);
@@ -913,7 +915,14 @@
             border-radius: var(--radius);
             font-size: 12px;
         }
-        .changelog-head {
+        /* Wider/taller variant for the hourly-data explainer, which embeds a
+           full illustrated page rather than a short <pre> of changelog text. */
+        .modal-panel.wide {
+            width: min(720px, 100%);
+            height: min(85vh, 900px);
+            max-height: none;
+        }
+        .modal-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -921,8 +930,8 @@
             padding: 12px 14px;
             border-bottom: 1px solid var(--divider);
         }
-        .changelog-head strong { font-size: 13px; color: var(--text); }
-        .changelog-close {
+        .modal-head strong { font-size: 13px; color: var(--text); }
+        .modal-close {
             background: transparent;
             border: none;
             color: var(--text-muted);
@@ -932,7 +941,14 @@
             padding: 4px 6px;
             cursor: pointer;
         }
-        .changelog-close:hover, .changelog-close:focus-visible { color: var(--accent); }
+        .modal-close:hover, .modal-close:focus-visible { color: var(--accent); }
+
+        /* Changelog body: CHANGELOG.md turned into real elements (headings,
+           lists, inline code) by the small line-based parser in
+           renderChangelog, rather than a single <pre> dump. Still no
+           markdown library and no extra network request: same file, a
+           little more parsing logic, styled with the tokens already in this
+           stylesheet. */
         .changelog-body {
             overflow-y: auto;
             margin: 0;
@@ -941,11 +957,67 @@
             font-family: inherit;
             font-size: 12px;
             line-height: 1.5;
-            white-space: pre-wrap;
             overflow-wrap: break-word;
         }
-        /* Version and section headers, gilded straight out of the raw text. */
-        .changelog-body b { color: var(--accent); font-weight: 600; }
+        /* "v43" leads each release, gold and a step larger; the date trails
+           in a muted, smaller weight so the version number stays the eye's
+           anchor when scanning down the list. */
+        .changelog-body h2 {
+            margin: 18px 0 4px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        .changelog-body h2:first-child { margin-top: 0; }
+        .changelog-body h2 .cl-date {
+            font-weight: 400;
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-left: 5px;
+        }
+        /* Section headers ("### swiping between views") stay in the body
+           colour, one step down from the version, so the gold reads as
+           "release", not "topic". */
+        .changelog-body h3 {
+            margin: 10px 0 4px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .changelog-body ul {
+            margin: 0 0 8px;
+            padding-left: 16px;
+        }
+        .changelog-body li {
+            margin: 3px 0;
+        }
+        .changelog-body li::marker { color: var(--accent); }
+        /* The intro line ("what changed, newest first...") ahead of the
+           first version heading. */
+        .changelog-body p { margin: 0 0 12px; color: var(--text-dim); }
+        .changelog-body code {
+            font: inherit;
+            background: rgba(255,255,255,0.08);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        /* Hourly-data explainer body: how-hourly-data-is-made.html in an
+           iframe. The iframe's src is set only on open and cleared on close
+           (see openHourly/closeHourly) so the page's ~70KB and its own
+           script never load until the user actually asks to see it, and
+           don't linger in memory once dismissed. */
+        .hourly-body {
+            flex: 1;
+            min-height: 0;
+        }
+        .hourly-body iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: var(--bg);
+            display: block;
+        }
 
         /* Status and animations. Centered on the column field like the
            legend. No hue of its own: gold is reserved for now/today/sun and
@@ -1670,13 +1742,23 @@
 
     <div class="tooltip" id="tooltip"></div>
 
-    <div class="changelog-scrim hidden" id="changelog" role="dialog" aria-modal="true" aria-label="What's new">
-        <div class="changelog-panel">
-            <div class="changelog-head">
+    <div class="modal-scrim hidden" id="changelog" role="dialog" aria-modal="true" aria-label="What's new">
+        <div class="modal-panel">
+            <div class="modal-head">
                 <strong>What's new</strong>
-                <button class="changelog-close" id="changelogClose" aria-label="Close"></button>
+                <button class="modal-close" id="changelogClose" aria-label="Close"></button>
             </div>
-            <pre class="changelog-body" id="changelogBody"></pre>
+            <div class="changelog-body" id="changelogBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-scrim hidden" id="hourly" role="dialog" aria-modal="true" aria-label="How hourly data is made">
+        <div class="modal-panel wide">
+            <div class="modal-head">
+                <strong>How hourly data is made</strong>
+                <button class="modal-close" id="hourlyClose" aria-label="Close"></button>
+            </div>
+            <div class="hourly-body" id="hourlyBody"></div>
         </div>
     </div>
 
@@ -4852,7 +4934,7 @@
                 `<div class="setting-row"><span>What's new</span>` +
                 `<button class="btn" id="whatsNewBtn" style="padding:5px 10px;font-size:12px;" title="See what changed in recent versions">view</button></div>` +
                 `<div class="setting-row"><span>Hourly data</span>` +
-                `<a class="btn" href="how-hourly-data-is-made.html" target="_blank" rel="noopener" style="padding:5px 10px;font-size:12px;display:inline-block;text-decoration:none;" title="How hourly data is made">view</a></div>` +
+                `<button class="btn" id="hourlyBtn" style="padding:5px 10px;font-size:12px;" title="How hourly data is made">view</button></div>` +
                 (matchMedia('(pointer: fine)').matches
                     ? `<div class="shortcuts-hint">
                          <div class="sc"><span>Search</span><span>${MOD}K</span></div>
@@ -4895,29 +4977,84 @@
             if (e.target.id === 'shareBtn') { sharePlace(); return; }
             if (e.target.id === 'shareSiteBtn') { shareSite(); return; }
             if (e.target.id === 'whatsNewBtn') { openChangelog(); return; }
+            if (e.target.id === 'hourlyBtn') { openHourly(); return; }
         });
+
+        // --- Modal shell (shared by the changelog and the hourly-data
+        // explainer, and any future settings-menu modal) ------------------
+        // Both are the same interaction: opened from the settings menu, a
+        // scrim + panel + close button, tap-outside or Escape to dismiss,
+        // focus parked on close and restored to whatever opened it. Only
+        // what each one shows differs, so that's all that stays modal-
+        // specific below (loading CHANGELOG.md vs. lazily mounting an
+        // iframe). registerModal wires the shared plumbing once per id;
+        // modalClosers (keyed by scrim id) is what the generic scrim-click
+        // and Escape handlers use to find the right close function.
+        const modalReturnFocus = {};
+        const modalClosers = {};
+        const openModal = id => {
+            toggleSettings(false);
+            modalReturnFocus[id] = document.activeElement;
+            show($(id), true);
+            $(id).querySelector('.modal-close').focus();
+        };
+        const closeModal = id => {
+            show($(id), false);
+            const rf = modalReturnFocus[id];
+            if (rf && rf.focus) rf.focus();
+        };
+        const registerModal = (id, closeFn) => {
+            modalClosers[id] = closeFn;
+            $(id).querySelector('.modal-close').onclick = closeFn;
+            // Tap the scrim (outside the panel) to dismiss.
+            $(id).addEventListener('click', e => { if (e.target.id === id) closeFn(); });
+        };
 
         // --- Changelog ("What's new") -----------------------------------
         // Shows CHANGELOG.md as-is in a <pre>: the file is already laid out for a
-        // monospace read, so there's no parser. Three passes clean it up: drop the
-        // file's own title, gild the version/section headers (## / ###), and unwrap
-        // `code` backticks. build.mjs ships the file, so it stays the single source
-        // of truth. Fetched fresh when online (a just-deployed version's notes show
-        // before the reload), with the SW's cached copy as the offline fallback.
+        // monospace read, so there's no markdown library: a small line-by-line
+        // parser below turns its handful of constructs (# title, ## version,
+        // ### section, - bullet, `code`) into real elements, styled by the
+        // .changelog-body rules above. build.mjs ships CHANGELOG.md as-is, so
+        // it stays the single source of truth and this stays a pure-CSS
+        // upgrade — no extra request, no parser shipped to do more than this
+        // file ever needs. Fetched fresh when online (a just-deployed
+        // version's notes show before the reload), with the SW's cached copy
+        // as the offline fallback.
         let changelogHTML = null;
-        let changelogReturnFocus = null;
 
-        const renderChangelog = md => esc(md)
-            .replace(/^#\s.*\n+/, '')                      // drop the file's own "# changelog" title
-            .replace(/^#{2,3}\s+(.*)$/gm, '<b>$1</b>')     // version + section headers, gold (marker removed)
-            .replace(/`([^`]+)`/g, '$1');                  // unwrap `code` spans; the backticks read as noise
+        const renderChangelog = md => {
+            let html = '', inList = false;
+            const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+            for (const raw of md.split('\n')) {
+                const line = esc(raw).replace(/`([^`]+)`/g, '<code>$1</code>');
+                if (/^#\s/.test(line)) continue; // drop the file's own "# changelog" title
+                if (/^##\s/.test(line)) {
+                    closeList();
+                    // "v43 (2026-07-28)" → version leads, date trails muted.
+                    const text = line.replace(/^##\s+/, '');
+                    const m = text.match(/^(\S+)\s*(\(.*\))?$/);
+                    html += m ? `<h2>${m[1]}${m[2] ? ` <span class="cl-date">${m[2]}</span>` : ''}</h2>` : `<h2>${text}</h2>`;
+                } else if (/^###\s/.test(line)) {
+                    closeList();
+                    html += `<h3>${line.replace(/^###\s+/, '')}</h3>`;
+                } else if (/^-\s+/.test(line)) {
+                    if (!inList) { html += '<ul>'; inList = true; }
+                    html += `<li>${line.replace(/^-\s+/, '')}</li>`;
+                } else if (line.trim() === '') {
+                    closeList();
+                } else {
+                    closeList();
+                    html += `<p>${line}</p>`;
+                }
+            }
+            closeList();
+            return html;
+        };
 
         const openChangelog = async () => {
-            toggleSettings(false);
+            openModal('changelog');
             const body = $('changelogBody');
-            changelogReturnFocus = document.activeElement;
-            show($('changelog'), true);
-            $('changelogClose').focus();
             if (changelogHTML != null) { body.innerHTML = changelogHTML; body.scrollTop = 0; return; }
             body.textContent = 'Loading…';
             const load = async bust => {
@@ -4937,13 +5074,39 @@
                 body.textContent = 'Couldn’t load the changelog. Check your connection and try again.';
             }
         };
-        const closeChangelog = () => {
-            show($('changelog'), false);
-            if (changelogReturnFocus && changelogReturnFocus.focus) changelogReturnFocus.focus();
+        const closeChangelog = () => closeModal('changelog');
+        registerModal('changelog', closeChangelog);
+
+        // --- Hourly-data explainer (iframe modal) -------------------------
+        // Keeps how-hourly-data-is-made.html out of this bundle and out of
+        // the initial load entirely: the iframe has no src until the user
+        // opens the modal, so the ~70KB page and its own script only ever
+        // load on demand. Closing tears the iframe back down (empties its
+        // src) rather than just hiding the modal, so it isn't left running
+        // in the background and always starts fresh next time.
+        //
+        // This page is edited independently of app releases and changes
+        // often, so it deliberately opts out of every caching layer rather
+        // than joining CHANGELOG.md's cache-bust-with-fallback dance: sw.js
+        // passes it straight to the network (no SW cache entry to go stale),
+        // and the timestamp query param here defeats the browser's own HTTP
+        // cache too. A stale copy simply never happens; there's nothing to
+        // bust.
+        const openHourly = () => {
+            const body = $('hourlyBody');
+            if (!body.querySelector('iframe')) {
+                const f = document.createElement('iframe');
+                f.title = 'How hourly weather data is made';
+                f.src = `how-hourly-data-is-made.html?_=${Date.now()}`;
+                body.appendChild(f);
+            }
+            openModal('hourly');
         };
-        $('changelogClose').onclick = closeChangelog;
-        // Tap the scrim (outside the panel) to dismiss.
-        $('changelog').addEventListener('click', e => { if (e.target.id === 'changelog') closeChangelog(); });
+        const closeHourly = () => {
+            $('hourlyBody').innerHTML = ''; // drop the iframe: no lingering background page
+            closeModal('hourly');
+        };
+        registerModal('hourly', closeHourly);
 
         // --- Grid gestures: one-finger swipe + arrow keys ----------------
         const chart = document.querySelector('.chart');
@@ -5700,9 +5863,12 @@
             // Escape closes search/settings/tooltip, handled before the INPUT
             // guard below so it still fires while the search field has focus.
             if (e.key === 'Escape') {
-                // The changelog modal is the topmost layer: dismiss it first and
-                // leave everything else alone.
-                if (!$('changelog').classList.contains('hidden')) { closeChangelog(); return; }
+                // Any open modal is the topmost layer: dismiss it and leave
+                // everything else alone. modalClosers covers every modal
+                // registered via registerModal, so a future one needs no
+                // change here.
+                const openModalEl = document.querySelector('.modal-scrim:not(.hidden)');
+                if (openModalEl) { modalClosers[openModalEl.id](); return; }
                 closeSearch();
                 toggleSettings(false);
                 hideTooltip();
@@ -6037,7 +6203,9 @@
         $('geoBtn').innerHTML = MR_ICON.locate;
         $('locationCaret').innerHTML = MR_ICON.caret;
         $('installDismiss').innerHTML = MR_ICON.close;
-        $('changelogClose').innerHTML = MR_ICON.close;
+        // Every modal's close button (changelog, hourly-data, and any future
+        // one registered via registerModal) shares this same glyph.
+        document.querySelectorAll('.modal-close').forEach(btn => { btn.innerHTML = MR_ICON.close; });
         if (matchMedia('(pointer: fine)').matches) $('location').title = `Search (${MOD}K)`;
 
         // Precedence: a shared ?lat/lon link wins, else the last saved place,
