@@ -293,7 +293,21 @@
             margin-left: var(--gutter);
             margin-right: var(--overhang);
         }
-        .view-toggle .seg { flex: none; }
+        .view-toggle .seg { flex: none; position: relative; }
+        /* DR-30: while a horizontal scrub is live the grid says what the data
+           looks like but not what it is called, so the underline slides toward
+           the view being pulled toward and names it. Drawn only once it has
+           been measured onto a laid-out button (`has-bar`); until then the
+           button's own border-bottom is still the underline, so a browser that
+           never lays this out is no worse off than before. */
+        .view-toggle .seg .segbar {
+            position: absolute;
+            bottom: 0;
+            height: 1px;
+            background: var(--accent);
+            pointer-events: none;
+        }
+        .view-toggle .seg.has-bar button.active { border-bottom-color: transparent; }
         /* Slightly tighter than the base seg so the freshness line to its left
            keeps its full text on narrow phones without ellipsis. */
         .view-toggle .seg button { padding: 3px 2px 2px; font-size: 11px; }
@@ -1633,10 +1647,15 @@
                     <div id="status" class="status" tabindex="0" role="button"></div>
                     <button class="status-info" id="statusInfo" aria-label="About forecast freshness"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
                 </div>
-                <div class="seg">
+                <div class="seg" id="viewSeg">
                     <button data-view="rain">rain</button>
                     <button data-view="temp">temp</button>
                     <button data-view="wind">wind</button>
+                    <!-- DR-30: the active underline as a movable element, so it
+                         can slide toward the view a scrub is heading for. At
+                         rest it is measured onto the active button and is the
+                         same 1px gold line that was drawn as a border before. -->
+                    <i class="segbar" id="viewBar" aria-hidden="true" hidden></i>
                 </div>
             </div>
             <div class="legend" id="legend"></div>
@@ -3362,7 +3381,25 @@
             // new city's value for the same grid position. Only worth doing on
             // a frame where a cell actually changed hands, not on every frame
             // of the colour ramp.
-            if (flipped) refreshActiveTooltip();
+            //
+            // DR-30 is the one case where it must NOT happen: throughout a
+            // horizontal scrub the tooltip keeps reading the COMMITTED view.
+            // The two axes differ in what a half-transitioned cell means. A
+            // city sweep swaps one city's number for another city's number for
+            // the same reading, so either is a true value and DR-28's re-read
+            // is right. A view scrub swaps the READING itself, so a cell the
+            // playhead has flipped is a colour belonging to a scale the legend
+            // is not showing, and printing a number for it would invent data.
+            // The scrub is reversible, so until release there is no committed
+            // answer to report.
+            if (flipped && !w.scrub) refreshActiveTooltip();
+
+            // DR-30: the view underline is driven off the playhead, not off the
+            // finger, so the scrub, the completion and the rewind all move it by
+            // the same rule. `destView` is cleared the instant the sweep lands,
+            // which leaves the bar parked on the destination for `setView` to
+            // take over from without a frame of it snapping back.
+            if (w.destView) renderViewBar(w.total ? w.t / w.total : 0, w.destView);
         };
 
         // What is on screen RIGHT NOW, cell by cell — which mid-sweep is a mix
@@ -3389,28 +3426,48 @@
             waveRaf = 0;
             const w = wave;
             if (!w) return;
+            // The two modes must never both advance `t`. While a scrubbed drag
+            // is live the finger owns the clock outright, so the paced ticker
+            // stops dead here rather than running on underneath the hand — the
+            // structural rule carried over from DR-30's prototype, whose ticker
+            // returns early for exactly this reason. `hold` is NOT this: it
+            // freezes a PACED sweep where it is and leaves the ticker running.
+            if (w.scrub) return;
             const dt = Math.min(64, Math.max(0, now - waveLast));
             waveLast = now;
-            // DR-30: this is the paced half, and the only thing that writes `t`.
-            // DR-32 wants exactly that — the wave runs at the shipped tempo no
+            // DR-30's rewind: the destination is KEPT and the clock runs down,
+            // so cells un-flip in reverse stagger order and the transition
+            // plays backwards. Distinct from DR-32's reversal below, which
+            // points `to` at `from` and therefore snaps the content back and
+            // only unwinds the darkness — right there, because that sweep is
+            // about to set off the other way with the stagger flipped, and
+            // wrong here, where the gesture is being taken back rather than
+            // redirected. `to` is collapsed onto `from` at the bottom of the
+            // run-back so the wave settles the ordinary way.
+            if (w.rewind) {
+                w.t = Math.max(0, w.t - dt * (w.rate || REWIND_RATE));
+                if (w.t <= 0) { w.to = w.from; w.rewind = false; w.destView = null; }
+            }
+            // The paced half (DR-32): the wave runs at the shipped tempo no
             // matter how fast the finger arrived, which is what stops four
             // detents crossed in one sweep from cramming four waves into a few
-            // milliseconds and strobing. DR-30's horizontal scrub is the
-            // opposite: the finger owns `t` outright and the wave follows the
-            // hand. Adding that means a second mode, and the structural rule to
-            // carry over from the prototype is that the two must never both
-            // advance `t` — its ticker returns early while a scrubbed drag is
-            // live, rather than letting the clock run underneath the finger.
-            // `hold` below is NOT that hook: it freezes the sweep where it is.
-            if (w.to !== w.from) {
+            // milliseconds and strobing.
+            else if (w.to !== w.from) {
+                // Completion CONTINUES from wherever the playhead was left, at
+                // 1x — so the remaining duration is already the distance left,
+                // and a scrub released at 90% has ~10% of the wave to play and
+                // finishes almost instantly. The animation followed the hand,
+                // so there is little left. A toolbar tap arrives here with
+                // `t` at 0 and therefore plays the whole shipped wave.
                 w.t = Math.min(w.total, w.t + dt);
-                if (w.t >= w.total) { w.from = w.to; w.t = 0; }
+                if (w.t >= w.total) { w.from = w.to; w.t = 0; w.destView = null; }
             } else if (w.t > 0) {
-                // DR-30: both rates are constant. A release from a scrub wants
-                // the remaining duration scaled to the distance left, so a
-                // gesture already dragged to 90% finishes almost instantly
-                // instead of playing a full wave the hand has already outrun.
-                w.t = Math.max(0, w.t - dt * REWIND_RATE);
+                // A rewind is quicker than a completion, and `w.rate` is where
+                // a release computes one from where the playhead was left
+                // rather than taking the bare constant: an abandoned scrub is
+                // floored to a visible run-back instead of snapping (see
+                // `endViewScrub`). Nothing sets it on the paced path.
+                w.t = Math.max(0, w.t - dt * (w.rate || REWIND_RATE));
             }
             // The playhead is at rest, so the stagger can be flipped without a
             // jump and the queued reversal can set off.
@@ -3433,7 +3490,8 @@
 
         const waveStep = () => waveTick(performance.now());
         const kickWave = () => {
-            if (waveRaf) return;
+            // A live scrub owns `t`; there is nothing for a ticker to advance.
+            if (waveRaf || (wave && wave.scrub)) return;
             waveLast = performance.now();
             waveRaf = setTimeout(waveStep, FRAME_MS);
         };
@@ -3499,6 +3557,10 @@
             wave = {
                 grid, from, to: cols, delays, total, t: 0, nCols, nRows, anim,
                 dir: anim.dir || 1, pending: null, hold: false, onSettle: null,
+                // `scrub`: the finger owns `t` and the ticker stands down.
+                // `rewind`: run `t` down while KEEPING the destination.
+                // `rate`: a rewind speed computed at release, 0 = the constant.
+                scrub: false, rewind: false, rate: 0,
                 shown: new Array(nCols * nRows).fill(null)
             };
             waveFrame();
@@ -3515,21 +3577,24 @@
         // flipped. Mirroring the stagger under a running playhead would make
         // already-flipped cells un-flip in place, which reads as a glitch.
         //
-        // DR-30: the axis is hardcoded to 'y' here and at the queued-reversal
-        // rebuild below, because the city gesture is the only caller. The
-        // horizontal view scrub is the 'x' axis, so this needs to take one.
-        // Worth doing deliberately rather than by find-and-replace: nothing
-        // fails loudly if it is missed, the sweep just staggers by row where it
-        // should stagger by column.
+        // The axis is a parameter (DR-32 left it hardcoded to 'y', because the
+        // city gesture was the only caller). The city sweep staggers by row and
+        // DR-30's view scrub staggers by column, and nothing fails loudly if
+        // the wrong one is passed — the sweep simply runs the wrong way across
+        // the grid — so it is passed explicitly at both call sites rather than
+        // defaulted silently. The queued-reversal rebuild in `waveTick` spreads
+        // `w.anim`, so keeping `wave.anim` in step below is what carries the
+        // axis through a reversal.
         const waveTo = (grid, cols, dir, opts = {}) => {
+            const axis = opts.axis || 'y';
             if (!wave || wave.grid !== grid || wave.nCols !== cols.length
                 || wave.nRows !== (cols[0] ? cols[0].length : 0)) {
-                paintGrid(grid, cols, { type: 'wave', axis: 'y', dir });
+                paintGrid(grid, cols, { type: 'wave', axis, dir });
                 if (wave) wave.hold = !!opts.hold;
                 return;
             }
             wave.hold = !!opts.hold;
-            if (cols === wave.to && dir === wave.dir && !wave.pending) return;
+            if (cols === wave.to && dir === wave.dir && wave.anim.axis === axis && !wave.pending) return;
             if (waveSweeping(wave) && dir !== wave.dir) {
                 wave.pending = { cols, dir };
                 if (wave.to !== wave.from) wave.to = wave.from;  // rewind to what is on screen
@@ -3537,15 +3602,41 @@
                 return;
             }
             wave.pending = null;
-            if (cols === wave.to) { wave.dir = dir; return; }
-            const retarget = waveSweeping(wave);
+            if (cols === wave.to && wave.anim.axis === axis) { wave.dir = dir; return; }
+            const retarget = waveSweeping(wave) && wave.anim.axis === axis;
             wave.to = cols;
             if (!retarget) {
                 wave.dir = dir;
-                const built = buildDelays({ type: 'wave', axis: 'y', dir }, wave.from, cols, wave.nCols, wave.nRows);
+                wave.anim = { type: 'wave', axis, dir };
+                const built = buildDelays(wave.anim, wave.from, cols, wave.nCols, wave.nRows);
                 wave.delays = built.delays; wave.total = built.total;
             }
             kickWave();
+        };
+
+        // DR-30: hand the playhead to the finger. `p` is 0..1 along the wave's
+        // own timeline, taken straight from how far the drag has travelled, so
+        // the transition IS the gesture rather than an animation the gesture
+        // triggers. Nothing here advances `t` by time.
+        const scrubWave = (grid, cols, dir, p, destView) => {
+            // The destination only ever changes at the origin, because the view
+            // scrub re-locks direction inside RELOCK_PX, so the sweep is rebuilt
+            // from zero rather than retargeted. `waveTo`'s queued-reversal path
+            // is a PACED behaviour: it would rewind on its own clock underneath
+            // a finger that is already back at the origin.
+            if (wave && wave.scrub && (cols !== wave.to || dir !== wave.dir)) {
+                wave.t = 0; wave.to = wave.from; wave.pending = null;
+            }
+            waveTo(grid, cols, dir, { axis: 'x', hold: true });
+            if (!wave) return;
+            wave.scrub = true;
+            wave.rewind = false;   // a new drag owns the playhead outright
+            wave.destView = destView;
+            // paintGrid/kickWave may have started a ticker a moment before the
+            // flag was set. Stop it here rather than leaving the two to race.
+            if (waveRaf) { clearTimeout(waveRaf); waveRaf = 0; }
+            wave.t = Math.max(0, Math.min(wave.total, p * wave.total));
+            waveFrame();
         };
 
         // Let a held sweep finish and settle on its own clock.
@@ -3928,12 +4019,40 @@
 
         // Toggle shows only the views enabled in ⚙; hidden entirely when
         // just one view is left, since there is nothing to switch to.
+        // DR-30: the underline as a measured element rather than a border, so a
+        // scrub can slide it. `p` is the scrub's progress and `dest` the view it
+        // is heading for; with neither, it simply parks on the active button and
+        // the toolbar looks exactly as it did before.
+        //
+        // It interpolates straight onto the destination BUTTON, and deliberately
+        // not by the prototype's one-slot-in-list-order rule. That rule sends the
+        // bar off the end of the row whenever the step wraps, which with three
+        // views is a third of all gestures, and a bar that has left the row names
+        // nothing — which is the one job the DR gives it.
+        const viewBtn = v => $('viewSeg').querySelector(`button[data-view="${v}"]`);
+        const renderViewBar = (p = 0, dest = null) => {
+            const seg = $('viewSeg'), bar = $('viewBar');
+            const a = viewBtn(view);
+            // No layout to measure (hidden toolbar, or a host that never lays
+            // out): fall back to the button's own border-bottom, which is still
+            // the underline until `has-bar` says otherwise.
+            if (!a || !a.offsetWidth) { seg.classList.remove('has-bar'); bar.hidden = true; return; }
+            const b = dest && dest !== view ? viewBtn(dest) : null;
+            const k = b && b.offsetWidth ? Math.max(0, Math.min(1, p)) : 0;
+            const to = k ? b : a;
+            seg.classList.add('has-bar');
+            bar.hidden = false;
+            bar.style.left = `${a.offsetLeft + (to.offsetLeft - a.offsetLeft) * k}px`;
+            bar.style.width = `${a.offsetWidth + (to.offsetWidth - a.offsetWidth) * k}px`;
+        };
+
         const renderViewToggle = () => {
             document.querySelectorAll('#viewToggle .seg button').forEach(b => {
                 b.style.display = settings.views[b.dataset.view] ? '' : 'none';
                 b.classList.toggle('active', b.dataset.view === view);
             });
             $('viewToggle').style.display = enabledViews().length > 1 ? '' : 'none';
+            renderViewBar();
         };
         const setView = (v, anim) => {
             const prev = view;
@@ -3950,7 +4069,12 @@
             // from the view's position relative to the previous one. paintGrid
             // falls back to an instant repaint under reduced motion.
             let a = anim;
-            if (!a) {
+            // DR-30: a scrub has already played the whole wave under the finger,
+            // so the commit repaints instantly onto exactly the grid the sweep
+            // just landed on and the commit itself is invisible. Distinct from
+            // `undefined`, which still means "derive a direction" for a tap.
+            if (a === 'instant') a = null;
+            else if (!a) {
                 const en = enabledViews();
                 const oi = en.indexOf(prev), ni = en.indexOf(v);
                 a = (oi >= 0 && ni >= 0 && oi !== ni)
@@ -4823,13 +4947,25 @@
 
         // --- Grid gestures: one-finger swipe + arrow keys ----------------
         const chart = document.querySelector('.chart');
-        // Shared navigation steps so swipe and arrow-key gestures stay in
-        // lockstep. dir +1 = next (↓ / →); dir -1 = previous (↑ / ←).
-        // The touch gesture no longer routes through here on the vertical axis:
-        // DR-32's selector picks an absolute list position rather than stepping,
-        // and under it swipe UP means NEXT (the rungs travel with the finger, so
-        // a rung arriving at the indicator from below is a LATER entry). The
-        // keyboard keeps ↑ = previous, matching every other list on the page.
+        // Shared navigation steps. dir +1 = next (↓ / →); dir -1 = previous
+        // (↑ / ←). This used to keep swipe and arrow keys in lockstep, and on
+        // the horizontal axis it still does.
+        //
+        // On the VERTICAL axis it no longer does, and that is worth reading the
+        // spec about before changing anything here. Touch does not route through
+        // this function any more: DR-32's selector picks an absolute list
+        // position rather than stepping, and under it swipe UP means NEXT (the
+        // rungs travel with the finger, so a rung arriving at the indicator from
+        // below is a LATER entry). The keyboard was left at ↑ = previous, which
+        // matches every listbox on every platform but is now the OPPOSITE of the
+        // gesture. DR-32 says nothing about the keyboard either way, so this is
+        // an open owner call, not a settled decision — the argument on both
+        // sides, and the odd consequence that "down" from either input plays the
+        // same animation but lands on a different city, are written up in
+        // SPEC.md under DR-32, "The keyboard was left alone". The current
+        // behaviour is pinned by assertions in research/test-dr32-city.mjs so
+        // that changing it has to be deliberate.
+        //
         // Cycles ★ favorites only (recents are not part of the quick-swap set).
         const stepCity = dir => {
             if (!favorites.length) return;
@@ -4886,9 +5022,10 @@
         // DR-28. What's left is exactly the DR-24 shape: swipe detection
         // only, no timers, no pin state, no haptics.
         // DR-32 (2026-07-28) replaces the vertical half of the above with a
-        // detented multi-step selector. The horizontal half is unchanged and
-        // still commits at 60px on release; DR-30's horizontal scrub is a
-        // separate, later piece of work.
+        // detented multi-step selector. DR-30 (2026-07-28) replaces the
+        // horizontal half with a scrub: the same 60px still decides it, but the
+        // wave now plays under the finger and the outcome is read off where the
+        // playhead was left rather than off a distance measured at release.
         //
         // Vertical travel maps to a CONTINUOUS position in the ★ list, which
         // wraps in both directions. Each city owns a band whose first half
@@ -4907,6 +5044,115 @@
         const FLICK_VEL = 900, FLICK_MIN = 40;  // read ONCE, at release
         const VIBE_DETENT = [5];                // one 5ms pulse; Android only
         const RUNG_GAP = 17, RAIL_SPAN = 4;
+
+        // --- DR-30: the horizontal view scrub -----------------------------
+        // 120 is chosen so that HALF of it, the commit point, is 60px: exactly
+        // the swipe threshold this file already used. The distance needed to
+        // switch a view is therefore unchanged, and the scrub only makes visible
+        // a threshold that was always there and never shown.
+        const SCRUB_PX = 120;
+        // A rewind is faster than a completion, but not instant: a scrub
+        // abandoned at 15px would otherwise snap back inside a single frame.
+        const REWIND_MIN_MS = 120;
+        let viewScrub = null;  // { dir, dest, travel, cache } while a scrub is live
+
+        // Reduced motion is the one thing that turns the scrub off outright
+        // (owner call, 2026-07-28, closing DR-30's open question the opposite
+        // way from its prototypes — those left the scrub following the finger on
+        // the reasoning that direct manipulation is not really an animation).
+        // With it on, the horizontal axis is byte-for-byte the pre-DR-30
+        // gesture: nothing moves during the drag and the view swaps at 60px on
+        // release, which `paintGrid` already renders instantly.
+        const viewScrubLive = () => enabledViews().length >= 2
+            && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // The destination grid for a view, built once per drag and reused. Same
+        // city, same window, so it is the same shape by construction; `fitCols`
+        // is belt and braces against a repaint landing mid-drag.
+        const viewColsFor = v => {
+            if (viewScrub.cache.has(v)) return viewScrub.cache.get(v);
+            const ref = (wave ? wave.to : lastCols) || buildCols();
+            const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
+            const keep = view;
+            let built;
+            try { view = v; built = fitCols(buildCols(), nCols, nRows); }
+            finally { view = keep; }
+            viewScrub.cache.set(v, built);
+            return built;
+        };
+
+        const scrubView = dx => {
+            const en = enabledViews();
+            const want = dx < 0 ? 1 : -1;   // drag left = next, carousel-style
+            // Direction is the SIGN OF `dx`, re-read every move, so it re-locks
+            // the instant the drag returns through the origin. One unbroken
+            // touch can therefore go out toward temp, back past zero and on
+            // toward wind without lifting — the same requirement that got
+            // polarity rejected as a separator on the other axis: the return
+            // trip must have a gesture too.
+            //
+            // The prototype re-locks only within 4px of the origin. That is
+            // deliberately not ported: it is a threshold on the SAMPLING RATE
+            // rather than on the gesture, so a finger that crosses the origin
+            // faster than the events arrive skips the window and steers the
+            // wrong way — the class of failure DR-18/19 were reverted for.
+            // The sign of `dx` cannot be skipped, needs no constant, and says
+            // the same thing: the finger is on the other side of where it
+            // started. It also makes the mapping a pure function of position,
+            // which is what DR-32 insisted on for the other axis.
+            if (want !== viewScrub.dir) {
+                viewScrub.dir = want;
+                viewScrub.dest = en[(en.indexOf(view) + want + en.length) % en.length];
+            }
+            const travel = Math.abs(dx);
+            viewScrub.travel = travel;
+            // The sweep enters from the side the destination sits on, the same
+            // coupling `stepView` uses for a tap or an arrow key. The underline
+            // is not driven from here: it is driven off the playhead in
+            // `waveFrame`, so the scrub, the completion and the rewind all move
+            // it by one rule instead of three.
+            scrubWave($('grid'), viewColsFor(viewScrub.dest), -viewScrub.dir,
+                Math.min(1, travel / SCRUB_PX), viewScrub.dest);
+        };
+
+        // The one decision on this axis, made once, on release. A fast flick and
+        // a slow drag both arrive here and differ only in where they left the
+        // playhead, which is exactly the difference that should matter — so
+        // there is no velocity term on this path at all. A flick was never a
+        // different intention from a drag, only the same one performed quickly,
+        // and it always travels far past 60px before the finger lifts, so it
+        // already satisfies the only rule left. Removing the detection does not
+        // remove the gesture; it stops treating it as a special case.
+        const endViewScrub = () => {
+            const vs = viewScrub;
+            viewScrub = null;
+            if (!vs) return;
+            const commit = vs.travel > SCRUB_PX / 2;   // the shipped 60px
+            if (!wave || !wave.scrub) {
+                // A repaint landed mid-drag and took the sweep with it. Nothing
+                // to complete or rewind; just honour the decision.
+                renderViewBar();
+                if (commit) setView(vs.dest, { type: 'wave', axis: 'x', dir: -vs.dir });
+                return;
+            }
+            wave.scrub = false;
+            if (commit) {
+                // Completion CONTINUES from wherever the finger left it, at 1x,
+                // so the grid never jumps backwards before going forwards and
+                // the remaining duration is already the distance left.
+                wave.rate = 0;
+                wave.onSettle = () => setView(vs.dest, 'instant');
+            } else {
+                // Rewind to the view that is still committed, playing the
+                // transition backwards rather than cutting to its start. The
+                // rate is computed from where the playhead was left rather than
+                // taken as the bare REWIND_RATE constant, so a barely-started
+                // scrub runs visibly back instead of vanishing between frames.
+                wave.rewind = true;
+                wave.rate = wave.t / Math.max(REWIND_MIN_MS, wave.t / REWIND_RATE);
+            }
+            waveRelease();
+        };
 
         // The k-th city costs less than the one before it, BY DISTANCE rather
         // than by speed. A rate-scaled mapping would have to be integrated (the
@@ -5013,30 +5259,39 @@
             if (!touchNav.axis) {
                 if (Math.hypot(dx, dy) < CITY_SLOP) return;
                 touchNav.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-                // DR-30: the horizontal axis claims nothing and renders nothing
-                // during the drag — it is still a one-shot swipe decided at
-                // release, below. Making it a scrub means claiming here, exactly
-                // as the vertical branch does, and driving the playhead from dx.
-                if (touchNav.axis === 'x') return;            // the view swipe, decided on release
-                if (!citySwapLive()) { touchNav = null; return; }
                 // Deliberately NOT closing an open tooltip and NOT clearing
-                // tappedBlock. DR-28: a tap-opened tooltip survives a city
-                // change and re-targets the same grid position, which is the
-                // whole "compare across a swap" behaviour. The scrub calls
-                // preventDefault from here on, so no trailing synthetic click
-                // ever arrives and this touch cannot retroactively become a tap
-                // — by construction, without disturbing the tooltip that is
-                // already open.
-                touchNav.claimed = true;
-                citySel = {
-                    base: Math.max(0, favorites.findIndex(c => placeKey(c) === placeKey(state.place))),
-                    pos: 0, latch: 0, parked: true, armed: false, laps: 0, lastDetent: 0,
-                    target: 0, listDir: 1, cache: new Map()
-                };
-                citySel.target = citySel.base;
+                // tappedBlock, on either axis. DR-28: a tap-opened tooltip
+                // survives a city or view change and re-targets the same grid
+                // position, which is the whole "compare across a swipe"
+                // behaviour. The scrub calls preventDefault from here on, so no
+                // trailing synthetic click ever arrives and this touch cannot
+                // retroactively become a tap — by construction, without
+                // disturbing the tooltip that is already open.
+                if (touchNav.axis === 'x') {
+                    // DR-30: the horizontal axis is a scrub now. With fewer than
+                    // two views, or under reduced motion, it claims nothing and
+                    // renders nothing and falls through to the one-shot swipe
+                    // decided at release below — exactly the pre-DR-30 gesture.
+                    if (!viewScrubLive()) return;
+                    touchNav.claimed = true;
+                    viewScrub = { dir: 0, dest: null, travel: 0, cache: new Map() };
+                } else {
+                    if (!citySwapLive()) { touchNav = null; return; }
+                    touchNav.claimed = true;
+                    citySel = {
+                        base: Math.max(0, favorites.findIndex(c => placeKey(c) === placeKey(state.place))),
+                        pos: 0, latch: 0, parked: true, armed: false, laps: 0, lastDetent: 0,
+                        target: 0, listDir: 1, cache: new Map()
+                    };
+                    citySel.target = citySel.base;
+                }
             }
             if (!touchNav.claimed) return;
             e.preventDefault();   // scrub, don't pan the page
+
+            // DR-30: the horizontal half. No velocity is measured on this path,
+            // let alone acted on.
+            if (touchNav.axis === 'x') { scrubView(dx); return; }
 
             // Velocity is measured throughout but ACTED ON only once, at release,
             // and only by the flick rule.
@@ -5092,7 +5347,7 @@
             citySel.listDir = listDir;
             if (target !== citySel.target || stepNow !== stepWas) {
                 citySel.target = target;
-                waveTo($('grid'), cityColsFor(target), -listDir, { hold: true });
+                waveTo($('grid'), cityColsFor(target), -listDir, { axis: 'y', hold: true });
             }
             renderCitySel();
         }, { passive: false });
@@ -5104,18 +5359,21 @@
             const t = e.changedTouches[0];
             const dx = t.clientX - nav.x, dy = t.clientY - nav.y;
 
+            // DR-30: the scrub decides itself, off the travel that was actually
+            // mapped onto the playhead, so what you get is what was on screen.
+            if (nav.axis === 'x' && viewScrub) { endViewScrub(); return; }
+
             if (!nav.claimed) {
-                // Horizontal is unchanged: >60px, one axis clearly dominant.
-                //
-                // DR-30: this 60px is already the number that DR wants — it
-                // specifies a 120px scrub whose midpoint, the commit point, is
-                // "exactly the swipe threshold index.html already uses", so the
-                // same motion that switches a view today switches it after the
-                // change. The scrub only makes visible a threshold that was
-                // always there. Note also that there is no velocity term here to
-                // remove: the horizontal flick DR-30 abolishes was never a
-                // separate code path in the app, only a fast drag past 60px.
-                if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) stepView(dx < 0 ? 1 : -1);
+                // The pre-DR-30 horizontal swipe, still the path under reduced
+                // motion and with a single view enabled: >60px, one axis clearly
+                // dominant, decided at release. SCRUB_PX/2 is the same 60, which
+                // is the point of choosing a 120px scrub — the distance needed to
+                // switch a view is identical either way, and the scrub only makes
+                // visible a threshold that was always there. There is no velocity
+                // term here to remove: the horizontal flick DR-30 abolishes was
+                // never a separate code path in this app, only a fast drag past
+                // the same 60px.
+                if (Math.abs(dx) > SCRUB_PX / 2 && Math.abs(dx) > 2 * Math.abs(dy)) stepView(dx < 0 ? 1 : -1);
                 // else a plain tap: the trailing synthetic click opens the tooltip.
                 return;
             }
@@ -5150,14 +5408,16 @@
             // Sweep to the destination on the wave's own clock, then commit once
             // it settles. changeCity then repaints instantly onto exactly the
             // grid the sweep just landed on, so the commit itself is invisible.
-            waveTo($('grid'), cols, dir);
+            waveTo($('grid'), cols, dir, { axis: 'y' });
             waveRelease();
             if (wave) wave.onSettle = () => changeCity(place, true, null);
             else changeCity(place, true, null);
         };
         chart.addEventListener('touchend', endTouchNav);
         chart.addEventListener('touchcancel', () => {
-            if (touchNav?.claimed) { clearCitySel(); waveRelease(); renderLocation(); }
+            // A cancelled scrub is an abandoned one: rewind, commit nothing.
+            if (viewScrub) { viewScrub.travel = 0; endViewScrub(); }
+            else if (touchNav?.claimed) { clearCitySel(); waveRelease(); renderLocation(); }
             touchNav = null;
         });
 
@@ -5711,6 +5971,12 @@
         addEventListener('resize', resyncStandalone);
         addEventListener('orientationchange', resyncStandalone);
         addEventListener('pageshow', resyncStandalone);
+        // The view underline is measured from real button geometry (DR-30), so
+        // it has to be re-measured whenever that geometry can change: a rotation,
+        // a resize, or the webfont landing after first paint.
+        addEventListener('resize', () => renderViewBar());
+        addEventListener('orientationchange', () => renderViewBar());
+        document.fonts?.ready?.then(() => renderViewBar());
         if (window.visualViewport) visualViewport.addEventListener('resize', resyncStandalone);
         // Backstops: on some devices the bars settle without firing a resize.
         requestAnimationFrame(resyncStandalone);

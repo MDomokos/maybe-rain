@@ -3,6 +3,16 @@
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 
+## v43 (2026-07-28)
+
+### swiping between views
+
+- swiping sideways between rain, temperature and wind now happens under the finger instead of after it. the grid changes colour column by column as it is dragged, to indicate the motion
+- swipe without releasing to quickly peek at another screen, works both ways in one swipe
+- a quick flick still works exactly as before. it was never a separate gesture, just a fast drag
+- the gold underline under rain / temp / wind slides along with it, so the grid always has something naming it
+
+
 ## v42 (2026-07-28)
 
 ### swiping between cities
