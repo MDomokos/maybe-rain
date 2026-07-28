@@ -27,6 +27,17 @@ self.addEventListener('fetch', event => {
   // Cross-origin (weather/geocoding APIs): network only, never cached here.
   if (url.origin !== location.origin) return;
 
+  // The hourly-data explainer (opened in an iframe from the settings menu):
+  // edited independently of app releases and changes often, so it's
+  // deliberately excluded from every cache path below, including the
+  // shell's own (an iframe load is also a 'navigate' request, so without
+  // this it would otherwise be caught by the next block). Straight to the
+  // network, nothing stored, nothing to go stale or need busting.
+  if (url.pathname === BASE + 'how-hourly-data-is-made.html') {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   // App shell + manifest: network-first so deploys reach installed PWAs
   // immediately. Keeping the manifest network-first means new (content-hashed)
   // icon URLs are seen right away instead of being pinned to a cached copy.
