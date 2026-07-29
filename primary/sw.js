@@ -1,5 +1,24 @@
 // Bump this version on every deploy so installed PWAs pick up changes.
-const CACHE_NAME = 'maybe-rain-v45-wip';
+//
+// The name carries the variant, because cache storage is keyed per-origin
+// rather than per-SW-scope: both variants' caches sit in the same bucket, so
+// the activate sweep below must only ever delete its OWN variant's old
+// versions. CACHE_PREFIX is what scopes that sweep, and it is also the build
+// id build.mjs stamps into __APP_VERSION__, so a cache name, a build id and
+// a release tag are all the same string. Neither variant's prefix may be a
+// prefix of the other, or one variant's activation would evict the other's
+// shell and break its offline open.
+// The leading 2.0. is permanent and means "primary"; classic is 1.0. and
+// counts separately. Only the trailing integer moves, one per release.
+const CACHE_PREFIX = 'maybe-rain-2.0.';
+const CACHE_NAME = CACHE_PREFIX + '0';
+// Caches written before the variant split were named maybe-rain-v45 and so
+// on, with no variant segment, and they sit at this scope. The prefix test
+// above no longer matches them, so without this they would leak forever.
+// Classic's caches never took this shape, so it cannot catch them by
+// accident. Droppable once no installed PWA is still carrying a pre-split
+// cache.
+const LEGACY_CACHE = /^maybe-rain-v\d/;
 // Base path of wherever the app is served from (works at a domain root
 // or under a subpath like GitHub Pages' /repo-name/).
 const BASE = new URL('./', self.location).pathname;
@@ -16,7 +35,9 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+      // Only this variant's own older caches (see CACHE_PREFIX above), plus
+      // any pre-split cache this scope left behind.
+      .then(keys => Promise.all(keys.filter(k => (k.startsWith(CACHE_PREFIX) || LEGACY_CACHE.test(k)) && k !== CACHE_NAME).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

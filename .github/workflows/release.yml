@@ -1,12 +1,20 @@
 name: release
 
-# Push a version tag (v17, v18, ...) and this turns it into a GitHub Release,
-# using that version's section of CHANGELOG.md as the notes.
+# Push a version tag and this turns it into a GitHub Release, using that
+# version's section of the matching variant's CHANGELOG.md as the notes.
+#
+# The tag names the variant. Its leading component is permanent:
+#   v2.0.*  ->  primary/CHANGELOG.md
+#   v1.0.*  ->  classic/CHANGELOG.md
+# Only the trailing integer moves, one per release, and each variant counts
+# on its own. The tag matches CACHE_NAME in that variant's sw.js minus the
+# maybe-rain- prefix, so tag, cache name and build id all say the same thing.
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v2.0.*'
+      - 'v1.0.*'
 
 permissions:
   contents: write
@@ -17,19 +25,37 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Pull this version's notes from CHANGELOG.md
+      - name: Work out which variant this tag releases
         run: |
           tag="${GITHUB_REF_NAME}"
-          awk -v t="$tag" '
-            $0 ~ "^## " t " " { grab=1; next }
+          case "$tag" in
+            v2.0.*) variant=primary ;;
+            v1.0.*) variant=classic ;;
+            *)
+              echo "::error::tag $tag does not name a variant (expected v2.0.* or v1.0.*)"
+              exit 1 ;;
+          esac
+          echo "VARIANT=$variant" >> "$GITHUB_ENV"
+          echo "releasing $variant from $variant/CHANGELOG.md"
+
+      - name: Pull this version's notes from the variant's CHANGELOG.md
+        run: |
+          # Literal prefix match rather than a regex: the tag contains dots,
+          # which as a regex would match any character and could pick up the
+          # wrong section.
+          awk -v t="## ${GITHUB_REF_NAME} " '
+            index($0, t) == 1 { grab=1; next }
             grab && /^## / { exit }
             grab { print }
-          ' CHANGELOG.md > notes.md
+          ' "${VARIANT}/CHANGELOG.md" > notes.md
           if ! grep -q '[^[:space:]]' notes.md; then
-            echo "See CHANGELOG.md." > notes.md
+            echo "See ${VARIANT}/CHANGELOG.md." > notes.md
           fi
 
       - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file notes.md
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${VARIANT} ${GITHUB_REF_NAME}" \
+            --notes-file notes.md
