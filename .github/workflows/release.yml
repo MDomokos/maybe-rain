@@ -3,18 +3,20 @@ name: release
 # Push a version tag and this turns it into a GitHub Release, using that
 # version's section of the matching variant's CHANGELOG.md as the notes.
 #
-# The tag names the variant. Its leading component is permanent:
-#   v2.0.*  ->  primary/CHANGELOG.md
-#   v1.0.*  ->  classic/CHANGELOG.md
-# Only the trailing integer moves, one per release, and each variant counts
-# on its own. The tag matches CACHE_NAME in that variant's sw.js minus the
-# maybe-rain- prefix, so tag, cache name and build id all say the same thing.
+# The tag names the variant. Its leading (major) component is permanent:
+#   v2.*.*  ->  primary/CHANGELOG.md
+#   v1.*.*  ->  classic/CHANGELOG.md
+# The trailing minor.patch moves each release, one per variant: bump the
+# minor for a larger change, the patch for a small one, and each variant
+# counts on its own. The tag matches CACHE_NAME in that variant's sw.js
+# minus the maybe-rain- prefix, so tag, cache name and build id all say
+# the same thing.
 
 on:
   push:
     tags:
-      - 'v2.0.*'
-      - 'v1.0.*'
+      - 'v2.*'
+      - 'v1.*'
 
 permissions:
   contents: write
@@ -29,10 +31,10 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           case "$tag" in
-            v2.0.*) variant=primary ;;
-            v1.0.*) variant=classic ;;
+            v2.*) variant=primary ;;
+            v1.*) variant=classic ;;
             *)
-              echo "::error::tag $tag does not name a variant (expected v2.0.* or v1.0.*)"
+              echo "::error::tag $tag does not name a variant (expected v2.*.* or v1.*.*)"
               exit 1 ;;
           esac
           echo "VARIANT=$variant" >> "$GITHUB_ENV"

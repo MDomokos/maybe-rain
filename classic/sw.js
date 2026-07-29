@@ -9,12 +9,13 @@
 // prefix of the other, or one variant's activation would evict the other's
 // shell and break its offline open.
 //
-// The leading 1.0. is permanent and means "classic"; primary is 2.0. and
-// counts separately. Only the trailing integer moves, one per release, and
-// it moves only when classic itself changes. Classic's history up to v40
-// is in its CHANGELOG under the old flat numbering.
-const CACHE_PREFIX = 'maybe-rain-1.0.';
-const CACHE_NAME = CACHE_PREFIX + '0';
+// The leading 1. is permanent and means "classic"; primary is 2. and counts
+// separately. The trailing minor.patch moves each release, only when
+// classic itself changes: bump the minor for a larger change, the patch
+// for a small one. Classic's history up to v40 is in its CHANGELOG under
+// the old flat numbering.
+const CACHE_PREFIX = 'maybe-rain-1.';
+const CACHE_NAME = CACHE_PREFIX + '2.0';
 // Base path of wherever the app is served from (works at a domain root
 // or under a subpath like GitHub Pages' /repo-name/).
 const BASE = new URL('./', self.location).pathname;

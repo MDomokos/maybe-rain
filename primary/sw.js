@@ -8,10 +8,11 @@
 // a release tag are all the same string. Neither variant's prefix may be a
 // prefix of the other, or one variant's activation would evict the other's
 // shell and break its offline open.
-// The leading 2.0. is permanent and means "primary"; classic is 1.0. and
-// counts separately. Only the trailing integer moves, one per release.
-const CACHE_PREFIX = 'maybe-rain-2.0.';
-const CACHE_NAME = CACHE_PREFIX + '0';
+// The leading 2. is permanent and means "primary"; classic is 1. and counts
+// separately. The trailing minor.patch moves each release: bump the minor
+// for a larger change, the patch for a small one.
+const CACHE_PREFIX = 'maybe-rain-2.';
+const CACHE_NAME = CACHE_PREFIX + '0.0';
 // Caches written before the variant split were named maybe-rain-v45 and so
 // on, with no variant segment, and they sit at this scope. The prefix test
 // above no longer matches them, so without this they would leak forever.
