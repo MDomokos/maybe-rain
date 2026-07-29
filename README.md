@@ -19,7 +19,7 @@ More data is avaible on tap or scroll, so you can get details about any hour or 
 
 ## running it
 
-Static site and PWA, nothing to build. Open `index.html`, or install the PWA from GitHub Pages. Live at [mdomokos.github.io/maybe-rain/](https://mdomokos.github.io/maybe-rain/)
+Static site and PWA. Open `primary/index.html`, or install the PWA from GitHub Pages. Live at [mdomokos.github.io/maybe-rain/](https://mdomokos.github.io/maybe-rain/)
 There is a minification step if you want to further reduce file size, that is what is deployed on GitHub Pages. It is available on the `gh-pages` branch.
 
-Whole site is 115kb minified
+Whole site is 104kb minified

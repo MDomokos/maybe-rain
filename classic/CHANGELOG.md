@@ -2,71 +2,15 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+this is the classic variant. its versions start `1.0.` and count on their
+own; primary starts `2.0.`. everything below v1.0.0 is the old flat
+numbering from before the two variants split.
 
-## v45 (2026-07-29)
+## v1.2.0 (2026-07-29)
 
-### swiping tweaks
-- swiping through the starred city list no longer loops
-- the haptic tick felt on each city swiped past is much lighter
-- pulling more hours or more days into view and letting go no longer plays the full grid wipe on the way back. it just slides itself home, the same motion that opened it
-- dragging on the hour/day rails is less twitchy: it takes more finger travel to move a notch, and each notch has a short built-in pause before it lets go to the next, matching the linger already in the vertical city swipe
-- the more-hours/more-days reveal no longer scrolls itself home while a tooltip is open, it waits for the tooltip to close first
-- swiping between rain/temp/wind now takes a bit more of a pull, and pauses on the current screen before it starts sliding to the next one, matching the linger the city swipe already has
-
-### experimental
-- dragging the hour/day rails now crossfades the grid's colours continuously under the finger instead of snapping per notch, the same idea as the rain/temp/wind swipe
-
-## v44 (2026-07-29)
-
-### documentation
-- added a section in setting for documentation about how the hourly weather data is made
-- added more styling to What's New view
-
-
-## v43 (2026-07-28)
-
-### swiping between views
-- swiping sideways between rain, temperature and wind now happens under the finger instead of after it. the grid changes colour column by column as it is dragged, to indicate the motion
-- swipe without releasing to quickly peek at another screen, works both ways in one swipe
-- a quick flick still works exactly as before. it was never a separate gesture, just a fast drag
-- the gold underline under rain / temp / wind slides along with it, so the grid always has something naming it
-
-
-## v42 (2026-07-28)
-
-### swiping between cities
-- swiping up and down the grid now picks a city from the starred list instead of stepping one at a time. keep pulling and it keeps going down the list, so any favourite is one unbroken swipe away
-- a small rail appears at the right edge while you drag, showing where you are in the list and how much is left
-- the list loops, so nothing is ever more than half a lap away in either direction
-- each city has a little landing spot in the swipe, so you can feel and see where it settles rather than balancing on an edge
-- the list rolls with your finger, so a city arriving from below is a later one
-- a quick flick still swaps one city, however hard you throw it
-- changing direction mid-swipe turns around instead of jumping
-
-### bug fixes
-- dragging on the times down the left edge no longer changes city as well as showing more hours
-
-
-
-### see more hours
-- pull down or up on the times running along the left edge of the grid to see hours outside the usual 6am–9pm
-- or just scroll with the pointer over those times, which does the same thing
-- let go and it slides straight back to the normal day. it's a look, not a setting, so the grid you come back to is always the one you left
-- on a keyboard, shift with the up and down arrows does the same thing
-
-### see more days
-- drag sideways on the row of day letters above the grid to look further ahead, out to fourteen days
-- or scroll with the pointer over those letters, same thing
-- the app now keeps two weeks of forecast on hand instead of one, so the far days are already there when you scroll to them. the first time you open it after this update it fetches once more than usual to fill that in
-- worth knowing: a fourteen-day forecast is a much weaker claim than a two-day one
-- a ⌂ appears on the left to jump back to today, and it comes back on its own after a few seconds, or if you tap away, press escape, or switch view or city
-- on a keyboard, shift with the left and right arrows steps through the days
-
-### more favourite cities
-- you can now star up to 9 cities instead of 6
-
-### current-hour marker stays live
-- the "now" time label, the current-hour highlight on the grid, and the day/night background now stay accurate even if you leave the app open, or step away and come back, without needing a fresh forecast
+- split the app into two versions: primary and classic. classic keeps the
+  layout and navigation as they were at v40, and continues to share the
+  forecast, colours, theming, caching and city handling with primary
 
 
 ## v40 (2026-07-27)

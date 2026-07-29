@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Maybe Rain?</title>
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Glanceable weekly weather: should I expect rain, and when?">
+    <!-- Link-preview card (Open Graph / Twitter). Static, so the same branded
+         card shows for every place: a per-city preview would need a server to
+         render per-place tags, and there's no backend (principle 5). Absolute
+         URLs, since crawlers don't resolve relative ones. -->
+    <meta property="og:title" content="Maybe Rain?">
+    <meta property="og:description" content="Glanceable weekly weather: should I expect rain, and when?">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mdomokos.github.io/maybe-rain/">
+    <meta property="og:site_name" content="Maybe Rain?">
+    <meta property="og:locale" content="en_NZ">
+    <meta property="og:image" content="https://mdomokos.github.io/maybe-rain/og.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="A week of Maybe Rain?'s hourly forecast grid, coloured by condition, beside the wordmark">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Maybe Rain?">
+    <meta name="twitter:description" content="Glanceable weekly weather: should I expect rain, and when?">
+    <meta name="twitter:image" content="https://mdomokos.github.io/maybe-rain/og.png">
+    <meta name="twitter:image:alt" content="A week of Maybe Rain?'s hourly forecast grid, coloured by condition, beside the wordmark">
+    <!-- Warm up the TLS connection to the forecast API before the first fetch
+         fires (preconnect pays off when there's a 100–300 ms gap ahead of the
+         request; here, the JS boot + geolocation resolve provide it). -->
+    <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.5f244688.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --gutter: 44px;    /* left space for time labels */
+            --gap: 6px;        /* horizontal gap between day columns */
+            --block-gap: 6px;  /* vertical gap between blocks in a column (matches --gap for an even grid) */
+            --overhang: 14px;  /* how far gridlines extend past the grid on the right */
+            --band: 6.25%;     /* height of one hour band = 100 / displayed rows (set from JS) */
+            --radius: 2px;     /* the one corner radius, used everywhere */
+            --line: rgba(255,255,255,0.25); /* one hairline for panels & controls */
+            /* The structural hairline: the chart gridlines and the header
+               separator both draw from this one token (0.3, stronger than
+               --line), so every full-width rule in the app reads as one system.
+               Change the line weight/colour here and both move together. */
+            --gridline: rgba(255,255,255,0.3);
+            /* vertical rhythm, 8px scale */
+            --sp-1: 8px; --sp-2: 16px; --sp-3: 24px; --sp-4: 32px;
+            /* Colour tokens. The gold accent with its two shades, the three
+               text greys, and the row hairline, named once here so the search
+               field and the settings menu draw from one set instead of
+               repeating literals. Values are the ones already in use. */
+            --accent: #FFD700;    /* gold: selection, focus, the one accent */
+            --accent-hi: #FFE44D; /* lighter gold, hover on filled controls */
+            --accent-lo: #E6C200; /* darker gold, press on filled controls */
+            --text: #fff;         /* primary text */
+            --text-muted: #ccc;   /* labels and the gear glyph */
+            --text-faint: #888;   /* inactive segmented options */
+            --divider: rgba(255,255,255,0.1); /* row hairline, softer than --line */
+            /* Surfaces and the dark foreground that sits on gold. With black
+               itself named, a future theme becomes a second block of values
+               with no component CSS touched. Grid hues, the skeleton fill, and
+               the gridline mesh stay literal, on the grid's own palette. */
+            --bg: #000;            /* the one black plane and every flush panel */
+            --on-accent: #000;     /* dark text and glyphs on a gold fill */
+            --marker: #fff;        /* the now/focus marker ring, and legend focus */
+            --scrim: rgba(0,0,0,0.72); /* dim behind the changelog modal */
+            --line-strong: rgba(255,255,255,0.6); /* button hover border, above --line */
+            /* Extra text greys past the main three, brightest to faintest. */
+            --tip-body: #d0d0d0;   /* tooltip body copy */
+            --tip-temp: #E0D875;   /* the temp figure in the block tooltip, muted yellow-gold */
+            --tip-rain: #87CEEB;   /* the rain figure in the block tooltip, from CONDITIONS light-rain */
+            --tip-wind: #50C878;   /* the wind figure in the block tooltip, from WIND_STOPS fresh green */
+            --text-dim: #666;      /* temp separator, dismiss, hints */
+            --text-dimmer: #555;   /* the off (unfavorited) star */
+            /* Status line states. */
+            --status-hover: #999;
+            --status-info: #777;   /* the quiet info chevron */
+            --status-stale: #B0B0B0;
+            /* Amber attention, softer than an error. */
+            --warn: #E0A83E;
+            --warn-strong: #F0C060; /* outdated, on hover */
+            --warn-bg: rgba(224,168,62,0.12);
+            --warn-bg-soft: rgba(224, 168, 62, 0.08);
+        }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', monospace;
+            padding: 20px;
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            min-height: 100dvh;
+            /* no grey tap flash; no double-tap zoom (pinch zoom still works) */
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            /* no long-press selection popups on the UI chrome */
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* keep the tooltip values and the search field selectable */
+        .tooltip, input {
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        /* Width follows viewport height so the grid keeps its portrait
+           proportions: larger screens get a larger grid, capped at 540px. */
+        .container { max-width: clamp(380px, 54vh, 540px); margin: 0 auto; }
+        .location-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            /* No flex gap: the breathing room before the ⚙ lives inside the
+               location button (as padding) so it's part of the hover/tap
+               target, with no dead sliver between the button and the gear. */
+            gap: 0;
+            /* Anchored to the grid, not floating above it: the header shares
+               the grid's left spine (gutter) and right edge (overhang), so the
+               city name lines up with the day columns and the ⚙ with the last
+               column. A hairline (::after) caps the strip; the gap to the grid
+               is tightened from --sp-4 so the title stops feeling stranded. */
+            padding: 0 var(--overhang) 10px var(--gutter);
+            margin-bottom: var(--sp-2);
+            /* Right inset shared by the search field and its results panel:
+               the field stops this far short of the right edge to clear the
+               ⚙, while the results panel cancels it out to span the full
+               grid width below. Change once, both stay in sync. */
+            --search-right: 44px;
+        }
+        /* Hairline cap spanning the full app area (left:0/right:0, the same
+           span as the chart gridlines) and drawn with the shared --gridline
+           colour, so the header separator and the gridlines read as one system. */
+        .location-wrapper::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-top: 1px solid var(--gridline);
+        }
+        /* Type hierarchy: city name and temps lead, the rest recedes */
+        .location {
+            font-size: 24px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: color 0.2s ease;
+            /* Fill the header row so the whole strip (city name plus the empty
+               space up to the ⚙) is one large button: hover paints all of it
+               gold and the arrow dips, matching a real click target. A long
+               place name still ellipsizes (min-width:0 + the name's overflow)
+               instead of pushing the gear or wrapping. */
+            flex: 1;
+            min-width: 0;
+            padding-right: 10px;   /* breathing room before the gear, still tappable */
+        }
+        .location-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+        }
+        .location-caret {
+            flex-shrink: 0;   /* the caret is never truncated */
+            opacity: 0.6;
+            display: inline-flex;
+            align-items: center;
+            transition: transform 0.2s ease;
+        }
+        .location-caret svg { width: 16px; height: 16px; display: block; }
+        .location:hover {
+            color: var(--accent);
+        }
+        .location:hover .location-caret {
+            transform: translateY(2px);
+        }
+        /* First-visit "Locating…" state: hide the change-city caret (there's
+           no place to change yet); the header can still be tapped to search. */
+        .location.locating .location-caret { display: none; }
+        /* Current-hour temperature, inline on the city name's baseline in the
+           former dead space before the ⚙. Same size/weight as the name (both
+           lead the hierarchy); gold ties it to the grid's now-marker. Answers
+           "what is it right now?" without spending a second header row. */
+        .location-now {
+            flex-shrink: 0;
+            font-size: 24px;
+            font-weight: 600;
+            line-height: 1;
+            color: var(--accent);
+            padding-left: 8px;
+        }
+        /* No reading (locating, or no data for the current hour): collapse it,
+           so nothing floats where a value would be. */
+        .location-now:empty { display: none; }
+        /* While searching, the field owns the strip: hide the readout so it
+           never sits stranded beside the input. */
+        .search-container.active ~ .location-now { display: none; }
+
+        /* Button styles */
+        .btn {
+            background: transparent;
+            border: 1px solid var(--line);
+            color: var(--text);
+            border-radius: var(--radius);
+            padding: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s ease;
+        }
+        .btn:hover, .btn:focus { border-color: var(--line-strong); outline: none; }
+        .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        /* Settings: the only menu in the app. */
+        .gear {
+            margin-left: auto;
+            border: none;    /* quiet: no outline, just the glyph */
+            font-size: 16px;
+            line-height: 1;
+            color: var(--text-muted);
+            padding: 6px 9px;
+        }
+        .gear:hover, .gear:focus-visible { color: var(--accent); }
+        .settings {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            /* Flush with the app, matching the search results list: opaque
+               black, no raised box, rows marked off by hairlines. The grid
+               behind dims (settings-open) so the panel reads on its own. */
+            background: var(--bg);
+            border: none;
+            border-radius: 0;
+            padding: 0;
+            z-index: 30;
+            min-width: 230px;
+            display: flex;
+            flex-direction: column;
+            font-size: 12px;
+        }
+        .settings.hidden { display: none; }
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 9px 12px;
+            color: var(--text-muted);
+        }
+        /* Hairline between rows, the same one the search results use. */
+        .setting-row + .setting-row { border-top: 1px solid var(--divider); }
+        /* Segmented control (settings rows + view toggle). No box: the options
+           sit as plain words, the active one gold with a gold underline, the
+           same accent language as the search field's underline and the
+           highlighted result. */
+        .seg {
+            display: flex;
+            gap: 10px;
+        }
+        .seg button {
+            background: transparent;
+            border: none;
+            /* 1px active underline: one gold line weight across the app,
+               matching the search-result underline and the sun lines. */
+            border-bottom: 1px solid transparent;
+            color: var(--text-faint);
+            font-family: inherit;
+            font-size: 12px;
+            padding: 4px 2px 3px;
+            cursor: pointer;
+        }
+        .seg button.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .seg button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+        /* Rain/temperature view toggle: one tap, near the grid. Shares its
+           row with the data-freshness line (freshness left, buttons right).
+           Right margin = --overhang, so the buttons align with the last
+           column, not the gridline overhang. */
+        .view-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-top: var(--sp-1);
+            margin-left: var(--gutter);
+            margin-right: var(--overhang);
+        }
+        .view-toggle .seg { flex: none; }
+        /* Slightly tighter than the base seg so the freshness line to its left
+           keeps its full text on narrow phones without ellipsis. */
+        .view-toggle .seg button { padding: 3px 2px 2px; font-size: 11px; }
+
+        /* Keyboard focus */
+        .location:focus-visible { color: var(--accent); outline: none; }
+        .weather-block:focus-visible {
+            outline: none;
+            box-shadow: inset 0 0 0 2px var(--bg), inset 0 0 0 4px var(--marker);
+            z-index: 1;
+            position: relative;
+        }
+
+        /* Loading states: skeleton grid, no spinner. The placeholder is the grid. */
+        .weather-block.skeleton {
+            background: #1c1c1c;
+            cursor: default;
+            animation: skeletonPulse 1.6s ease-in-out infinite;
+        }
+        @keyframes skeletonPulse {
+            0%, 100% { opacity: 0.45; }
+            50% { opacity: 1; }
+        }
+        .status.updating {
+            color: var(--text-faint);
+            animation: skeletonPulse 1.6s ease-in-out infinite;
+        }
+        /* Pixelated reveal when forecast data arrives: no fades. Each
+           block snaps on (dim briefly, then full) at its own discrete
+           tick, in dithered order across the grid. `backwards` fill keeps
+           a block invisible until its delay elapses; afterwards it returns
+           to natural styles, so the hover opacity transition keeps working. */
+        .weather-block.reveal {
+            animation: blockIn 120ms linear backwards;
+        }
+        @keyframes blockIn {
+            0% { opacity: 0; }
+            5%, 60% { opacity: 0.45; }
+            65%, 100% { opacity: 1; }
+        }
+        /* DR-6: one-shot ~2s pulse on cells whose forecast meaningfully
+           moved since the previous model run. Lives on a pseudo-element so
+           it composes with the reveal animation and its inline dither
+           delay; currentColor is the block's luminance-picked glyph color,
+           so the ring reads on any hue. Fires once: the class is set only
+           on the first render after a new model run. */
+        .weather-block.changed { position: relative; }
+        .weather-block.changed::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            box-shadow: inset 0 0 0 2px currentColor;
+            animation: changePulse 2s ease-out forwards;
+        }
+        @keyframes changePulse {
+            0%, 55% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .weather-block.skeleton, .status.updating { animation: none; opacity: 0.7; }
+            .weather-block.reveal { animation: none; }
+            /* No pulse; the was/now tooltip detail still works. */
+            .weather-block.changed::after { display: none; }
+        }
+        /* Temperature and day labels.
+           All three rows (temps, day labels, grid columns) share the same
+           left gutter, gap, and flex:1 items, so they stay column-aligned
+           at every width. */
+        .temp-row {
+            display: flex;
+            gap: var(--gap);
+            margin-bottom: var(--sp-1);
+            padding-left: var(--gutter);
+            padding-right: var(--overhang);
+        }
+        /* One-line temps "18/9": the ° is dropped here; the unit shows in
+           settings, tooltips, and the temp-view legend. Max is white-medium,
+           min is the lighter axis grey. */
+        .temp-item { flex: 1; text-align: center; white-space: nowrap; }
+        .temp-max { font-weight: 500; font-size: 14px; }
+        .temp-sep { color: var(--text-dim); font-size: 12px; }
+        .temp-min { color: var(--text-faint); font-size: 12px; }
+        /* Day label sits directly above its temps. */
+        .day-labels {
+            display: flex;
+            gap: var(--gap);
+            margin-bottom: 2px;
+            padding-left: var(--gutter);
+            padding-right: var(--overhang);
+        }
+        .day-label {
+            flex: 1;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .day-label.today {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        /* Chart and grid */
+        .chart {
+            position: relative;
+            /* pan-y keeps one-finger vertical scroll while the grid's own
+               swipe gestures (change view / city) read horizontal ones; it
+               also blocks an accidental browser pinch on the grid itself. */
+            touch-action: pan-y;
+            height: clamp(280px, 56vh, 720px);
+            padding-left: var(--gutter);
+            /* columns stop short of the right edge, so the full-width
+               gridlines overhang the grid on both sides */
+            padding-right: var(--overhang);
+            margin-top: 0;
+        }
+        .time-labels {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: calc(var(--gutter) - 8px);
+        }
+        .time-label {
+            position: absolute;
+            font-size: 11px;
+            color: var(--text-faint);
+            right: 0;
+            /* label is positioned at the vertical middle of its hour band;
+               translateY centers the text on that point so each label
+               lines up with its row of blocks */
+            transform: translateY(-50%);
+            font-weight: 300;
+        }
+        /* Hour label separators: a 1px line spans the full label gutter at the
+           top of each labeled row, marking it off from the label above. Confined
+           to .time-labels (gutter - 8px wide), so it stops short of the 8px gap
+           and never touches the grid field. Skipped before the first label and
+           after the last, so the grid's own top/bottom edges stay bare. */
+        .hour-sep {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.35);
+            pointer-events: none;
+        }
+        .chart-grid {
+            display: flex;
+            gap: var(--gap);
+            height: 100%;
+        }
+        /* Gapped "pixel" grid: no column outline. Each block is a discrete
+           rounded pixel; the gaps and gridlines provide the structure. */
+        .day-column {
+            flex: 1;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        /* Each hour band is exactly --band = 100% / displayed rows. A block
+           fills its band minus --block-gap of whitespace, split evenly above
+           and below so the block sits centered in its band and each gridline
+           runs down the middle of the gap between blocks (rather than the block
+           bottom resting flush on the line below it).
+           (px, not %, for the gap: percentage vertical margins resolve
+           against the column width, which was the old misalignment bug.)
+           Colors come inline from the JS CONDITIONS array, so no condition
+           data lives in CSS; flex centering plus inline color draw the glyph. */
+        .weather-block {
+            width: 100%;
+            height: calc(var(--band) - var(--block-gap));
+            margin-top: calc(var(--block-gap) / 2);
+            margin-bottom: calc(var(--block-gap) / 2);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: opacity 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            line-height: 1;
+            position: relative;   /* anchors the corner markers */
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* Corner markers: hazard icons bottom-right (storm/fog/freeze + heat/UV),
+           sky event bottom-left (moon phase / eclipse). Inline SVGs in the
+           block's luminance-picked contrast colour (currentColor); absolute so
+           they never disturb a centred wind arrow, and the two corners coexist
+           on the 21:00 block without overlapping. Flex lays stacked hazards
+           (heat + UV) in a row; anchored right, the box grows leftward. */
+        .block-mark {
+            position: absolute;
+            bottom: 1px;
+            right: 2px;
+            display: flex;
+            align-items: center;
+            /* Corner icon size. Bumped from 9px for legibility. Narrow phones
+               step down (below) so three stacked hazards still fit the column. */
+            font-size: 13px;
+            line-height: 1;
+            pointer-events: none;
+        }
+        .block-mark svg { width: 1em; height: 1em; display: block; }
+        .block-mark.sky { right: auto; left: 2px; }
+        /* DR-17 frost contour: a region-level outline on ACTUAL air temp. An
+           overlay inset over the block; the render sets a border only on the
+           sides that face out of the frozen (solid, 0 °) or near-freezing
+           (dashed, +3 °) region, so the borders of adjacent cells join into one
+           contour around the region. Solid = certain freezing, dashed = possible
+           frost, reusing the rain view's dashed = possible / solid = certain
+           grammar. Lines only, never a fill: lightness is the temperature axis,
+           so a wash would make a near-freezing cell read warmer. */
+        .frost {
+            position: absolute;
+            inset: 0;
+            border-radius: var(--radius);
+            pointer-events: none;
+        }
+        /* Rain-streak overlay: the wrapper's width is the chance
+           channel (fill extent, anchored left, bare front edge); the SVG
+           pattern inside is the intensity channel. Sits under the corner
+           marks, clipped to the block's rounded corners. */
+        .rain-ov {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            border-radius: var(--radius);
+            pointer-events: none;
+        }
+        .rain-ov svg { width: 100%; height: 100%; display: block; }
+        /* Wind view: one SVG arrow centred in the block, rotated to the wind
+           octant by an inline transform. Larger than a corner mark so the
+           direction reads at a glance. */
+        .wind-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.5em;
+            height: 1.5em;
+        }
+        .wind-arrow svg { width: 100%; height: 100%; display: block; }
+        /* Inline SVG icons inherit currentColor and size to ~1em in each
+           context (MR_ICON set). One place so the chrome, tooltip, legend, and
+           status icons stay in step. */
+        .gear svg { width: 1em; height: 1em; display: block; }
+        .geo-btn svg { width: 1em; height: 1em; display: block; }
+        .status-icon { display: inline-flex; align-items: center; vertical-align: -0.18em; margin-right: 1px; }
+        .status-icon svg { width: 1.15em; height: 1.15em; display: block; }
+        .search-result .fav svg,
+        .search-result .forget svg,
+        .install-banner .dismiss svg,
+        .modal-close svg { width: 1em; height: 1em; display: block; }
+        .tooltip svg { width: 1em; height: 1em; vertical-align: -0.15em; }
+        .legend .swatch svg { width: 1em; height: 1em; display: block; }
+        .setting-row span svg { width: 1em; height: 1em; vertical-align: -0.15em; }
+        .weather-block:hover {
+            opacity: 0.8;
+        }
+        /* Current hour: a gold accent bar in the gutter just left of the block.
+           The current block is always in the first column (today), so the bar
+           sits on the black gutter background rather than on the block itself, so
+           it never fights the block colour (e.g. a sunny gold block) the way an
+           on-block gold ring would. Static; the axis marker reinforces the row. */
+        .weather-block.current {
+            z-index: 1;
+            position: relative;
+        }
+        .weather-block.current::before {
+            content: '';
+            position: absolute;
+            left: calc(-1 * var(--gap));
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            /* white, not gold: gold is reserved for sun/today/sunrise, and the
+               now-marker reading white cuts the app's overall gold fatigue */
+            background: var(--marker);
+            border-radius: 1px;
+            pointer-events: none;
+        }
+        /* Side "now" indicator: at the current hour the axis label reads the
+           exact current time to the minute, in white bold. The white block bar
+           above is the sole graphic marker: no triangle, no line across the
+           grid, no duplicated temperature. */
+        .time-label.now {
+            color: var(--text);
+            font-weight: 600;
+        }
+        .weather-block.empty {
+            background: transparent;
+            cursor: default;
+        }
+
+        /* Sunrise/sunset: one straight gold hairline across the full chart
+           width (same span as the gridlines) at today's exact minute,
+           behind the blocks, so it peeks out in the gaps (negative z-index
+           keeps the data pixels on top). Starts at the column field, clear
+           of the time labels; keeps the gridlines' right overhang. Per-day
+           exact times live in each covering block's tooltip. */
+        .sun-line {
+            position: absolute;
+            left: var(--gutter);
+            right: 0;
+            height: 0;
+            border-top: 1px solid var(--accent);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Horizontal gridlines removed: the block gaps carry the row rhythm on
+           their own, and the per-label edge ticks (.time-label::after) keep the
+           clock tied to the grid. This is the single biggest declutter: the
+           block grid now reads uninterrupted. */
+
+        /* Legend and tooltip.
+           Spectrum legend: both views render the same one-line strip of
+           blocks; conditions ordered sun → cloud → rain → storm → snow
+           (group labels beneath), or the heat scale in temp view. 2px gaps
+           and per-block radius match the grid. */
+        .legend {
+            display: flex;
+            justify-content: center;
+            align-items: stretch;
+            gap: 2px;
+            margin-top: var(--sp-3);
+            /* same gutter/overhang as the grid: the strip centers on the
+               column field, not the container */
+            padding: var(--sp-2) var(--overhang) 0 var(--gutter);
+            /* full-width separator, shared with the chart gridlines and the
+               header cap (one --gridline token drives all three) */
+            border-top: 1px solid var(--gridline);
+        }
+        .legend-step {
+            flex: 1;
+            max-width: 52px;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        .legend-step .swatch {
+            width: 100%;
+            /* slimmed from 14px: the palette still reads at a glance but the
+               strip gives its vertical space back to the grid */
+            height: 8px;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            line-height: 1;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        /* group label may be wider than its cell; neighbors are empty */
+        .legend-step span { min-height: 1.2em; white-space: nowrap; }
+        .legend-swatch { cursor: pointer; }
+        .legend-swatch:focus-visible { outline: 1px solid var(--marker); outline-offset: 1px; }
+        .tooltip {
+            position: absolute;
+            background: var(--bg);
+            color: var(--text);
+            padding: 8px 12px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            font-size: 12px;
+            width: max-content;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+        }
+        /* One fact per line, never wrapped mid-fact ("wind 6 km/h NW"
+           stays whole); the tooltip grows to fit instead. */
+        .tooltip div { white-space: nowrap; line-height: 1.5; }
+        /* The freshness explanation is prose, not facts: let it wrap and cap
+           the width so it reads as a paragraph rather than one long line. */
+        .tooltip.explain { width: auto; max-width: min(260px, calc(100vw - 16px)); padding: 10px 12px; }
+        .tooltip.explain div { white-space: normal; line-height: 1.45; margin-top: 7px; }
+        /* Title sits tight to the top; the muted rule under it groups the body. */
+        .tooltip.explain div:first-child { margin-top: 0; }
+        .tooltip.explain .tip-title {
+            font-size: 12px;
+            padding-bottom: 6px;
+            margin-bottom: 1px;
+            border-bottom: 1px solid var(--line);
+        }
+        /* Bold lead-ins ("Local", "Global") brighten so the eye lands on them. */
+        .tooltip.explain strong { color: var(--text); }
+        .tooltip.explain .tip-body { color: var(--tip-body); }
+        /* The docs link gets extra separation from the body prose. */
+        .tooltip.explain .tip-link { margin-top: 10px; font-size: 11px; }
+        /* Link inside the explanation (gold accent; the tooltip becomes
+           interactive so it can be clicked; see showTooltip). */
+        .tooltip a { color: var(--accent); text-decoration: underline; }
+        .tooltip a:hover { color: var(--text); }
+
+        /* Block hover tooltip: header, three view-ordered main lines (temp,
+           rain, wind; always present, only the active view's line gets the
+           big/bright treatment), a divider, one muted detail line, and hazard
+           chips. Capped width so the detail line wraps instead of stretching
+           the tooltip; the header and main lines keep the default nowrap and
+           stay single-line. */
+        .tooltip.block { width: max-content; max-width: min(240px, calc(100vw - 16px)); }
+        .tooltip .tip-when {
+            display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+            padding-bottom: 4px; margin-bottom: 5px; border-bottom: 1px solid var(--divider);
+        }
+        .tooltip .tip-when .d { color: var(--text-muted); font-weight: 600; }
+        .tooltip .tip-when .t { color: var(--text-faint); }
+        /* Active-view main line: big and bright. Inactive views share one
+           quieter size/weight/color so nothing drops out, it just recedes. */
+        .tooltip .tip-hero { font-size: 21px; font-weight: 600; line-height: 1.15; color: var(--text); }
+        .tooltip .tip-hero.dim { font-size: 15px; font-weight: 500; color: #eee; }
+        .tooltip .tip-temp { margin-top: 2px; }
+        .tooltip .tip-rain { margin: 1px 0 5px; }
+        .tooltip .tip-wind { margin: 1px 0 5px; }
+        /* Accent tint applies only when that view's line is the active one. */
+        .tooltip .tip-temp .tip-hero:not(.dim) { color: var(--tip-temp); }
+        .tooltip .tip-rain .tip-hero:not(.dim) { color: var(--tip-rain); }
+        .tooltip .tip-wind .tip-hero:not(.dim) { color: var(--tip-wind); }
+        /* Snow (sleet) drops to its own line under the rain amount, inheriting
+           whatever weight/size the rain line has for the active view. */
+        .tooltip .tip-snow { display: block; }
+        .tooltip .tip-divider { border-top: 1px solid var(--divider); margin: 6px 0 5px; }
+        .tooltip .tip-ctx { white-space: normal; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+        /* Detail line: active-view fact leads, shared facts trail on the same
+           line, wrapping to a second line only when it doesn't fit. */
+        .tooltip .tip-detail { color: var(--text-muted); }
+        .tooltip .tip-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        /* Reuse the amber status button (see .status.outdated) for the chips. */
+        .tooltip .tip-chip {
+            color: var(--warn);
+            background: var(--warn-bg);
+            border: 1px solid var(--warn);
+            border-radius: var(--radius);
+            padding: 3px 9px;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+
+        /* Shared modal shell: a panel over a scrim, opened only from the
+           settings menu so nothing steals attention on its own. Both the
+           changelog ("What's new") and the hourly-data explainer use this
+           same scrim/panel/head/close family; only their body content (and,
+           for the wider explainer, the panel's size) differs, so those stay
+           in modal-specific rules below instead of duplicating the shell. */
+        .modal-scrim {
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--scrim);
+            padding: max(20px, env(safe-area-inset-top))
+                     max(20px, env(safe-area-inset-right))
+                     max(20px, env(safe-area-inset-bottom))
+                     max(20px, env(safe-area-inset-left));
+        }
+        .modal-scrim.hidden { display: none; }
+        .modal-panel {
+            display: flex;
+            flex-direction: column;
+            width: min(460px, 100%);
+            max-height: min(80vh, 720px);
+            /* Flush black like the settings menu, not a raised box. The 1px
+               frame stays because this modal floats on its own dark scrim,
+               where a borderless panel would lose its edge. */
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            font-size: 12px;
+        }
+        /* Wider/taller variant for the hourly-data explainer, which embeds a
+           full illustrated page rather than a short <pre> of changelog text. */
+        .modal-panel.wide {
+            width: min(720px, 100%);
+            height: min(85vh, 900px);
+            max-height: none;
+        }
+        .modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex: none;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--divider);
+        }
+        .modal-head strong { font-size: 13px; color: var(--text); }
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 15px;
+            line-height: 1;
+            padding: 4px 6px;
+            cursor: pointer;
+        }
+        .modal-close:hover, .modal-close:focus-visible { color: var(--accent); }
+
+        /* Changelog body: CHANGELOG.md turned into real elements (headings,
+           lists, inline code) by the small line-based parser in
+           renderChangelog, rather than a single <pre> dump. Still no
+           markdown library and no extra network request: same file, a
+           little more parsing logic, styled with the tokens already in this
+           stylesheet. */
+        .changelog-body {
+            overflow-y: auto;
+            margin: 0;
+            padding: 8px 14px 16px;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-size: 12px;
+            line-height: 1.5;
+            overflow-wrap: break-word;
+        }
+        /* "v43" leads each release, gold and a step larger; the date trails
+           in a muted, smaller weight so the version number stays the eye's
+           anchor when scanning down the list. */
+        .changelog-body h2 {
+            margin: 18px 0 4px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        .changelog-body h2:first-child { margin-top: 0; }
+        .changelog-body h2 .cl-date {
+            font-weight: 400;
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-left: 5px;
+        }
+        /* Section headers ("### swiping between views") stay in the body
+           colour, one step down from the version, so the gold reads as
+           "release", not "topic". */
+        .changelog-body h3 {
+            margin: 10px 0 4px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .changelog-body ul {
+            margin: 0 0 8px;
+            padding-left: 16px;
+        }
+        .changelog-body li {
+            margin: 3px 0;
+        }
+        .changelog-body li::marker { color: var(--accent); }
+        /* The intro line ("what changed, newest first...") ahead of the
+           first version heading. */
+        .changelog-body p { margin: 0 0 12px; color: var(--text-dim); }
+        .changelog-body code {
+            font: inherit;
+            background: rgba(255,255,255,0.08);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+
+        /* Hourly-data explainer body: how-hourly-data-is-made.html in an
+           iframe. The iframe's src is set only on open and cleared on close
+           (see openHourly/closeHourly) so the page's ~70KB and its own
+           script never load until the user actually asks to see it, and
+           don't linger in memory once dismissed. */
+        .hourly-body {
+            flex: 1;
+            min-height: 0;
+        }
+        .hourly-body iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: var(--bg);
+            display: block;
+        }
+
+        /* Status and animations. Centered on the column field like the
+           legend. No hue of its own: gold is reserved for now/today/sun and
+           the palette for conditions, so the status text carries the state
+           in words. */
+        /* Data-freshness line: shares the view-toggle row, sits to the left
+           of the rain/temp/wind buttons. Ellipsizes so long states never
+           push the buttons out of alignment. */
+        /* The freshness line is also the refresh button: click/tap refetches,
+           hover/focus explains. */
+        /* Wrap holds the freshness label (refresh button) plus the ⓘ that
+           owns the explanation, so hovering/tapping the label just refreshes
+           and the info is a separate, non-intrusive target. */
+        .status-wrap {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .status {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-align: left;
+            flex: 0 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-family: inherit;
+        }
+        .status:hover { color: var(--status-hover); }
+        .status:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+        /* Info affordance for the freshness explanation. A small down chevron
+           (inline SVG, hairline) reads as "reveal details" and stays muted so
+           it doesn't compete with the state text. The SVG inherits colour via
+           currentColor, so hover just brightens it. */
+        .status-info {
+            flex: none;
+            padding: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            color: var(--status-info);
+            background: none;
+            border: none;
+            cursor: help;
+        }
+        .status-info svg { display: block; width: 12px; height: 12px; }
+        .status-info:hover { color: var(--text); }
+        .status-info:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+        .status.stale {
+            color: var(--status-stale);
+        }
+        /* Out of date / update CTAs: "↻ Update forecast", "↻ Update app", and
+           the "New version · see ⚙" note all share this one button. Same shape
+           and behaviour as the settings-panel .btn (1px border, --radius, smooth
+           transition, border brightens on hover) so every button in the app
+           reads as one family; recoloured amber with a soft --warn-bg fill so it
+           carries more colour and pulls the eye as an attention CTA. The ↻ glyph
+           doubles the "refresh" signal for colour-blind users. Kept at the row's
+           11px scale (not the settings 12px) so it lines up with the
+           rain/temp/wind toggles beside it instead of towering over them. Like
+           the resting line it may shrink and ellipsize (flex 0 1 auto, min-width
+           0) so a long state never pushes the toggles out of the row on a narrow
+           phone. */
+        .status.outdated {
+            color: var(--warn);
+            flex: 0 1 auto;
+            min-width: 0;
+            background: var(--warn-bg);
+            border: 1px solid var(--warn);
+            border-radius: var(--radius);
+            padding: 3px 9px;
+            transition: all 0.2s ease;
+        }
+        .status.outdated:hover { color: var(--warn-strong); border-color: var(--warn-strong); }
+        .fade-in {
+            animation: fadeIn 0.25s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .hidden {
+            display: none;
+        }
+
+        /* Install banner: bottom-center pill, dismissible, remembered.
+           Hidden by default in CSS, since it must never pre-empt the forecast.
+           JS adds .revealed only after the grid has painted real data once
+           and a short read delay has elapsed (see maybeScheduleInstallBanner).
+           Shown once per device until installed or dismissed. */
+        .install-banner {
+            position: fixed;
+            left: 50%;
+            bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+            transform: translateX(-50%);
+            /* Flush black with a hairline frame, like the changelog panel.
+               The frame stays because the pill floats over the grid with no
+               dim behind it, so a borderless panel would lose its edge. */
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 10px 12px;
+            display: none;              /* revealed only via .revealed */
+            align-items: center;
+            gap: 12px;
+            font-size: 12px;
+            z-index: 50;
+            max-width: calc(100vw - 32px);
+        }
+        .install-banner.revealed { display: flex; animation: installIn .25s ease-out; }
+        /* Opacity-only fade: animating transform would fight translateX(-50%). */
+        @keyframes installIn { from { opacity: 0; } to { opacity: 1; } }
+        /* Gold-fill Install button, the same accent-filled treatment as the
+           geo button, so the one action the banner wants reads as tappable. */
+        .install-banner .btn {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--on-accent);
+            font-weight: 600;
+            padding: 5px 12px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .install-banner .btn:hover, .install-banner .btn:focus { background: var(--accent-hi); border-color: var(--accent-hi); }
+        .install-banner .btn:active { background: var(--accent-lo); border-color: var(--accent-lo); }
+        /* iOS has no button: the share-sheet hint carries the gold instead. */
+        .install-banner .hint { color: var(--accent); font-weight: 600; }
+        .install-banner .dismiss {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            line-height: 1;
+            padding: 4px;
+        }
+        .install-banner .dismiss:hover { color: var(--text); }
+
+        /* Search functionality.
+           When active the field overlays the whole header (absolute, filling
+           the wrapper minus the gear on the right) rather than sitting beside
+           the city name. This decouples the search width from the place-name
+           length: a long name can never squeeze the field on a narrow screen.
+           The opaque panel covers the name it replaced; the gear stays clear. */
+        .search-container {
+            position: absolute;
+            /* Extend 8px below the wrapper and pad the bottom by the same, so
+               the typed text stays vertically aligned with the city name it
+               replaced while the gold underline drops clear of it: no cramp. */
+            inset: 0 var(--search-right) -8px 0;   /* leave room for ⚙ on the right */
+            display: flex;
+            align-items: center;
+            /* Flush with the app: no raised #111 box, and no underline. The
+               field sits on the same black as everything else; the only gold
+               line in the search UI is the selection highlight above the
+               active result (see .search-result). No horizontal padding, so
+               the typed text starts exactly where the city name did, so the
+               field reads as the same element expanded, not a new box. */
+            background: var(--bg);
+            border: none;
+            border-radius: 0;
+            padding: 0 0 8px 0;
+            opacity: 0;
+            pointer-events: none;   /* hidden until opened, no fade/slide in */
+        }
+        .search-container.active {
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 10;
+        }
+        .search-input {
+            flex: 1;
+            min-width: 0;   /* let the field shrink beside the GPS button */
+            padding: 0;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-family: inherit;
+            /* One unified search size on every device (not matched to the
+               per-viewport city-name heading): the field only shows while the
+               name is hidden, so a single compact size reads the same on phone,
+               tablet, and desktop. */
+            font-size: 15px;
+            font-weight: 600;
+            /* type="search" adds native chrome (clear button, inner spin);
+               strip it so the field renders like the plain text input it replaced. */
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .search-input::-webkit-search-cancel-button,
+        .search-input::-webkit-search-decoration { -webkit-appearance: none; }
+        .search-input:focus {
+            outline: none;
+        }
+        /* Compact "use my location" control, inline at the right edge of the
+           search field: a solid gold square (theme accent + one corner radius)
+           with a dark GPS crosshair glyph, no label. */
+        .geo-btn {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            /* Clear the typed text on the left; the container's right inset
+               (--search-right) keeps this button clear of the ⚙ on the right. */
+            margin-left: 12px;
+            background: var(--accent);         /* solid gold, the app accent */
+            border: none;
+            border-radius: var(--radius);
+            color: var(--on-accent);                 /* dark glyph on the gold fill */
+            font-family: inherit;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .geo-btn:hover { background: var(--accent-hi); }   /* lighter gold */
+        .geo-btn:active { background: var(--accent-lo); }  /* darker gold */
+        .geo-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.55); }
+        .search-results {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            /* Cancel the field's right inset so the panel spans the full grid
+               width below and fully overlaps it, rather than stopping short
+               where the field does. */
+            right: calc(-1 * var(--search-right));
+            /* Butt flush against the opaque field container (top:100%) and keep
+               the breathing room as the panel's own opaque padding, not a
+               transparent margin. A margin here left a ~5px see-through seam
+               where the dimmed grid showed between the field and the list,
+               most visible on Android. */
+            padding-top: 5px;
+            /* Floats over the dimmed grid on the app's own black: no outline
+               box, just the list. */
+            background: var(--bg);
+            border: none;
+            border-radius: 0;
+            /* Longer list: scale with the viewport so it fills more of the
+               screen, instead of a fixed 200px. dvh overrides vh where
+               supported (accurate under mobile browser chrome). */
+            max-height: 60vh;
+            max-height: 60dvh;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        /* Themed scrollbar, shared by the search results and the changelog
+           body: a hairline-thin gold thumb on a transparent track, matching
+           the app's sunshine accent and the UI's thin lines. Firefox uses the
+           standard props; Chromium/Safari use the ::-webkit-scrollbar pseudos. */
+        .search-results,
+        .changelog-body {
+            scrollbar-width: thin;
+            scrollbar-color: var(--accent) transparent;
+        }
+        .search-results::-webkit-scrollbar,
+        .changelog-body::-webkit-scrollbar { width: 6px; }
+        .search-results::-webkit-scrollbar-track,
+        .changelog-body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .search-results::-webkit-scrollbar-thumb,
+        .changelog-body::-webkit-scrollbar-thumb {
+            /* 2px bg border + padding-box clip leaves a ~2px gold hairline,
+               floating clear of the panel edges */
+            background: var(--accent);
+            border: 2px solid var(--bg);
+            background-clip: padding-box;
+            border-radius: var(--radius);
+        }
+        .search-result {
+            /* Reserve a bottom hairline on every row; its colour is set below
+               (a soft divider between rows, gold under the selected row). This
+               is the one line in the search UI: it underlines the active result
+               and travels with the selection, spanning the full results width,
+               so it runs under the GPS and gear. */
+            border-bottom: 1px solid transparent;
+            padding: 6px 0 6px 12px;   /* no right pad: ✕ reaches the gear edge */
+            font-size: 13px;           /* one unified row size on every device */
+            cursor: pointer;
+            transition: color 0.2s ease, border-color 0.2s ease;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        /* City name leads (bold); the region recedes via opacity, so it dims
+           in white and follows the gold on the selected row (A3). */
+        .result-label {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .rl-city { font-weight: 600; }
+        .rl-region { opacity: 0.55; }
+        /* Favorites-cap advisory: amber, matching the app's "attention" accent,
+           softer than an error. Sits above the results until it self-clears. */
+        .fav-hint {
+            padding: 8px 12px;
+            font-size: 11px;
+            line-height: 1.3;
+            color: var(--warn);
+            background: var(--warn-bg-soft);
+            border-bottom: 1px solid var(--line);
+        }
+        /* Row actions align to the header controls above them: the ✕ remove
+           sits under the ⚙ gear (34px column, flush to the right edge), the ★
+           favorite under the GPS button (30px column + 10px gap reproduces the
+           gear→GPS spacing). An empty .forget-slot holds the ✕ column on rows
+           with no remove action so the ★ never shifts out of the GPS column. */
+        .result-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .search-result .forget,
+        .search-result .forget-slot {
+            width: 34px;              /* aligns the ✕ column under the ⚙ gear */
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-family: inherit;
+            font-size: 13px;
+            line-height: 1;
+            padding: 4px 0;
+        }
+        .search-result .forget { cursor: pointer; }
+        .search-result .forget:hover { color: var(--text); }
+        .search-result .fav {
+            width: 30px;              /* aligns the ★ column under the GPS button */
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            color: var(--text-dimmer);              /* muted outline star when not a favorite */
+            font-family: inherit;
+            font-size: 13px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 4px 0;
+        }
+        .search-result .fav.on { color: var(--accent); }   /* gold when favorited */
+        .search-result .fav:hover { color: var(--accent); }
+        /* Soft hairline between rows: every row but the last underlines itself,
+           so there's no line at the very bottom of the list (or under the
+           search bar at the top). */
+        .search-result:not(:last-child) {
+            border-bottom-color: var(--divider);
+        }
+        /* One active row at a time (hover and the keyboard drive the same
+           .highlighted class; see the mouseover sync in JS). The selected row
+           tints gold and underlines itself with the single gold line. This
+           works for the last row too (its own bottom border). Placed after the
+           divider rule so it wins at equal specificity. */
+        .search-result.highlighted {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        .container.search-active #content {
+            /* Dim the grid and disable its taps so a stray touch can't open a
+               tooltip while searching. The tap still reaches the document,
+               which reads it as an outside-click and closes search; that
+               dimmed area is the escape target. */
+            filter: brightness(0.4);
+            pointer-events: none;
+            transition: filter 0.3s ease;
+        }
+        /* Settings open dims the grid the same way search does, so the flush
+           panel reads against a calm backdrop and a tap on the grid closes the
+           menu (outside-click) rather than opening a tooltip. */
+        .container.settings-open #content {
+            filter: brightness(0.4);
+            pointer-events: none;
+            transition: filter 0.3s ease;
+        }
+
+        /* Mobile styles */
+        @media (max-width: 480px) {
+            :root {
+                --gutter: 36px;
+                --gap: 4px;
+                --block-gap: 4px;
+                --overhang: 10px;
+            }
+            body {
+                padding: 10px;
+                min-height: 100vh;
+                min-height: -webkit-fill-available;
+                min-height: 100dvh;
+            }
+            .container {
+                max-width: 100%;
+                height: 100vh;
+                height: -webkit-fill-available;
+                height: 100dvh;
+                display: flex;
+                flex-direction: column;
+            }
+            /* Let the grid absorb whatever height the screen has:
+               tall phones get a taller grid, everything stays one screen. */
+            #content {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+            }
+            .chart {
+                flex: 1;
+                height: auto;
+                min-height: 280px;
+                margin-top: var(--sp-1);
+            }
+            .location-wrapper {
+                margin-bottom: var(--sp-1);
+                padding-bottom: 6px;
+            }
+            .location, .location-now {
+                font-size: 18px;
+            }
+            .location-caret svg {
+                width: 14px;
+                height: 14px;
+            }
+            .time-label {
+                font-size: 10px;
+            }
+            .temp-max {
+                font-size: 13px;
+            }
+            .temp-min, .temp-sep {
+                font-size: 11px;
+            }
+            /* °F triple digits ("104/86" = 6 monospace chars) need a font
+               step down to fit a ~36px phone column. °C never triggers it. */
+            .temp-row.unit-f .temp-max { font-size: 10px; }
+            .temp-row.unit-f .temp-min, .temp-row.unit-f .temp-sep { font-size: 9px; }
+            .day-label {
+                font-size: 11px;
+            }
+            .legend {
+                margin-top: var(--sp-2);
+                padding-top: var(--sp-2);
+            }
+            .legend-step {
+                font-size: 9px;
+            }
+            /* Narrow columns: trim the corner icons a touch so a rare three-way
+               hazard stack (storm + heat + UV) still fits without overrunning
+               the block or the opposite corner's sky mark. */
+            .block-mark {
+                font-size: 11px;
+            }
+            html {
+                height: -webkit-fill-available;
+            }
+        }
+
+        /* Installed PWA on a phone: the app fills the screen. Lock the
+           viewport (no scroll, no rubber-banding) and pad into the safe
+           areas (viewport-fit=cover plus a translucent status bar mean
+           content otherwise runs under the notch/home bar). The .standalone
+           class is set from JS (display-mode media query + iOS legacy). */
+        @media (max-width: 480px) {
+            html.standalone, html.standalone body {
+                overflow: hidden;
+                overscroll-behavior: none;
+                height: 100dvh;
+            }
+            html.standalone body {
+                position: fixed;
+                inset: 0;
+                padding: calc(10px + env(safe-area-inset-top, 0px))
+                         calc(10px + env(safe-area-inset-right, 0px))
+                         calc(10px + env(safe-area-inset-bottom, 0px))
+                         calc(10px + env(safe-area-inset-left, 0px));
+            }
+            html.standalone .container { height: 100%; }
+            html.standalone .chart { min-height: 0; }
+        }
+
+        /* ------------------------------------------------------------------
+           Tablet / iPad. The phone rule (≤480px) fills the screen edge to
+           edge; the default rule centers a narrow ≤540px column. Between them
+           an iPad got that narrow column floating in a sea of black. These
+           two rules close the gap. Portrait is the intended orientation for a
+           vertical agenda grid, so it does the real work: the column widens
+           and the grid stretches to the bottom of the screen. Landscape (short
+           and wide) just stays tidy and centered. The landscape rule is gated
+           on pointer:coarse + a tall min-height so desktop/laptop browsers in
+           the same width range are never caught. */
+
+        /* Portrait tablet: fill the viewport height like the phone, but keep a
+           centered column with a larger cap and roomier margins. */
+        @media (min-width: 481px) and (orientation: portrait) {
+            /* A *definite* container height (not flex-grow inside a min-height
+               body) is required so the grid's percentage cell heights (--band)
+               resolve, the same approach the phone rule uses. Growing the
+               container with flex:1 fills the screen but collapses every cell
+               to ~0 height (an empty grid). calc(100dvh - 56px) accounts for
+               the 28px body padding top+bottom, so it fills without overflow. */
+            body { padding: 28px; }
+            .container {
+                max-width: min(820px, 90vw);
+                height: calc(100vh - 56px);
+                height: calc(100dvh - 56px);
+                margin: 0 auto;
+                display: flex;
+                flex-direction: column;
+            }
+            #content {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+            }
+            /* the grid absorbs the extra height so it reaches the bottom */
+            .chart {
+                flex: 1;
+                height: auto;
+                min-height: 360px;
+                margin-top: var(--sp-2);
+            }
+            /* larger lead type for the bigger canvas (grid cells scale with
+               the chart height on their own; these are the text elements) */
+            .location, .location-now { font-size: 28px; }
+            .location-caret svg { width: 18px; height: 18px; }
+            .time-label { font-size: 12px; }
+            .day-label { font-size: 13px; }
+            .temp-max { font-size: 15px; }
+            .temp-min, .temp-sep { font-size: 13px; }
+        }
+
+        /* Landscape tablet (touch, tall viewport): short and wide. Don't fill
+           height; center the portrait grid and cap it so it never overflows.
+           min-height rules out phones in landscape; pointer:coarse rules out
+           desktops. */
+        @media (orientation: landscape) and (min-height: 600px) and (pointer: coarse) {
+            body {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                min-height: -webkit-fill-available;
+                min-height: 100dvh;
+                padding: 24px;
+            }
+            .container { max-width: clamp(420px, 64vh, 600px); width: 100%; }
+            .chart { height: clamp(280px, 58vh, 620px); }
+        }
+
+        /* Desktop (fine pointer, wide landscape window). The default rule
+           leaves a ~540px column top-aligned with the top of the viewport, so
+           on a large screen it floats in the upper-centre with half the height
+           empty below. Centre it on both axes, lift the height-driven caps a
+           little so the canvas grows with the screen (still portrait, so the
+           day columns keep their proportions), and open the header→grid and
+           grid→legend gaps to match the bigger canvas. Gated on pointer:fine
+           so touch tablets (their own rules above) are untouched, and on a
+           min-width so a narrowed desktop window falls back to the plain
+           centred column. Placed before the window-controls-overlay block so
+           an installed desktop PWA's titlebar padding still wins. */
+        @media (min-width: 900px) and (pointer: fine) and (orientation: landscape) {
+            body {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                min-height: 100dvh;
+                padding: 24px;
+            }
+            .container { max-width: clamp(440px, 60vh, 600px); width: 100%; }
+            /* Let the grid use the tall desktop viewport: the width stays
+               capped (portrait day columns), but the height reaches most of
+               the screen so the blocks grow vertically instead of leaving the
+               lower half empty. */
+            .chart { height: clamp(300px, 74vh, 900px); }
+            /* section gaps scaled up for the larger canvas (the base 8px scale
+               stays elsewhere; only these two grouping gaps grow) */
+            .location-wrapper { margin-bottom: var(--sp-3); }
+            .legend { margin-top: var(--sp-4); }
+        }
+
+        /* desktop keyboard-shortcut reference in the settings pane */
+        .shortcuts-hint {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            color: var(--text-dim);
+            font-size: 11px;
+            border-top: 1px solid var(--line);
+            padding: 10px 12px 12px;
+            margin-top: 2px;
+        }
+        .shortcuts-hint .sc { display: flex; justify-content: space-between; gap: 12px; }
+        .shortcuts-hint .sc span:last-child { color: var(--text-faint); letter-spacing: 0.04em; }
+
+        /* Window Controls Overlay: on Chromium desktop the black background
+           extends into the OS title bar. The drag strip keeps the window
+           movable; content is padded below it. display:none outside this
+           display mode, so mobile, standalone, and browser are unaffected. */
+        .titlebar-drag { display: none; }
+        @media (display-mode: window-controls-overlay) {
+            .titlebar-drag {
+                display: block;
+                position: fixed;
+                top: 0;
+                left: env(titlebar-area-x, 0);
+                width: env(titlebar-area-width, 100%);
+                height: env(titlebar-area-height, 33px);
+                -webkit-app-region: drag;
+                app-region: drag;
+                z-index: 40;
+            }
+            body { padding-top: calc(env(titlebar-area-height, 33px) + 8px); }
+            /* keep controls clickable if any reaches the bar */
+            .location, .gear, .btn, .search-container {
+                -webkit-app-region: no-drag;
+                app-region: no-drag;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="titlebar-drag" aria-hidden="true"></div>
+    <div class="container fade-in">
+        <div class="location-wrapper">
+            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span><span class="location-caret" id="locationCaret" aria-hidden="true"></span></div>
+            <div class="search-container" id="searchContainer">
+                <input type="search"
+                       class="search-input"
+                       id="searchInput"
+                       name="q"
+                       placeholder="Search city..."
+                       inputmode="search"
+                       enterkeyhint="search"
+                       autocomplete="off"
+                       autocorrect="off"
+                       autocapitalize="off"
+                       spellcheck="false"
+                       data-lpignore="true"
+                       data-1p-ignore
+                       data-form-type="other">
+                <button type="button" class="geo-btn" id="geoBtn"
+                        aria-label="Use my location" title="Use my location"></button>
+                <div class="search-results" id="searchResults"></div>
+            </div>
+            <span class="location-now" id="locationNow" aria-label="Current temperature"></span>
+            <button class="btn gear" id="gear" aria-label="Settings" aria-expanded="false"></button>
+            <div class="settings hidden" id="settings"></div>
+        </div>
+
+        <div id="content">
+            <div class="day-labels" id="days"></div>
+            <div class="temp-row" id="temps"></div>
+            <div class="chart">
+                <div id="sunLines"></div>
+                <div class="time-labels" id="times"></div>
+                <div class="chart-grid" id="grid"></div>
+            </div>
+            <div class="view-toggle" id="viewToggle">
+                <div class="status-wrap">
+                    <div id="status" class="status" tabindex="0" role="button"></div>
+                    <button class="status-info" id="statusInfo" aria-label="About forecast freshness"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+                </div>
+                <div class="seg">
+                    <button data-view="rain">rain</button>
+                    <button data-view="temp">temp</button>
+                    <button data-view="wind">wind</button>
+                </div>
+            </div>
+            <div class="legend" id="legend"></div>
+        </div>
+    </div>
+
+    <div class="install-banner" id="installBanner">
+        <span id="installText"></span>
+        <button class="btn" id="installGo">Install</button>
+        <button class="dismiss" id="installDismiss" aria-label="Dismiss"></button>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <div class="modal-scrim hidden" id="changelog" role="dialog" aria-modal="true" aria-label="What's new">
+        <div class="modal-panel">
+            <div class="modal-head">
+                <strong>What's new</strong>
+                <button class="modal-close" id="changelogClose" aria-label="Close"></button>
+            </div>
+            <div class="changelog-body" id="changelogBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-scrim hidden" id="hourly" role="dialog" aria-modal="true" aria-label="How hourly data is made">
+        <div class="modal-panel wide">
+            <div class="modal-head">
+                <strong>How hourly data is made</strong>
+                <button class="modal-close" id="hourlyClose" aria-label="Close"></button>
+            </div>
+            <div class="hourly-body" id="hourlyBody"></div>
+        </div>
+    </div>
+
+    <!-- Dev-time module split. build.mjs inlines every one of these
+         into a single <script> before minifying, so the published
+         page is one self-contained file with no extra requests.
+         Order matters: config declares the horizon the shared core
+         reads, and shared/ must be evaluated before app.js. -->
+    <script src="config.js"></script>
+    <script src="../shared/constants.js"></script>
+    <script src="../shared/dom.js"></script>
+    <script src="../shared/state.js"></script>
+    <script src="../shared/cache.js"></script>
+    <script src="../shared/settings.js"></script>
+    <script src="../shared/format.js"></script>
+    <script src="../shared/colors.js"></script>
+    <script src="../shared/icons.js"></script>
+    <script src="../shared/astro.js"></script>
+    <script src="../shared/wmo.js"></script>
+    <script src="../shared/forecast.js"></script>
+    <script src="../shared/api.js"></script>
+    <script src="../shared/places.js"></script>
+    <script src="../shared/install.js"></script>
+    <script src="../shared/sw-update.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
