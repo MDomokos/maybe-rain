@@ -2,6 +2,14 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.4.0 (2026-08-14)
+
+### the city sheet opens and closes
+- the sheet used to appear fully formed at the bottom of the screen in a single frame. it now rises into place over 140ms, and the dim behind it fades in with it
+- it leaves the same way, still holding its list. before, the rows were cleared in the same frame the sheet was hidden, so the last thing drawn was an empty black box
+- the bottom control row fades as the sheet arrives instead of blinking out
+- a sheet reopened while the previous one is still leaving cancels the exit and starts clean
+
 ## v2.3.0 (2026-08-13)
 
 ### the grid now shows what the sky actually looks like

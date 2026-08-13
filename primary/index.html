@@ -440,6 +440,27 @@
            only double the dimming. Still there, still catching the tap that
            dismisses. */
         .sheet-scrim.clear { background: transparent; }
+        /* The sheet arrives and leaves. It used to flip `hidden` and appear
+           fully formed at the bottom of the screen, which reads as a repaint
+           rather than as something opening: the one surface that covers the
+           grid gave no sign of where it came from. 140ms of rise, and the
+           scrim fades with it so the two read as one movement.
+
+           Short on purpose. The drag path shows the sheet while a finger is
+           already moving toward it, so anything longer would have the list
+           still settling under a thumb that has arrived. */
+        @keyframes sheetIn { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+        @keyframes sheetOut { from { transform: none; opacity: 1; } to { transform: translateY(10px); opacity: 0; } }
+        @keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes scrimOut { from { opacity: 1; } to { opacity: 0; } }
+        .city-sheet.sheet-in { animation: sheetIn 140ms ease-out; }
+        .city-sheet.sheet-out { animation: sheetOut 140ms ease-in forwards; }
+        .sheet-scrim.sheet-in { animation: scrimIn 140ms ease-out; }
+        .sheet-scrim.sheet-out { animation: scrimOut 140ms ease-in forwards; }
+        /* On the way out the rows are still drawn (they are what is fading)
+           but they are no longer a target: a tap landing during the exit
+           would aim at a list the app has already finished with. */
+        .city-sheet.sheet-out, .sheet-scrim.sheet-out { pointer-events: none; }
         .city-sheet {
             position: fixed;
             left: 0;
@@ -495,6 +516,12 @@
            because the row is the element the touch is captured on and it has
            to keep receiving the rest of the gesture. */
         .city-sheet.gesture .sheet-actions { display: none; }
+        /* The control row hands the screen over to the sheet. Without a
+           transition on it the whole bottom row (a 20px city name and three
+           44px buttons) blinked out in one frame, which read as a glitch
+           rather than as a handover. It fades on the sheet's own timing, so
+           the row leaves as the list arrives. */
+        #viewToggle { transition: opacity 140ms ease; }
         .container.switching #viewToggle { opacity: 0; }
         /* The readout takes the action row's place, at the control row's size,
            so the two coincide and the release is a swap rather than a move. */

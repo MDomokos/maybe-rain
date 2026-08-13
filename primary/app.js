@@ -13,6 +13,20 @@
 // DAY_SPAN, DAY_OFF_MAX and FORECAST_DAYS live in config.js: the shared
 // core reads the horizon, so it has to be declared before shared/ loads.
 const HOUR_SPAN = HOUR_END - HOUR_START + 1; // 16 slots
+
+// --- Reduced motion, asked once ----------------------------------
+// One query object rather than a fresh `matchMedia(...)` at every gesture.
+// The preference is read through `reduceMotion()` so the answer is always
+// current, and the `change` event lets a mid-session toggle reach the CSS
+// too: `html.reduce-motion` is what the stylesheet keys the rules it cannot
+// express in a media query alone (an entrance animation that must not run,
+// a transition that has to be zero for one frame while an element moves).
+const REDUCE_Q = matchMedia('(prefers-reduced-motion: reduce)');
+const reduceMotion = () => REDUCE_Q.matches;
+const syncReduceMotion = () =>
+    document.documentElement.classList.toggle('reduce-motion', REDUCE_Q.matches);
+REDUCE_Q.addEventListener?.('change', syncReduceMotion);
+syncReduceMotion();
 // Both offsets are transient view state, never persisted: the app always
 // opens on the default week and the default hours (principle 2).
 let dayOff = 0;   // lead day of the leftmost column; latched by the drawer
@@ -2718,10 +2732,28 @@ syncViewport();
 // modes is inside. Split out because search can open the sheet on its own
 // (⌘K reaches it with no city ever aimed at), and every route out of every
 // mode has to leave exactly the same nothing behind.
+// How long the sheet takes to leave. Entry is the same figure, spent in
+// CSS; only the exit needs the number here, because the markup inside the
+// sheet has to survive until the animation has finished with it.
+const SHEET_EXIT_MS = 140;
+let sheetExitTimer = null;
 const openSheetChrome = () => {
     hideSwipeHint();
-    $('sheetScrim').hidden = false;
-    $('citySheet').hidden = false;
+    // A reopen inside a still-running exit: finish the teardown now, so the
+    // sheet is opened onto clean state rather than onto the previous mode's
+    // rows with a fade playing over them.
+    if (sheetExitTimer) sheetExitTimer();
+    const sh = $('citySheet'), sc = $('sheetScrim');
+    sc.hidden = false;
+    sh.hidden = false;
+    // Restart the entrance even if one is already on the element: removing
+    // the class, forcing the reflow and adding it back is the one reliable
+    // way to replay a CSS animation.
+    sh.classList.remove('sheet-in');
+    sc.classList.remove('sheet-in');
+    void sh.offsetHeight;
+    sh.classList.add('sheet-in');
+    sc.classList.add('sheet-in');
     $('location').classList.add('sheet-open');
     $('location').setAttribute('aria-expanded', 'true');
 };
@@ -2762,25 +2794,49 @@ const setGestureMode = on => {
     document.querySelector('.container').classList.toggle('switching', on);
     $('citySheet').classList.toggle('gesture', on);
 };
+// Two halves, and the split is the point. Everything a caller may read on
+// the very next line (the mode, the highlight, focus, the control row) is
+// reset synchronously, exactly as before. Only the MARKUP waits: the rows
+// stay in the sheet until the exit animation has finished with them, so the
+// sheet leaves holding what it was showing instead of collapsing to an
+// empty black box for the length of the fade.
 const hideSheetChrome = () => {
     setGestureMode(false);
-    $('sheetScrim').hidden = true;
-    $('citySheet').hidden = true;
+    const sh = $('citySheet'), sc = $('sheetScrim');
     $('sheetList').setAttribute('aria-activedescendant', '');
-    if ($('citySheet').contains(document.activeElement)) $('location').focus({ preventScroll: true });
-    $('sheetList').innerHTML = '';
+    if (sh.contains(document.activeElement)) $('location').focus({ preventScroll: true });
     $('searchInput').value = '';
-    $('searchResults').innerHTML = '';
     searchHighlight = -1;
     sheetMode = 'places';
-    $('searchResults').hidden = true;
-    $('searchContainer').hidden = true;
-    $('settings').classList.add('hidden');
-    show($('sheetList'), true);
     $('location').classList.remove('sheet-open');
     $('location').setAttribute('aria-expanded', 'false');
     $('cityCount').textContent = '';
     renderLocation();
+
+    const wipe = () => {
+        sheetExitTimer = null;
+        sh.hidden = true;
+        sc.hidden = true;
+        sh.classList.remove('sheet-in', 'sheet-out');
+        sc.classList.remove('sheet-in', 'sheet-out');
+        $('sheetList').innerHTML = '';
+        $('searchResults').innerHTML = '';
+        $('searchResults').hidden = true;
+        $('searchContainer').hidden = true;
+        $('settings').classList.add('hidden');
+        show($('sheetList'), true);
+    };
+    if (sheetExitTimer) sheetExitTimer();
+    // Nothing on screen to animate away, or the preference says not to.
+    if (sh.hidden || reduceMotion()) { wipe(); return; }
+    sh.classList.remove('sheet-in');
+    sc.classList.remove('sheet-in');
+    sh.classList.add('sheet-out');
+    sc.classList.add('sheet-out');
+    const t = setTimeout(wipe, SHEET_EXIT_MS);
+    // The handle IS the finisher: calling it runs the teardown early and
+    // cancels the timer, so a reopen mid-exit has one thing to call.
+    sheetExitTimer = () => { clearTimeout(t); wipe(); };
 };
 
 const closeSheet = (commit = false) => {
