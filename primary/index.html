@@ -263,10 +263,23 @@
         .view-toggle .seg .segbar {
             position: absolute;
             bottom: 0;
+            /* 1px wide at the origin: the element is placed and sized by one
+               transform, so nothing here touches layout. scaleX is the width
+               in pixels, translateX the offset. */
+            left: 0;
+            width: 1px;
             height: 1px;
+            transform-origin: 0 50%;
             background: var(--accent);
             pointer-events: none;
+            /* A tap used to move this instantly while the grid below took
+               ~320ms to answer, so the label changed before the thing it
+               labels. It now travels on its own, slightly quicker than the
+               grid so it still arrives first. */
+            transition: transform 160ms ease;
         }
+        /* Driven off a finger: one easing at a time. */
+        .view-toggle .seg.bar-scrub .segbar { transition: none; }
         .view-toggle .seg.has-bar button.active { border-bottom-color: transparent; }
         /* --- The one-handed layout --------------------------------------
            Everything below is the redesign. It changes where controls sit and
@@ -305,6 +318,23 @@
         }
         .botcap > * { width: 100%; }
         .status-wrap[hidden] { display: none; }
+        /* Once the first render has run the three occupants stop being shown
+           and hidden and start being faded between: same cell, same fixed
+           height, one of them at opacity 1. The swap used to be a hard cut on
+           every touchstart and touchend, which on a line sitting directly
+           under the thumb read as a flicker rather than as one thing giving
+           way to another. `visibility` rides along so the two that are out
+           are not tab stops and cannot be read aloud. */
+        .botcap.stacked { display: grid; align-items: center; }
+        .botcap.stacked > * {
+            grid-area: 1 / 1;
+            transition: opacity 120ms ease, visibility 120ms;
+        }
+        .botcap.stacked > .cap-off {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
         /* The header is a readout in every state now: search happens in the
            sheet, so nothing up here ever has to get out of its way. */
 

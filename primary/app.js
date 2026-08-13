@@ -1405,13 +1405,27 @@ const legendLive = () => settings.legend && legendHeld && !statusTimer;
 // the attribute in the markup so they cannot flash before the first render,
 // and an attribute a class toggle never clears would outrank the class
 // forever.
+// They are stacked rather than swapped once the first render has run: all
+// three sit in the same grid cell and only opacity distinguishes them, so
+// the key arriving under a finger is a 120ms dissolve instead of a hard cut
+// on a line the eye is already resting on. The `hidden` attribute is still
+// what keeps them off the screen BEFORE that first render; `capReady` is
+// the one-way door between the two regimes.
 let hintLive = false;
+let capReady = false;
 const syncCaption = () => {
     const key = legendLive();
     const hint = !key && hintLive;
-    $('legend').hidden = !key;
-    $('swipeHint').hidden = !hint;
-    $('captionText').hidden = key || hint;
+    if (!capReady) {
+        capReady = true;
+        $('legend').hidden = false;
+        $('swipeHint').hidden = false;
+        $('captionText').hidden = false;
+        $('botcap').classList.add('stacked');
+    }
+    $('legend').classList.toggle('cap-off', !key);
+    $('swipeHint').classList.toggle('cap-off', !hint);
+    $('captionText').classList.toggle('cap-off', key || hint);
 };
 const holdLegend = on => {
     if (on === legendHeld) return;
@@ -1469,8 +1483,17 @@ const renderViewBar = (p = 0, dest = null) => {
     const to = k ? b : a;
     seg.classList.add('has-bar');
     bar.hidden = false;
-    bar.style.left = `${a.offsetLeft + (to.offsetLeft - a.offsetLeft) * k}px`;
-    bar.style.width = `${a.offsetWidth + (to.offsetWidth - a.offsetWidth) * k}px`;
+    // transform, not left/width: both of those are layout properties, and
+    // the bar is a 1px block whose whole job is to move. The base is 1px
+    // wide at x=0, so scaleX IS the width in pixels.
+    //
+    // A tap gets the CSS transition and slides; a scrub is already being
+    // driven frame by frame off the finger and must not have a second
+    // easing fighting it, so the transition comes off for the duration.
+    seg.classList.toggle('bar-scrub', k > 0);
+    const x = a.offsetLeft + (to.offsetLeft - a.offsetLeft) * k;
+    const w = a.offsetWidth + (to.offsetWidth - a.offsetWidth) * k;
+    bar.style.transform = `translateX(${x}px) scaleX(${w})`;
 };
 
 const renderViewToggle = () => {
