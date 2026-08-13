@@ -188,13 +188,12 @@ const renderTimes = () => {
 const renderSkeleton = () => {
     const { start, end, days } = visibleWindow();
     const rows = end - start + 1;
-    $('days').innerHTML = Array(days).fill('<div class="day-label">–</div>').join('');
-    $('temps').className = `temp-row${settings.unit === 'F' ? ' unit-f' : ''}`;
-    $('temps').innerHTML = Array(days).fill(
-        `<div class="temp-item"><span class="temp-max">–</span><span class="temp-sep">/</span><span class="temp-min">–</span></div>`
-    ).join('');
+    $('days').innerHTML = Array(days).fill('<div class="day-label">–<span class="day-date">–</span></div>').join('');
     renderTimes();
-    $('locationNow').textContent = ''; // no data yet, no readout
+    // Same reason, for the same instant: a city switch with nothing cached
+    // must not leave the previous city's readings sitting in the buttons.
+    // With no data in hand these fall to dashes, which is the honest state.
+    renderViewValues();
     $('sunLines').innerHTML = ''; // no data, no lines
     $('grid').innerHTML = Array(days).fill().map((_, d) =>
         `<div class="day-column">${
@@ -390,7 +389,11 @@ const updateStatus = () => {
                 '. Click to refresh.');
         } else {
             const tail = toNext > 0 ? `next ~${nextTimeLabel(m.nextUpdate)}` : 'update due';
-            setStatus(`Run ${runClockLabel(m.init)} · ${tail}`, '');
+            // The forecast clause rides in front of the freshness, and only
+            // here: every other branch of this function is a warning, and a
+            // warning does not share its line with the weather.
+            const said = conditionClause();
+            setStatus(`${said ? said + ' · ' : ''}Run ${runClockLabel(m.init)} · ${tail}`, '');
             $('status').setAttribute('aria-label',
                 `Forecast freshness: weather model last run at ${runClockLabel(m.init)}; ` +
                 (toNext > 0
@@ -427,24 +430,92 @@ const renderLocation = () => {
     // applies and the ↓ arrow pseudo-element is preserved.
     $('locationName').textContent = state.place.name;
 };
-// Current-hour temperature shown inline in the header. Independent of
-// the grid's visible hour window (all hours live in state.data), so it
-// still answers "what is it right now?" at night when the current hour
-// sits outside the 06:00–21:00 grid. Empty when there's no today column
-// or no reading for this hour; :empty CSS then collapses the node.
-const renderNowTemp = () => {
+
+// --- The view buttons as the readout ------------------------------
+// Each of the three view buttons shows the current hour's value for the
+// view it switches to: chance of rain, temperature, wind speed. The row
+// already existed and the buttons were already 44px wide for the tap
+// target, so this costs no layout; what it buys is three readings where
+// the app has only ever shown one, and a control that previews what
+// tapping it does.
+//
+// Read off state.data rather than the visible grid window, so the buttons
+// still answer "what is it right now?" at night, when the current hour
+// sits outside the 06:00–21:00 columns. This is the only place the app
+// prints the current temperature now that the header is gone.
+//
+// Every value is dropped rather than faked when the payload lacks it —
+// `pop` in particular is left null by the forecast layer rather than
+// guessed, so an unknown chance must not render as 0%.
+const viewReading = (h, v) =>
+    v === 'temp' ? (h.temp != null ? `${displayTemp(h.temp)}°` : null)
+  : v === 'wind' ? (h.wind != null ? `${displayWind(h.wind)}` : null)
+  : /* rain */     (h.pop  != null ? `${h.pop}%` : null);
+
+const renderViewValues = () => {
     const ti = state.days.findIndex(d => d.isToday);
-    const t = ti >= 0 ? state.data[ti]?.find(x => x.hour === cityNow().hour)?.temp : null;
-    $('locationNow').textContent = t != null ? `${displayTemp(t)}°` : '';
+    const h = ti >= 0 ? state.data[ti]?.find(x => x.hour === cityNow().hour) : null;
+    document.querySelectorAll('#viewSeg button[data-view]').forEach(b => {
+        const el = b.querySelector('.seg-val');
+        if (!el) return;
+        const t = h ? viewReading(h, b.dataset.view) : null;
+        el.textContent = t ?? '—';
+        el.classList.toggle('none', t == null);
+        // With no reading, the dash is decoration: hide it from the
+        // accessibility tree so the button's name falls back to the word
+        // it has always had, instead of announcing "em dash rain".
+        if (t == null) el.setAttribute('aria-hidden', 'true');
+        else el.removeAttribute('aria-hidden');
+    });
+    // The active value renders larger and a wind speed can reach three
+    // digits, so a button's width can change with its content. The
+    // underline is measured, not inherited, so it has to be re-measured
+    // after the text lands or it keeps the previous value's width.
+    renderViewBar();
 };
 // First-visit holding state, shown while the timezone guess resolves so
 // the hardcoded default never flashes before the real nearby city. The
-// .locating class hides the ↓ arrow; the title stays generic (no city).
+// .locating class hides the caret; the title stays generic (no city).
 const renderLocating = () => {
     document.title = 'Maybe Rain?';
     $('location').classList.add('locating');
     $('locationName').textContent = 'Locating…';
-    $('locationNow').textContent = '';   // no reading yet
+};
+
+// --- The conditions summary --------------------------------------
+// The header used to say the city and the current temperature. The city
+// has moved into the thumb's reach, so what is left here is the reading:
+// the current temperature at lead size (unchanged, .location-now), then
+// the three things a glance asks next, on one secondary line so they are
+// read after the number and not instead of it.
+//
+// Every part is dropped rather than faked when its data is missing, and
+// the "until" clause is derived from the hours actually in hand: it is
+// the first hour today whose condition group differs from the current
+// one, so it can never claim a change the payload does not contain.
+// The forecast in words, as one clause. It used to be its own line in the
+// header; the header is gone and this is now the first half of the status
+// line, which was already reserved and already ellipsizes. The order is
+// load-bearing: forecast first, freshness second, so on a narrow phone it is
+// the freshness that falls off the end and never the forecast.
+//
+// `feels 14°` is not here any more. It duplicated the tooltip, the temp
+// button now prints the reading it was qualifying, and it was what made the
+// line overflow in the first place.
+//
+// Returns '' rather than faking anything: no data, no clause, and the status
+// line is exactly what it was before.
+const conditionClause = () => {
+    const ti = state.days.findIndex(d => d.isToday);
+    const today = ti >= 0 ? state.data[ti] : null;
+    if (!today || !today.length) return '';
+    const h = cityNow().hour;
+    const now = today.find(x => x.hour === h);
+    if (!now) return '';
+    const rest = today.filter(x => x.hour > h);
+    const turn = rest.find(x => x.condition !== now.condition);
+    const until = turn ? ` until ${hourLabel(turn.hour)}` : '';
+    return `${now.description.toLowerCase()}${until}`;
 };
 
 // --- Render ------------------------------------------------------
@@ -1154,30 +1225,42 @@ const fitCols = (cols, nCols, nRows) => {
     return out;
 };
 
+// The row that labels the window. Split out of updateDisplay because a
+// page drag moves the window on every frame while the grid itself is
+// painted by the wave, and a strip that says a date the grid is no
+// longer showing is worse than no strip at all.
+//
+// The per-day min/max row that used to sit under this is gone. Every
+// temperature it carried is already in the grid it labelled, and the
+// tooltip gives the exact figure for any hour, so it was a summary of
+// the thing directly beneath it.
+const renderDayStrip = () => {
+    const { days, off } = visibleWindow();
+    const dayMeta = state.days.slice(off, off + days);
+
+    // Weekday over the real date. The grid can be paged to any day now,
+    // so a weekday letter alone would stop being an answer to "which day
+    // is this". Today stays gold, the marker it already had; it is not
+    // restated as a dot as well.
+    //
+    // The past class rides the same row as the blocks, so a receded column
+    // reads as one whole column sitting behind today. It used to go on the
+    // min/max row as well; that row is gone, and its share of the recession
+    // went with it.
+    $('days').innerHTML = dayMeta.map(day =>
+        `<div class="day-label ${day.isToday ? 'today' : ''}${day.past ? ' past' : ''}">${day.text}<span class="day-date">${+day.date.slice(8, 10)}</span></div>`
+    ).join('');
+};
+
 const updateDisplay = (anim = null) => {
     const { start, end, days, off } = visibleWindow();
     const rows = end - start + 1;
-    // The 7-column frame, starting at the drawer's day offset (0 at rest,
-    // so this is today-first and byte-identical to the pre-drawer render).
-    const shownDays = state.data.slice(off, off + days);
+    // The 7-column frame, starting at the paged day offset (0 at rest, so
+    // this is today-first). The strip that labels it is rendered
+    // separately, since a drag moves it far more often than this runs.
     const dayMeta = state.days.slice(off, off + days);
 
-    // The past class goes on all three rows (day label, temps, blocks),
-    // not just the grid, so a receded column reads as one whole column
-    // sitting behind today.
-    $('days').innerHTML = dayMeta.map(day =>
-        `<div class="day-label ${day.isToday ? 'today' : ''}${day.past ? ' past' : ''}">${day.text}</div>`
-    ).join('');
-
-    // Min/max over the displayed hour window as a one-line "18/9"
-    // pair, in the chosen unit (° implied; see .temp-item CSS).
-    $('temps').className = `temp-row${settings.unit === 'F' ? ' unit-f' : ''}`;
-    $('temps').innerHTML = shownDays.map((dayData, i) => {
-        const t = dayData.filter(h => h.hour >= start && h.hour <= end).map(h => h.temp);
-        const fmt = v => t.length ? String(displayTemp(v)) : '–';
-        return `<div class="temp-item${dayMeta[i]?.past ? ' past' : ''}"><span class="temp-max">${fmt(Math.max(...t))}</span><span class="temp-sep">/</span><span class="temp-min">${fmt(Math.min(...t))}</span></div>`;
-    }).join('');
-
+    renderDayStrip();
     renderTimes();
 
     const currentHour = cityNow().hour;
@@ -1211,7 +1294,8 @@ const updateDisplay = (anim = null) => {
     // animation can never re-fire on identical DOM.
     state.pulsePending = false;
 
-    renderNowTemp();
+    renderViewValues();
+    renderSwipeHint();
     updateStatus();
 
     // First real data paint: now it's safe to arm the install banner
@@ -1270,12 +1354,53 @@ const legendSteps = () => {
         { bg: `rgb(${SKY_DAY.storm})`, label: 'storm' }
     ];
 };
+// Whether the key is currently the caption slot's occupant. It is not a
+// resting element any more: it appears while a finger (or a pointer) is on
+// the grid, which is exactly when "what does this colour mean" is the
+// question being asked, and it gives the slot back on release.
+//
+// Two things it must never do. It must not move anything: the slot has a
+// fixed height, so the swap is a swap and not a reflow. And it must not
+// cover a transient status, since offline, stale and error messages all
+// pass through that line and a finger on the grid would otherwise hide the
+// fact that the data is wrong.
+// The one glyph the icon set does not already have. Drawn to MR_ICON's own
+// construction (24 box, 2px stroke, round caps) so it sits with the rest.
+const SHEET_ICON = {
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.2 16.2 21 21"/></svg>',
+    gear: MR_ICON.gear
+};
+let legendHeld = false;
+const legendLive = () => settings.legend && legendHeld && !statusTimer;
+// One line, three occupants, in priority order: the key while the grid is
+// being touched, the swipe hint on a first run, the status line otherwise.
+// They never coexist, so they never needed three homes.
+//
+// The `hidden` ATTRIBUTE, not the shared `hidden` class: the elements carry
+// the attribute in the markup so they cannot flash before the first render,
+// and an attribute a class toggle never clears would outrank the class
+// forever.
+let hintLive = false;
+const syncCaption = () => {
+    const key = legendLive();
+    const hint = !key && hintLive;
+    $('legend').hidden = !key;
+    $('swipeHint').hidden = !hint;
+    $('captionText').hidden = key || hint;
+};
+const holdLegend = on => {
+    if (on === legendHeld) return;
+    legendHeld = on;
+    syncCaption();
+};
+
 const renderLegend = () => {
     const legend = $('legend');
-    // Advanced users can hide the key entirely (⚙ Key → hide);
-    // block tooltips still name every condition on tap.
-    show(legend, settings.legend);
-    if (!settings.legend) { legend.innerHTML = ''; return; }
+    // The key can still be turned off outright (⚙ Key → hide), in which
+    // case it never appears at all; block tooltips still name every
+    // condition on tap.
+    if (!settings.legend) { legendHeld = false; syncCaption(); legend.innerHTML = ''; return; }
+    legend.classList.remove('hidden');
     legend.innerHTML = legendSteps().map(s => {
         // Condition swatches are interactive (tap = exact names) and
         // carry a luminance-picked glyph color; scale swatches are
@@ -1291,6 +1416,7 @@ const renderLegend = () => {
             <span>${s.label}</span>
         </div>`;
     }).join('');
+    syncCaption();
 };
 
 // Toggle shows only the views enabled in ⚙; hidden entirely when
@@ -1327,7 +1453,10 @@ const renderViewToggle = () => {
         b.style.display = settings.views[b.dataset.view] ? '' : 'none';
         b.classList.toggle('active', b.dataset.view === view);
     });
-    $('viewToggle').style.display = enabledViews().length > 1 ? '' : 'none';
+    // Only the three view buttons come and go. The row itself carries the
+    // city name and the status line, so hiding it would strand a phone
+    // user with one view enabled: no way to change city, no way to search.
+    $('viewSeg').style.display = enabledViews().length > 1 ? '' : 'none';
     renderViewBar();
 };
 const setView = (v, anim) => {
@@ -1714,15 +1843,18 @@ const refreshActiveTooltip = () => {
 // Index of the arrow-key-highlighted search row (-1 = none). Reset
 // whenever the results list is rebuilt or the panel closes.
 let searchHighlight = -1;
+// Search is done. The field is emptied and focus dropped so the global
+// keydown guard stops treating keystrokes as typing, and the sheet steps
+// BACK to the places rather than closing: search is a mode of it, and one
+// step back out of a mode is not the same thing as dismissing the sheet.
 const closeSearch = () => {
-    $('searchContainer').classList.remove('active');
-    document.querySelector('.container').classList.remove('search-active');
     $('searchInput').value = '';
     $('searchResults').innerHTML = '';
     searchHighlight = -1;
-    // Drop focus off the (now hidden) input so the global keydown
-    // guard stops treating keystrokes as typing, so arrows work at once.
     $('searchInput').blur();
+    if (sheetMode !== 'search') return;
+    if (favorites.length) setSheetMode('places');
+    else { sheet = null; hideSheetChrome(); }
 };
 
 // Native share sheet only on touch devices. On desktop, Web Share is
@@ -1941,33 +2073,30 @@ document.addEventListener('click', e => {
     }
 });
 
+// Search is the sheet's second mode. Opening it opens the sheet if it is
+// not already up, so ⌘K and the placeholder row land in the same place.
 const openSearch = () => {
-    toggleSettings(false);
-    if ($('searchContainer').classList.contains('active')) { $('searchInput').focus(); return; }
-    $('searchContainer').classList.add('active');
-    document.querySelector('.container').classList.add('search-active');
+    if (sheetMode === 'search') { $('searchInput').focus(); return; }
+    openSheetChrome();
+    // Give the sheet a list to step back to, so leaving search does not
+    // land on an empty body when search was what opened the sheet.
+    if (!sheet && favorites.length) {
+        sheet = {
+            via: 'tap',
+            aim: Math.max(0, sheetPlaces().length - 1),
+            cache: new Map(),
+            live: !matchMedia('(prefers-reduced-motion: reduce)').matches
+        };
+        renderSheet();
+    }
+    setSheetMode('search');
     renderSuggestions(''); // saved cities + geolocate, before any typing
     $('searchInput').focus();
 };
-// The whole top strip is the search target, not just the city name.
-// A tap anywhere in the header row opens search (the target is wide
-// and forgiving), except on the gear, the open settings panel, or the
-// active field/results themselves. No visible affordance: the header
-// reads as tappable on its own, and the ↓ arrow already hints "change".
-document.querySelector('.location-wrapper').addEventListener('click', e => {
-    // Selecting a result clears the list, detaching the clicked row
-    // before this bubbles up; a detached target has no ancestors, so
-    // the .search-container guard below would miss and wrongly re-open
-    // search. Bail on detached targets (matches the outside-click guard).
-    if (!e.target.isConnected) return;
-    if (e.target.closest('#gear') || e.target.closest('.settings')) return;
-    if (e.target.closest('.search-container')) return; // don't re-fire on the open field
-    openSearch();
-});
-// Keyboard-operable location control
-$('location').addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSearch(); }
-});
+// The header strip is a readout now, not a control: the city name has
+// moved to the control row and search is reached through the sheet, so
+// tapping the summary does nothing. Only ⌘K, the sheet's search row and
+// the geolocation button open the field.
 
 // --- Settings menu: the app's only menu ---------------------------
 const renderSettings = () => {
@@ -2006,14 +2135,33 @@ const renderSettings = () => {
                </div>`
             : '');
 };
-const toggleSettings = open => {
-    const willOpen = open ?? $('settings').classList.contains('hidden');
-    $('settings').classList.toggle('hidden', !willOpen);
-    $('gear').setAttribute('aria-expanded', willOpen);
-    document.querySelector('.container').classList.toggle('settings-open', willOpen);
-    if (willOpen) renderSettings();
+// The sheet has three bodies and shows one at a time: the saved places, the
+// search results, and the menu. None of them is a panel of its own. Each is
+// a MODE of the same bottom sheet, so every one of them opens under the
+// thumb that asked for it rather than at the far end of the screen, and one
+// dismissal closes all three.
+let sheetMode = 'places';   // 'places' | 'search' | 'settings'
+const setSheetMode = m => {
+    sheetMode = m;
+    // The switch is a thing you hold open over the grid, so it is drawn on
+    // the scrim's own translucency and the scrim behind it stands down: you
+    // keep seeing the weather you are switching away from. Search and the
+    // menu are places you go, so they are opaque with the scrim behind.
+    $('citySheet').classList.toggle('switching', m === 'places');
+    $('sheetScrim').classList.toggle('clear', m === 'places');
+    show($('sheetList'), m === 'places');
+    $('searchResults').hidden = m !== 'search';
+    $('settings').classList.toggle('hidden', m !== 'settings');
+    if (m === 'settings') renderSettings();
+    renderActions();
 };
-$('gear').onclick = () => { closeSearch(); toggleSettings(); };
+// Kept as a name because a dozen call sites already say "close the menu"
+// and mean it, including Escape and the outside-click guard.
+const toggleSettings = open => {
+    const willOpen = open ?? sheetMode !== 'settings';
+    if (willOpen) setSheetMode('settings');
+    else if (sheetMode === 'settings') setSheetMode('places');
+};
 $('settings').addEventListener('click', e => {
     const seg = e.target.closest('button[data-key]');
     if (seg) {
@@ -2171,490 +2319,703 @@ const closeHourly = () => {
 };
 registerModal('hourly', closeHourly);
 
-// --- Grid gestures: one-finger swipe + arrow keys ----------------
+// --- Grid gestures: date paging ----------------------------------
+// One axis, one meaning. The grid field is the calendar surface, so a
+// horizontal drag on it pages the dates, the convention every calendar
+// on the phone already teaches. Both gestures that used to live here
+// are gone. The view swipe, because the control row's three buttons are
+// the answer now and a gesture that only duplicates a visible button
+// earns nothing. The city swipe, because the city name is the switcher
+// now and a sheet you release onto is a better aim than a rail you
+// balance on.
+//
+// What is left is one drag with one outcome, and nothing to arbitrate
+// against: a vertical drag on the grid claims nothing and falls through
+// to the page.
+//
+// THE FRAME STILL DOES NOT MOVE. Paging slides the seven-column window
+// over more days and repaints the blocks; the grid is never translated
+// off-screen. The carousel this resembles from the outside was ruled
+// out on exactly that ground and the reason survives the redesign: with
+// the frame pinned, a transition can only change how a block is
+// coloured, never where it is, so the week reads as the same grid
+// holding new information rather than as a new screen arriving.
+//
+// The mechanism is the day drawer's, moved from its rail onto the grid.
+// Same notch math (mapRailNotches, with its dwell), same sensitivity,
+// same crossfade between notches, same ways home. Only the origin
+// changed, and the origin gate it used to need went with it.
 const chart = document.querySelector('.chart');
-// Vertical stepping used to live here as `stepCity`, a plain jump with
-// no rail, no counter and no animation of its own beyond the grid's
-// wave. It is gone: DR-32 left the keyboard out of the detented
-// selector entirely, and `keyStepCity` below (defined next to the rail
-// machinery it now drives) replaces it, closing that gap. See
-// SPEC.md's DR-32, "The keyboard was left alone", for the decision
-// this supersedes.
+
 const stepView = dir => {
     const enabled = enabledViews();
     if (enabled.length < 2) return;
     const i = enabled.indexOf(view);
     // Horizontal wave: the new view enters from the side it sits on, so
-    // next (→ in the toolbar) fills right→left and previous fills left→right.
+    // next (right in the control row) fills right-to-left.
     setView(enabled[(i + dir + enabled.length) % enabled.length], { type: 'wave', axis: 'x', dir: -Math.sign(dir) });
 };
 
-// One-finger gestures on the grid. HORIZONTAL cycles views (swipe
-// left = next, carousel-style), guarded as before: >60px, one axis
-// clearly dominant, single finger, decided on release. The toggle
-// buttons remain the visible state indicator. VERTICAL is no longer a
-// one-shot step. See the DR-32 selector below.
-//
-// A touch that stays under the swipe threshold is a plain tap and
-// is left alone here: it falls through to the browser's own
-// trailing synthetic click, which the shared click handler above
-// already treats as tap-to-pin (same code path as a mouse click).
-// DR-24 (reverts DR-18 through DR-23): those decisions replaced
-// this plain tap with a press-and-hold gesture (dwell-gated
-// against this same swipe, live drag-to-scrub, a further hold
-// threshold to lock the tooltip open, haptic ticks on open/scrub/
-// lock). In daily use, hold-to-open turned out worse than the tap
-// it replaced: fiddly to trigger deliberately, and the thing it
-// was meant to fix (closing needed an exact re-tap on a small
-// block) is no longer a problem once tap-elsewhere-to-close (see
-// the click handler above) does that job instead of same-block
-// re-tap alone. See SPEC.md DR-24 for the full writeup.
-//
-// DR-25/26/27 (long-press-to-pin, its haptics, and drag-to-scrub
-// once pinned) were tried on top of this and then dropped, per
-// DR-28: an open (non-pinned) tooltip already survives a city/view
-// swipe on its own (activeBlock/refreshActiveTooltip below
-// re-targets the same grid position on every repaint, and a swipe
-// never fires the trailing click that would close it), which
-// turned out to be all the "compare across a swipe" behavior
-// actually needed; the separate pinned tier and its gestures were
-// extra complexity without a use it uniquely served. See SPEC.md
-// DR-28. What's left is exactly the DR-24 shape: swipe detection
-// only, no timers, no pin state, no haptics.
-// DR-32 (2026-07-28) replaces the vertical half of the above with a
-// detented multi-step selector. DR-30 (2026-07-28) replaces the
-// horizontal half with a scrub: the same 60px still decides it, but the
-// wave now plays under the finger and the outcome is read off where the
-// playhead was left rather than off a distance measured at release.
-//
-// Vertical travel maps to a CONTINUOUS position in the ★ list, which is
-// CLAMPED at both ends rather than wrapping: the first and last
-// favourite are hard stops, not neighbours. Each city owns a band whose
-// first half (DWELL) is PARKED, the target does not change and the
-// indicator visibly stops while the finger keeps moving, and whose
-// second half crosses to the next. That is what "somewhere to aim"
-// means mechanically: the list has detents, like a rotary switch,
-// rather than knife-edges to balance on. It is safe to add despite
-// DR-18/19/24 because it is a DISTANCE threshold, the class this
-// project already trusts (the 60px commit, the 10px slop), not the
-// time-or-velocity class that burned those decisions.
-const STEP_PX = 90;                     // travel the FIRST city costs
-const DWELL = 0.5;                      // share of each step spent parked
-const RAMP_R = 0.86, RAMP_FLOOR = 0.55; // each city costs 86% of the last
-const CITY_SLOP = 10;                   // a touch is a tap until it moves this far
-const FLICK_VEL = 900, FLICK_MIN = 40;  // read ONCE, at release
-const VIBE_DETENT = [2];                // one 2ms tick, barely-there; Android only
-const RUNG_GAP = 17, RAIL_SPAN = 4;
+// A touch is a TAP until it has moved this far. Below it nothing renders
+// and nothing is preventDefault-ed, so the touch falls through to the
+// browser's trailing synthetic click and tap-to-open-tooltip runs
+// untouched. The two paths stay mutually exclusive by construction
+// rather than by a race, which is the sharpest constraint on this
+// handler and the one thing that must not regress.
+const PAGE_SLOP = 10;
+// One notch is one day, at the same travel the day rail already charged:
+// a column's width stretched by REVEAL_SENS, so the window can be aimed
+// rather than thrown. Floored, so a narrow phone's thin columns cannot
+// make a whole day cost twenty pixels.
+const PAGE_UNIT_MIN = 44;
+const pageUnit = () => Math.max(PAGE_UNIT_MIN, ($('grid').clientWidth / DAY_SPAN) * REVEAL_SENS);
+// Honesty guard: with nowhere to go on either end there is nothing to page
+// to, so the gesture is suppressed outright rather than arming and then
+// doing nothing. `drawerLive` asks both ends, so dragging right into the
+// two past days works without this handler knowing the past exists.
+const pagingLive = () => drawerLive();
 
-// --- DR-30: the horizontal view scrub -----------------------------
-// Brought in line with the ★ list's own standard (owner call,
-// 2026-07-29): a bit more travel than the original 120, and a linger
-// before the transition starts rather than the screen moving from the
-// first pixel of the drag. 150 is the raw distance the drag now
-// spans; `scrubProgress` below is what actually turns that into the
-// dwell-then-ramp shape, borrowing the city selector's own DWELL
-// fraction so the two swipes stall the same way before they commit.
-const SCRUB_PX = 150;
-// The scrub's own linger: the first DWELL share of SCRUB_PX is a dead
-// zone where the screen does not move at all (the "pause on the
-// actual screen" the city selector already has), and only the
-// remainder ramps the wave toward the destination. Unlike the city
-// selector's growing list there is only ever one destination to ramp
-// toward here, so there is nothing beyond that first band to
-// floor/ceil; this is DWELL applied to a single step, not a list.
-const scrubProgress = travel => {
-    const dw = DWELL * SCRUB_PX, cr = SCRUB_PX - dw;
-    return travel <= dw ? 0 : Math.min(1, (travel - dw) / cr);
-};
-// Half of SCRUB_PX in PROGRESS terms, i.e. where `scrubProgress`
-// reaches 0.5, which the dwell above pushes out past SCRUB_PX/2 in
-// raw pixels. Kept as one derived constant so the live scrub (which
-// decides off `scrubProgress` directly) and the reduced-motion/
-// one-view fallback below (which has no progress to read, only a raw
-// distance) commit at the same pull either way.
-const SCRUB_COMMIT_PX = SCRUB_PX * (0.5 + 0.5 * DWELL);
-// A rewind is faster than a completion, but not instant: a scrub
-// abandoned at 15px would otherwise snap back inside a single frame.
-const REWIND_MIN_MS = 120;
-let viewScrub = null;  // { dir, dest, travel, cache } while a scrub is live
-
-// Reduced motion is the one thing that turns the scrub off outright
-// (owner call, 2026-07-28, closing DR-30's open question the opposite
-// way from its prototypes, which left the scrub following the finger on
-// the reasoning that direct manipulation is not really an animation).
-// With it on, the horizontal axis is byte-for-byte the pre-DR-30
-// gesture: nothing moves during the drag and the view swaps at
-// SCRUB_COMMIT_PX on release, which `paintGrid` already renders
-// instantly.
-const viewScrubLive = () => enabledViews().length >= 2
-    && !matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-// The destination grid for a view, built once per drag and reused. Same
-// city, same window, so it is the same shape by construction; `fitCols`
-// is belt and braces against a repaint landing mid-drag.
-const viewColsFor = v => {
-    if (viewScrub.cache.has(v)) return viewScrub.cache.get(v);
-    const ref = (wave ? wave.to : lastCols) || buildCols();
-    const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
-    const keep = view;
-    let built;
-    try { view = v; built = fitCols(buildCols(), nCols, nRows); }
-    finally { view = keep; }
-    viewScrub.cache.set(v, built);
-    return built;
-};
-
-const scrubView = dx => {
-    const en = enabledViews();
-    const want = dx < 0 ? 1 : -1;   // drag left = next, carousel-style
-    // Direction is the SIGN OF `dx`, re-read every move, so it re-locks
-    // the instant the drag returns through the origin. One unbroken
-    // touch can therefore go out toward temp, back past zero and on
-    // toward wind without lifting, the same requirement that got
-    // polarity rejected as a separator on the other axis: the return
-    // trip must have a gesture too.
-    //
-    // The prototype re-locks only within 4px of the origin. That is
-    // deliberately not ported: it is a threshold on the SAMPLING RATE
-    // rather than on the gesture, so a finger that crosses the origin
-    // faster than the events arrive skips the window and steers the
-    // wrong way, the class of failure DR-18/19 were reverted for.
-    // The sign of `dx` cannot be skipped, needs no constant, and says
-    // the same thing: the finger is on the other side of where it
-    // started. It also makes the mapping a pure function of position,
-    // which is what DR-32 insisted on for the other axis.
-    if (want !== viewScrub.dir) {
-        viewScrub.dir = want;
-        viewScrub.dest = en[(en.indexOf(view) + want + en.length) % en.length];
-    }
-    const travel = Math.abs(dx);
-    viewScrub.travel = travel;
-    // The sweep enters from the side the destination sits on, the same
-    // coupling `stepView` uses for a tap or an arrow key. The underline
-    // is not driven from here: it is driven off the playhead in
-    // `waveFrame`, so the scrub, the completion and the rewind all move
-    // it by one rule instead of three.
-    scrubWave($('grid'), viewColsFor(viewScrub.dest), -viewScrub.dir,
-        scrubProgress(travel), viewScrub.dest);
-};
-
-// The one decision on this axis, made once, on release. A fast flick and
-// a slow drag both arrive here and differ only in where they left the
-// playhead, which is exactly the difference that should matter, so
-// there is no velocity term on this path at all. A flick was never a
-// different intention from a drag, only the same one performed quickly,
-// and it always travels far past the commit pull before the finger
-// lifts, so it already satisfies the only rule left. Removing the
-// detection does not remove the gesture; it stops treating it as a
-// special case.
-const endViewScrub = () => {
-    const vs = viewScrub;
-    viewScrub = null;
-    if (!vs) return;
-    const commit = vs.travel > SCRUB_COMMIT_PX;
-    if (!wave || !wave.scrub) {
-        // A repaint landed mid-drag and took the sweep with it. Nothing
-        // to complete or rewind; just honour the decision.
-        renderViewBar();
-        if (commit) setView(vs.dest, { type: 'wave', axis: 'x', dir: -vs.dir });
-        return;
-    }
-    wave.scrub = false;
-    if (commit) {
-        // Completion CONTINUES from wherever the finger left it, at 1x,
-        // so the grid never jumps backwards before going forwards and
-        // the remaining duration is already the distance left.
-        wave.rate = 0;
-        wave.onSettle = () => setView(vs.dest, 'instant');
-    } else {
-        // Rewind to the view that is still committed, playing the
-        // transition backwards rather than cutting to its start. The
-        // rate is computed from where the playhead was left rather than
-        // taken as the bare REWIND_RATE constant, so a barely-started
-        // scrub runs visibly back instead of vanishing between frames.
-        wave.rewind = true;
-        wave.rate = wave.t / Math.max(REWIND_MIN_MS, wave.t / REWIND_RATE);
-    }
-    waveRelease();
-};
-
-// The k-th city costs less than the one before it, BY DISTANCE rather
-// than by speed. A rate-scaled mapping would have to be integrated (the
-// multiplier depends on how fast the finger was moving at each moment,
-// not on where it now is), so going out fast and returning slowly to the
-// identical pixel would not return to the starting city. That breaks
-// both reversibility and aiming; a distance ramp keeps the benefit and
-// loses neither.
-const bandSize = k => Math.max(STEP_PX * RAMP_FLOOR, STEP_PX * Math.pow(RAMP_R, k));
-const mapTravel = signedPx => {
-    const sgn = Math.sign(signedPx) || 1, a = Math.abs(signedPx);
-    let acc = 0, k = 0;
-    while (k < 80) {
-        const s = bandSize(k);
-        if (a < acc + s) {
-            const rem = a - acc, dw = DWELL * s, cr = s - dw;
-            const p = rem <= dw ? 0 : (cr > 0 ? (rem - dw) / cr : 1);
-            return { sgn, latch: sgn * k, p, pos: sgn * (k + p) };
-        }
-        acc += s; k++;
-    }
-    return { sgn, latch: sgn * k, p: 0, pos: sgn * k };
-};
-// Clamped, not wrapped: the first and last ★ favourite are hard stops.
-// Swiping past either end simply runs out of list rather than looping
-// back around to the other side.
-const cityClamp = i => Math.max(0, Math.min(favorites.length - 1, i));
-// Honesty guard: stepCity cycles ★ favourites only and returns early on
-// fewer than two, so the gesture and every cue it draws are suppressed
-// outright rather than arming and then doing nothing.
-const citySwapLive = () => favorites.length >= 2;
-
-let touchNav = null;   // { x, y, axis, claimed, v, lastY, lastT }
-let citySel = null;    // { base, pos, latch, parked, armed, lastDetent, target, cache }
-
-const renderCitySel = () => {
-    const box = $('citySel');
-    if (!citySel || !citySel.armed) { box.hidden = true; box.innerHTML = ''; return; }
-    const n = favorites.length;
-    const H = (2 * RAIL_SPAN + 1) * RUNG_GAP, mid = H / 2;
-    const lo = Math.floor(citySel.pos) - RAIL_SPAN, hi = Math.ceil(citySel.pos) + RAIL_SPAN;
-    let out = `<div class="city-rail" style="height:${H}px">`;
-    for (let i = lo; i <= hi; i++) {
-        const y = mid + (i - citySel.pos) * RUNG_GAP;
-        if (y < -8 || y > H + 8) continue;
-        out += `<i class="${i === 0 ? 'home' : ''}" style="top:${(y - 2.5).toFixed(1)}px"></i>`;
-    }
-    out += `<div class="city-pin${citySel.parked ? ' parked' : ''}" style="top:${(mid - 5.5).toFixed(1)}px"></div></div>`;
-    box.innerHTML = out;
-    box.hidden = false;
-    // The name already in gold is the destination readout; the counter
-    // says where that sits in the list, which is the standing "know
-    // where you are in the swap order" gap.
-    $('locationName').textContent = favorites[citySel.target].name;
-    $('cityCount').textContent = `${citySel.target + 1}/${n}`;
-};
-const clearCitySel = () => {
-    citySel = null;
-    $('citySel').hidden = true; $('citySel').innerHTML = '';
-    $('cityCount').textContent = '';
-};
-
-// The destination grid for a rung, built once per drag and reused: a
-// 90px step can be crossed many times in one sweep, and rebuilding the
-// whole grid on every touchmove would drop frames for no gain.
-const cityColsFor = idx => {
-    if (citySel.cache.has(idx)) return citySel.cache.get(idx);
-    // The frame's shape comes from the grid as it currently stands, NOT
-    // from a wave: at the start of a drag there is nothing in flight to
-    // ask, and a zero-row shape here would have paintGrid rebuild the
-    // grid as seven empty columns.
-    const ref = (wave ? wave.to : lastCols) || buildCols();
-    const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
-    const built = fitCols(colsForPlace(favorites[idx]), nCols, nRows);
-    citySel.cache.set(idx, built);
-    return built;
-};
+let touchNav = null;   // { x, y, axis, claimed, base, cache, lastK, lastP }
 
 chart.addEventListener('touchstart', e => {
-    // Origin gate (DR-29): a drag that starts on a rail belongs to that
-    // rail's reveal. The rails sit INSIDE .chart, so their touches also
-    // bubble here. Without this the hour peek would peek hours and
-    // switch city off the same finger.
+    // Origin gate: a drag that starts on the hour rail belongs to the
+    // hour peek. The rail sits inside .chart, so its touches bubble here.
     if (e.target.closest?.('.rail')) { touchNav = null; return; }
     if (e.touches.length !== 1) { touchNav = null; return; }
     const t = e.touches[0];
-    touchNav = { x: t.clientX, y: t.clientY, axis: null, claimed: false, v: 0, lastY: t.clientY, lastT: performance.now() };
+    touchNav = {
+        x: t.clientX, y: t.clientY, axis: null, claimed: false,
+        base: dayOff, cache: new Map(), lastK: 0, lastP: 0
+    };
 }, { passive: true });
 
 chart.addEventListener('touchmove', e => {
     if (!touchNav || e.touches.length !== 1) return;
     const t = e.touches[0];
     const dx = t.clientX - touchNav.x, dy = t.clientY - touchNav.y;
-
-    // A touch is a TAP until it has moved CITY_SLOP. Below that nothing
-    // renders and nothing is preventDefault-ed, so the touch falls
-    // through to the browser's trailing synthetic click and the existing
-    // tap-to-open-tooltip path runs untouched. The two paths are
-    // mutually exclusive by construction, not by a race.
-    //
-    // DR-30 calls this ordering the sharpest implementation constraint
-    // in its whole design, and it is already solved here: this is the
-    // handler the horizontal scrub extends, not one it has to write.
-    // Get it wrong in either direction and you either leave a stray
-    // tooltip after every swipe or stop tapping from working at all.
     if (!touchNav.axis) {
-        if (Math.hypot(dx, dy) < CITY_SLOP) return;
+        if (Math.hypot(dx, dy) < PAGE_SLOP) return;
         touchNav.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-        // Deliberately NOT closing an open tooltip and NOT clearing
-        // tappedBlock, on either axis. DR-28: a tap-opened tooltip
-        // survives a city or view change and re-targets the same grid
-        // position, which is the whole "compare across a swipe"
-        // behaviour. The scrub calls preventDefault from here on, so no
-        // trailing synthetic click ever arrives and this touch cannot
-        // retroactively become a tap, by construction, without
-        // disturbing the tooltip that is already open.
-        if (touchNav.axis === 'x') {
-            // DR-30: the horizontal axis is a scrub now. With fewer than
-            // two views, or under reduced motion, it claims nothing and
-            // renders nothing and falls through to the one-shot swipe
-            // decided at release below, exactly the pre-DR-30 gesture.
-            if (!viewScrubLive()) return;
-            touchNav.claimed = true;
-            viewScrub = { dir: 0, dest: null, travel: 0, cache: new Map() };
-        } else {
-            if (!citySwapLive()) { touchNav = null; return; }
-            touchNav.claimed = true;
-            citySel = {
-                base: Math.max(0, favorites.findIndex(c => placeKey(c) === placeKey(state.place))),
-                pos: 0, latch: 0, parked: true, armed: false, lastDetent: 0,
-                target: 0, listDir: 1, cache: new Map()
-            };
-            citySel.target = citySel.base;
-        }
+        // Vertical belongs to nobody here now. Let go of the touch
+        // rather than claim it, so the page behaves as any page would.
+        if (touchNav.axis !== 'x' || !pagingLive()) { touchNav = null; return; }
+        // Deliberately NOT closing an open tooltip: it survives a page
+        // and re-targets the same grid position, which is what makes it
+        // the comparison tool. preventDefault from here on means no
+        // trailing synthetic click arrives, so this touch cannot
+        // retroactively become a tap.
+        touchNav.claimed = true;
     }
-    if (!touchNav.claimed) return;
-    e.preventDefault();   // scrub, don't pan the page
-
-    // DR-30: the horizontal half. No velocity is measured on this path,
-    // let alone acted on.
-    if (touchNav.axis === 'x') { scrubView(dx); return; }
-
-    // Velocity is measured throughout but ACTED ON only once, at release,
-    // and only by the flick rule.
-    const now = performance.now(), dt = Math.max(8, now - touchNav.lastT);
-    touchNav.v = touchNav.v * 0.7 + ((t.clientY - touchNav.lastY) / dt * 1000) * 0.3;
-    touchNav.lastY = t.clientY; touchNav.lastT = now;
-
-    const signed = -dy;   // up is positive: LATER in the list (DR-32 §2)
-    const m = mapTravel(signed);
-    const prevPos = citySel.pos;
-    // Clamped to the list's own ends (favorite 0 .. favorites.length-1),
-    // relative to where this drag started. Past either end the position
-    // simply stops advancing (the same hard stop a release would land
-    // on) rather than the continuous position running on unbounded and
-    // wrapping the target back around.
-    const minPos = -citySel.base, maxPos = (favorites.length - 1) - citySel.base;
-    const pos = Math.max(minPos, Math.min(maxPos, m.pos));
-    const latch = Math.max(minPos, Math.min(maxPos, m.latch));
-    const atEnd = pos === minPos || pos === maxPos;
-    citySel.pos = pos; citySel.latch = latch;
-    citySel.parked = atEnd || m.p <= 0.0001;
-    citySel.travel = signed;
-    citySel.armed = Math.abs(signed) > DWELL * STEP_PX;
-
-    // One 2ms tick the moment the finger settles into a dwell band it
-    // was not already in. Keyed on WHICH detent rather than on the
-    // parked/crossing edge: a single fast touchmove can span a whole
-    // crossing band, and an edge test would silently drop the tick for
-    // every step the finger jumped over. Nothing on crossings,
-    // retargets, release or landing.
-    if (citySel.parked && latch !== citySel.lastDetent) {
-        citySel.lastDetent = latch;
-        navigator.vibrate?.(VIBE_DETENT);
+    e.preventDefault();
+    const per = pageUnit();
+    if (!(per > 0)) return;
+    // The slop is subtracted rather than ignored, so the grid does not
+    // jump by the threshold at the moment the drag is claimed.
+    const traveled = dx - Math.sign(dx) * PAGE_SLOP;
+    const { sgn, k, p } = mapRailNotches(traveled, per);
+    // Drag left and later days arrive from the right: the window follows
+    // the hand rather than opposing it.
+    if (railScrubLive()) {
+        touchNav.lastP = p;
+        setDayOffState(touchNav.base - Math.round(sgn * (k + p)));
+        // A fresh notch crossed: promote what the wave was blending
+        // toward into its new starting point before aiming at the notch
+        // beyond. The timed wave would do this on completion, but that
+        // clock is off for a scrub's whole lifetime.
+        if (wave && wave.scrub && k !== touchNav.lastK) { wave.from = wave.to; wave.t = 0; }
+        touchNav.lastK = k;
+        scrubReveal(dayColsFor(touchNav.base - sgn * (k + 1), touchNav.cache), sgn, p, 'x');
+        // The strip is dates now, not weekday letters, so it cannot be
+        // allowed to lag the grid it labels: redraw the two text rows on
+        // every move. They are fourteen short nodes; the grid, which is
+        // the expensive part, is still painted by the wave alone.
+        renderDayStrip();
+        return;
     }
-
-    // The aim is whichever rung a release would land on, so what is on
-    // screen is always what you would get. The playhead is NOT driven by
-    // the finger: the finger only chooses a destination and the wave
-    // runs at the shipped tempo however fast it got there. A fast
-    // traversal therefore shows one continuous sweep that happens to end
-    // on the fourth city; a deliberate one that parks in each dwell band
-    // completes each wave and shows every city on the way.
-    const stepNow = Math.round(pos), stepWas = Math.round(prevPos);
-    const target = cityClamp(citySel.base + stepNow);
-    // Which way the LIST is moving, read from the change in rounded
-    // position rather than from raw finger jitter, and falling back to
-    // which side of the origin the finger is on when the position did
-    // not change. The sweep is the negation of it, so an upward pull
-    // (later entries, +1) sweeps with dir −1 and rises from the bottom
-    // row: everything visible moves WITH the finger.
-    //
-    // Reading it from the list rather than from the sign of `dy`
-    // matters in exactly one case, and it is the case this DR cares
-    // about: coming back down from three cities up, the finger is still
-    // above where it started but the list is now moving the other way,
-    // so the sweep must reverse: rewind to what is on screen, then set
-    // off the other way with the stagger flipped. Keying on `dy` would
-    // leave the direction unchanged and silently retarget instead.
-    const listDir = stepNow === stepWas
-        ? (Math.sign(pos) || citySel.listDir || 1)
-        : Math.sign(stepNow - stepWas);
-    citySel.listDir = listDir;
-    if (target !== citySel.target || stepNow !== stepWas) {
-        citySel.target = target;
-        waveTo($('grid'), cityColsFor(target), -listDir, { axis: 'y', hold: true });
-    }
-    renderCitySel();
+    setDayOff(touchNav.base - Math.round(sgn * (k + p)));
+    renderDayStrip();
 }, { passive: false });
 
-const endTouchNav = e => {
+// Home again on the drawer's own terms: the paged window latches, and
+// the same idle timer, ⌂ chip, outside tap and Escape send it back.
+const endTouchNav = () => {
     const nav = touchNav;
     touchNav = null;
-    if (!nav) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - nav.x, dy = t.clientY - nav.y;
-
-    // DR-30: the scrub decides itself, off the travel that was actually
-    // mapped onto the playhead, so what you get is what was on screen.
-    if (nav.axis === 'x' && viewScrub) { endViewScrub(); return; }
-
-    if (!nav.claimed) {
-        // The pre-DR-30 horizontal swipe, still the path under reduced
-        // motion and with a single view enabled: one axis clearly
-        // dominant, decided at release, past SCRUB_COMMIT_PX, the same
-        // pull the live scrub commits at, so the distance needed to
-        // switch a view is identical either way and the scrub only
-        // makes visible a threshold that was always there. There is no
-        // velocity term here to remove: the horizontal flick DR-30
-        // abolishes was never a separate code path in this app, only a
-        // fast drag past the same threshold.
-        if (Math.abs(dx) > SCRUB_COMMIT_PX && Math.abs(dx) > 2 * Math.abs(dy)) stepView(dx < 0 ? 1 : -1);
-        // else a plain tap: the trailing synthetic click opens the tooltip.
-        return;
-    }
-
-    // A flick's outcome is DEFINED as ±1, not computed from distance, so
-    // it cannot overshoot: a fast 200px throw is one step, not two. This
-    // is the one code path in the app whose behaviour depends on how fast
-    // you moved. Three things contain it: it is read once, here, never
-    // during the drag; its outcome is defined rather than derived; and a
-    // misread gives one city instead of the aimed one, recoverable in a
-    // second gesture rather than an unrecoverable wrong state.
-    const travel = Math.abs(dy);
-    const fast = Math.abs(nav.v) > FLICK_VEL && travel > FLICK_MIN;
-    const steps = fast ? (-Math.sign(nav.v) || 1) : Math.round(citySel.pos);
-    const target = cityClamp(citySel.base + steps);
-    // Same rule as during the drag: the sweep is the negation of the way
-    // the list is moving, so a flick that resolves to one step up sweeps
-    // upward even if the finger had wandered.
-    const dir = -(Math.sign(steps) || citySel.listDir || 1);
-    const place = favorites[target];
-    const cols = place ? cityColsFor(target) : null;
-
-    clearCitySel();
-    renderLocation();
-
-    if (!place || placeKey(place) === placeKey(state.place)) {
-        // Back where it started: let whatever is in flight rewind and
-        // settle on the city already on screen. Nothing commits.
-        waveRelease();
-        return;
-    }
-    // Sweep to the destination on the wave's own clock, then commit once
-    // it settles. changeCity then repaints instantly onto exactly the
-    // grid the sweep just landed on, so the commit itself is invisible.
-    waveTo($('grid'), cols, dir, { axis: 'y' });
-    waveRelease();
-    if (wave) wave.onSettle = () => changeCity(place, true, null);
-    else changeCity(place, true, null);
+    if (!nav || !nav.claimed) return;   // a tap: the trailing click opens the tooltip
+    const home = () => { armRevealIdle(dayHome); renderDayStrip(); };
+    if (railScrubLive() && wave && wave.scrub) endRailScrub(nav.lastP, home);
+    else home();
 };
 chart.addEventListener('touchend', endTouchNav);
-chart.addEventListener('touchcancel', () => {
-    // A cancelled scrub is an abandoned one: rewind, commit nothing.
-    if (viewScrub) { viewScrub.travel = 0; endViewScrub(); }
-    else if (touchNav?.claimed) { clearCitySel(); waveRelease(); renderLocation(); }
-    touchNav = null;
+chart.addEventListener('touchcancel', endTouchNav);
+
+// The key follows the hand. A finger on the grid is the moment the question
+// "what does this colour mean" is actually being asked, so that is when the
+// caption slot hands itself over. Hover is the same signal for a pointer,
+// which is all a desktop has: without it the key would never appear there.
+chart.addEventListener('touchstart', () => holdLegend(true), { passive: true });
+chart.addEventListener('touchend', () => holdLegend(false));
+chart.addEventListener('touchcancel', () => holdLegend(false));
+chart.addEventListener('pointerenter', e => { if (e.pointerType !== 'touch') holdLegend(true); });
+chart.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') holdLegend(false); });
+
+// Desktop paging: a horizontal wheel over the grid, claimed only when
+// the horizontal component dominates, so an ordinary vertical scroll
+// over the grid is left to the page.
+let pageAcc = 0, pageWheelAt = 0;
+chart.addEventListener('wheel', e => {
+    if (!pagingLive()) return;
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    const now = performance.now();
+    if (now - pageWheelAt > WHEEL_GAP_MS) pageAcc = 0;
+    pageWheelAt = now;
+    pageAcc += e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    if (Math.abs(pageAcc) < WHEEL_STEP) return;
+    const dir = Math.sign(pageAcc);
+    pageAcc = 0;
+    // A wheel is scrolling, not direct manipulation, so the viewport
+    // follows the wheel rather than the content following the hand.
+    setDayOff(dayOff + dir);
+    renderDayStrip();
+    armRevealIdle(dayHome);
+}, { passive: false });
+
+// --- The city sheet ----------------------------------------------
+// The city name IS the switcher: there is no second city control on the
+// screen. Two ways in, one list.
+//
+//   Swipe up from the control row  the sheet opens under the finger and
+//                                  tracks it; releasing takes whichever
+//                                  city is under the finger.
+//   Tap the city name              the same sheet, staying open until a
+//                                  row is tapped or it is dismissed.
+//
+// The grid previews the aimed city while the finger is still down, at
+// its true colours, because comparing two cities during the gesture is
+// the thing this replaces and a preview that withholds the colours until
+// release would not serve it. Nothing dims.
+const SHEET_ARM_PX = 12;        // upward travel before the touch is a switch
+// A press that has not moved becomes a switch anyway once it has lasted this
+// long. The project distrusts time thresholds for good reasons (DR-18/19 were
+// reverted over one), and this is allowed for two: it is not the only way in,
+// the swipe is, so a missed hold costs nothing; and its failure mode is a
+// list you can release on your own city to dismiss, not a wrong state.
+const SHEET_HOLD_MS = 220;
+// Sideways travel that commits a view step. Larger than the arming slop, so
+// a drag that wandered off the vertical axis and came back does not also
+// change the view on the way out.
+const VIEW_COMMIT_PX = 45;
+const VIBE_DETENT = [2];        // one 2ms tick per new aim; Android only
+// Clamped, not wrapped: the first and last entry are hard stops.
+const cityClamp = i => Math.max(0, Math.min(favorites.length - 1, i));
+// The order the sheet lists ★ favourites in, and it is not the saved order.
+// The finger enters the sheet from the BOTTOM, so the bottom row is the one
+// it costs nothing to reach, and the top row costs the whole list. Ordering
+// by recency puts that cheapest row where it is worth the most: the current
+// city sits at the bottom under the thumb, the city you were just on sits
+// directly above it, and everything else stacks up by how long ago you last
+// looked at it. Swapping back and forth between two places is then always
+// one row, whichever two they are, instead of costing whatever their fixed
+// positions happened to cost.
+//
+// This is DR-32's ramp by another route. That design made each successive
+// city cost less travel because the list was a rail and could not be
+// reordered. A list can be, so the cheapness goes to the likely answer
+// rather than to the far end.
+//
+// What it costs: row positions move as you switch, so the list is never the
+// same shape twice and no muscle memory forms for a specific place. That is
+// the trade, and it is the right way round for a gesture whose whole job is
+// the swap rather than the browse.
+const sheetPlaces = () => {
+    const here = placeKey(state.place);
+    // ★ favourites are the curated list, but a visitor who has never starred
+    // anything still has places worth switching between, and a hold that
+    // produced an empty list would read as the gesture being broken. Recents
+    // fill in when there are no favourites; they are already an MRU list, so
+    // the ordering below applies to them unchanged.
+    const source = favorites.length ? favorites : savedCities.slice(0, MAX_FAVORITES);
+    // Recency comes from the recents list, which `rememberCity` already
+    // keeps in most-recent-first order. A favourite that has never been
+    // opened has no entry, and is treated as the oldest thing there is.
+    const age = p => {
+        const i = savedCities.findIndex(c => placeKey(c) === placeKey(p));
+        return i < 0 ? Infinity : i;
+    };
+    return source.slice().sort((a, b) => {
+        const ac = placeKey(a) === here, bc = placeKey(b) === here;
+        if (ac !== bc) return ac ? 1 : -1;   // the current city is always last
+        return age(b) - age(a);              // oldest at the top, newest at the bottom
+    });
+};
+const sheetLive = () => favorites.length >= 2;
+let sheet = null;   // { mode, aim, cache, live }
+
+// The destination grid for a row, built once per opening and reused: a
+// finger can cross the same row many times before it releases.
+const sheetColsFor = (idx, sh = sheet) => {
+    const pl = sheetPlaces()[idx];
+    if (!pl || !sh) return null;
+    if (sh.cache.has(idx)) return sh.cache.get(idx);
+    const raw = colsForPlace(pl);
+    // No cached forecast for that city yet. Preview NOTHING rather than
+    // sweeping the grid to black: black is the app's "absent", and a grid
+    // that goes blank under the finger reads as the preview having failed
+    // rather than as the data not being here yet. The commit still
+    // fetches, and the status line says so.
+    if (!raw) { sh.cache.set(idx, null); return null; }
+    const ref = (wave ? wave.to : lastCols) || buildCols();
+    const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
+    const built = fitCols(raw, nCols, nRows);
+    sh.cache.set(idx, built);
+    return built;
+};
+
+// Built once, when the sheet opens.
+const renderSheet = () => {
+    if (!sheet) return;
+    const here = placeKey(state.place);
+    const rows = sheetPlaces().map((pl, i) => {
+        const cur = placeKey(pl) === here ? ' current' : '';
+        const mark = placeKey(pl) === here ? '<span class="sr-mark">now</span>' : '';
+        return `<div class="sheet-row${cur}" id="sheetRow${i}" role="option" tabindex="-1" aria-selected="false" data-idx="${i}"><span class="sr-name">${esc(pl.name)}</span>${mark}</div>`;
+    });
+    $('sheetList').innerHTML = rows.join('');
+    renderActions();
+    paintAim();
+};
+
+// The action row. The wide slot on the left says which mode the sheet is in;
+// the button on the right is the mode it is not. In search the wide slot IS
+// the field, in the same place the placeholder was, so tapping the
+// placeholder turns it into a live input without anything moving.
+//
+// The row lives outside all three bodies, because a body is exactly what
+// each mode replaces, and a row that vanished with one could not bring you
+// back out of it.
+const renderActions = () => {
+    const si = sheetPlaces().length;
+    const wide = $('sheetWide'), mode = $('sheetMode');
+    const searching = sheetMode === 'search';
+    $('searchContainer').hidden = !searching;
+    wide.hidden = searching;
+    if (!searching) {
+        const menu = sheetMode === 'settings';
+        wide.className = `sheet-row sheet-action${menu ? ' sheet-here' : ''}`;
+        wide.dataset.idx = si;
+        wide.innerHTML = menu
+            ? `<span class="sr-glyph">${SHEET_ICON.gear}</span><span class="sr-name">Settings</span>`
+            : `<span class="sr-glyph">${SHEET_ICON.search}</span><span class="sr-name">Search for a city…</span>`;
+    }
+    // The button always offers the other half of the sheet: the menu from
+    // the places and the search, and the search from the menu.
+    const toMenu = sheetMode !== 'settings';
+    mode.dataset.idx = si + 1;
+    mode.setAttribute('aria-label', toMenu ? 'Settings' : 'Search for a city');
+    mode.innerHTML = `<span class="sr-glyph">${toMenu ? SHEET_ICON.gear : SHEET_ICON.search}</span>`;
+};
+
+// Repainted on every aim change, and it must NOT rebuild the list. A
+// click only fires when mousedown and mouseup land on the same element,
+// and a hover or a drag changes the aim between the two: rewriting the
+// rows there swaps that element out, the browser retargets the click to
+// the container, and every click on a row is silently swallowed. Same
+// class of bug as re-rendering under a drag, which is why the app already
+// forbids it elsewhere.
+const paintAim = () => {
+    if (!sheet) return;
+    $('citySheet').querySelectorAll('.sheet-row').forEach(r => {
+        const on = +r.dataset.idx === sheet.aim;
+        r.classList.toggle('aim', on);
+        r.setAttribute('aria-selected', String(on));
+    });
+    const n = sheetPlaces().length;
+    // Only a place is an option in the listbox; the two actions sit outside
+    // it, so pointing the descendant at one of them would name a node the
+    // listbox does not own.
+    $('sheetList').setAttribute('aria-activedescendant', sheet.aim < n ? `sheetRow${sheet.aim}` : '');
+    // The name in the control row is the destination readout; the counter
+    // says where that sits in the list. Both revert on close.
+    const aimed = sheetPlaces()[sheet.aim];
+    $('locationName').textContent = aimed ? aimed.name : state.place.name;
+    $('cityCount').textContent = aimed ? `${sheet.aim + 1}/${n}` : '';
+    // The readout at the bottom of the held sheet, which sits exactly where
+    // the control row's name will be once the sheet goes.
+    $('sheetAim').textContent = aimed ? aimed.name : '';
+    // Re-run on every aim change: cheap, and it self-corrects if the first
+    // measurement caught the sheet mid-appearance.
+    alignAimReadout();
+};
+
+const setAim = idx => {
+    if (!sheet || idx === sheet.aim) return;
+    const was = sheet.aim;
+    sheet.aim = idx;
+    navigator.vibrate?.(VIBE_DETENT);
+    paintAim();
+    // Preview the aimed city on the grid, sweeping the way the list is
+    // moving so everything visible moves with the finger. Off under
+    // reduced motion, where the sheet is the whole answer.
+    if (!sheet.live) return;
+    const cols = sheetColsFor(idx);
+    if (cols) waveTo($('grid'), cols, -(Math.sign(idx - was) || 1), { axis: 'y', hold: true });
+};
+
+// `via` is how the sheet was reached, tap or drag, and is not the same
+// thing as which mode it is showing.
+const openSheet = via => {
+    openSheetChrome();
+    // Nothing to pick between: skip the list and land straight in search,
+    // which is the only thing an empty list could offer anyway.
+    if (!favorites.length) { setSheetMode('search'); renderSuggestions(''); $('searchInput').focus(); return; }
+    sheet = {
+        via,
+        // The bottom row, which the ordering above makes the current city
+        // whenever it is a favourite: the aim starts where the finger is.
+        aim: Math.max(0, sheetPlaces().length - 1),
+        cache: new Map(),
+        live: !matchMedia('(prefers-reduced-motion: reduce)').matches
+    };
+    setSheetMode('places');
+    setGestureMode(via === 'drag');
+    renderSheet();
+    // The list is the listbox, so it is what holds focus while the sheet
+    // is open: aria-activedescendant is only read off the focused element.
+    if (via === 'tap') $('sheetList').focus({ preventScroll: true });
+};
+
+// One exit for every route out: release, tap, scrim, Escape. `commit`
+// says whether the aim is taken; the grid is left to settle on whatever
+// the preview last showed either way, so the commit itself is invisible.
+// --- The on-screen keyboard --------------------------------------------
+// A fixed element is positioned against the LAYOUT viewport, and Android
+// does not shrink that when the keyboard opens: it shrinks the VISUAL one.
+// So a sheet anchored to bottom:0 stays where it was and the keyboard covers
+// it, taking the search field and its buttons with it. visualViewport is the
+// only thing that reports the difference, so the sheet is offset by it.
+//
+// `offsetTop` matters as well as `height`: iOS scrolls the visual viewport
+// up to reveal a focused field rather than resizing, and without it the
+// sheet would be pushed twice as far as it should.
+const syncViewport = () => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const gap = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    const root = document.documentElement.style;
+    // Only a real keyboard moves the sheet. The difference between the two
+    // viewports is also non-zero for a retracting URL bar, for overscroll,
+    // and for rounding, and offsetting by those produced the small stray gap
+    // between the field and the row. A keyboard is never 80px.
+    //
+    // On a browser that honours interactive-widget=resizes-content this is
+    // zero anyway, because innerHeight shrank too: the meta tag does the work
+    // and this measures nothing. It is a fallback for the browsers that do
+    // not, which is the whole reason it still exists.
+    root.setProperty('--kb', gap > 80 ? `${gap}px` : '0px');
+    root.setProperty('--vvh', `${Math.round(vv.height)}px`);
+};
+window.visualViewport?.addEventListener('resize', syncViewport);
+window.visualViewport?.addEventListener('scroll', syncViewport);
+syncViewport();
+
+// Show and hide the sheet itself, with no opinion about which of its three
+// modes is inside. Split out because search can open the sheet on its own
+// (⌘K reaches it with no city ever aimed at), and every route out of every
+// mode has to leave exactly the same nothing behind.
+const openSheetChrome = () => {
+    hideSwipeHint();
+    $('sheetScrim').hidden = false;
+    $('citySheet').hidden = false;
+    $('location').classList.add('sheet-open');
+    $('location').setAttribute('aria-expanded', 'true');
+};
+// While the switch is being HELD open, everything that is not the list gets
+// out of the way: the control row underneath (which otherwise ghosts its city
+// name and its three view words up through the translucency) and the sheet's
+// own action row (which the drag cannot aim at anyway). What is left is the
+// list and the weather behind it, which is all the gesture is about.
+//
+// It also fixes the jump. With the action row gone the bottom row of the list
+// falls almost exactly where the control row sits, so the name you release on
+// is already in the place it will rest.
+// Put the readout exactly where the control row's name will be. Measured
+// rather than computed, because the distance is the sum of the body's bottom
+// padding, the safe-area inset, the row's own margins and its line box, and a
+// formula built from those would be four numbers that have to stay true. The
+// control row is only at opacity 0, so it still has a box to measure.
+const alignAimReadout = () => {
+    if (!sheet || sheet.via !== 'drag') return;
+    const pin = $('sheetAim'), name = $('locationName');
+    // Zeroed first, then measured, so the reading is never contaminated by a
+    // previous gesture's correction. Reading a rect after writing a style
+    // forces the reflow, which is what makes this safe to do synchronously;
+    // an animation frame was one frame too early and measured the sheet
+    // before it had landed.
+    pin.style.paddingBottom = '0px';
+    pin.style.paddingLeft = '0px';
+    const a = pin.getBoundingClientRect(), b = name.getBoundingClientRect();
+    if (!a.height || !b.height) return;
+    // border-box: the padding eats into the 52px row, and the row centres its
+    // content, so P of bottom padding lifts the text by P/2.
+    const dy = (a.top + a.height / 2) - (b.top + b.height / 2);
+    if (dy > 0) pin.style.paddingBottom = `${Math.round(dy * 2)}px`;
+    pin.style.paddingLeft = `${Math.max(0, Math.round(b.left - a.left))}px`;
+};
+
+const setGestureMode = on => {
+    document.querySelector('.container').classList.toggle('switching', on);
+    $('citySheet').classList.toggle('gesture', on);
+};
+const hideSheetChrome = () => {
+    setGestureMode(false);
+    $('sheetScrim').hidden = true;
+    $('citySheet').hidden = true;
+    $('sheetList').setAttribute('aria-activedescendant', '');
+    if ($('citySheet').contains(document.activeElement)) $('location').focus({ preventScroll: true });
+    $('sheetList').innerHTML = '';
+    $('searchInput').value = '';
+    $('searchResults').innerHTML = '';
+    searchHighlight = -1;
+    sheetMode = 'places';
+    $('searchResults').hidden = true;
+    $('searchContainer').hidden = true;
+    $('settings').classList.add('hidden');
+    show($('sheetList'), true);
+    $('location').classList.remove('sheet-open');
+    $('location').setAttribute('aria-expanded', 'false');
+    $('cityCount').textContent = '';
+    renderLocation();
+};
+
+const closeSheet = (commit = false) => {
+    // The two action indices are answered before anything is torn down. The
+    // wide one is the mode the sheet is already in; the compact one is the
+    // mode it is not. So the same index means different things depending on
+    // which way you are going, and both directions are one tap in one place.
+    const si = sheetPlaces().length;
+    if (commit && sheet && sheet.aim >= si) {
+        // The wide slot is the mode the sheet is in; the button is the mode
+        // it is not. Both stay INSIDE the sheet, so this path tears nothing
+        // down: it changes what the sheet is showing. Handling it after the
+        // teardown below put a mode inside a sheet that had just been hidden.
+        const wide = sheet.aim === si;
+        const want = wide
+            ? (sheetMode === 'settings' ? 'settings' : 'search')
+            : (sheetMode === 'settings' ? 'search' : 'settings');
+        if (want === 'search') openSearch();
+        else setSheetMode('settings');
+        paintAim();
+        return;
+    }
+
+    const s = sheet;
+    sheet = null;
+    const place = (commit && s) ? sheetPlaces()[s.aim] : null;
+    hideSheetChrome();
+    // hideSheetChrome puts the OLD city back in the control row, and the
+    // commit below can be a whole wave behind it. Name the destination now,
+    // or the row reappears saying the city you just left for a third of a
+    // second, which reads as the release having missed.
+    if (place) $('locationName').textContent = place.name;
+    if (!s) return;
+    if (!place || placeKey(place) === placeKey(state.place)) {
+        // Back where it started, or nothing taken. The preview leaves the
+        // wave aimed at whatever was last under the finger, and waveRelease
+        // only lets that wave FINISH: it does not undo where it was pointed.
+        // So aim it back at the city that is actually current before letting
+        // go, or the grid settles showing one city while every label on the
+        // screen names another.
+        const cur = sheetPlaces().findIndex(c => placeKey(c) === placeKey(state.place));
+        const back = cur >= 0 && cur !== s.aim ? sheetColsFor(cur, s) : null;
+        if (back) waveTo($('grid'), back, -(Math.sign(cur - s.aim) || 1), { axis: 'y' });
+        waveRelease();
+        if (!wave) repaint();
+        return;
+    }
+    // Commit exactly once, and never gate it on something that might not
+    // happen. Letting the sweep finish first is a nicety: the grid settles on
+    // the destination and the commit repaints onto the frame it already
+    // shows, so the change is invisible. But `wave` can be a wave that has
+    // ALREADY settled (the preview is skipped for a city with no cached
+    // forecast, so the object left in flight belongs to an earlier aim), and
+    // a settled wave never calls `onSettle` again. Gating on it alone lost
+    // the commit outright: the aim was right, the release was right, and the
+    // city did not change. Intermittent, because it depended on what the
+    // previous gesture had left running.
+    let committed = false;
+    const land = () => {
+        if (committed) return;
+        committed = true;
+        changeCity(place, true, null);
+    };
+    if (!s.live) { land(); return; }
+    waveRelease();
+    if (!wave) { land(); return; }
+    wave.onSettle = land;
+    // The backstop. One wave is ~380ms; anything still unsettled past this
+    // is not going to settle.
+    setTimeout(land, 600);
+};
+
+// Which row a point is over. Above the sheet entirely, the aim simply
+// stays where it was rather than snapping to an end.
+const aimAtPoint = (x, y) => {
+    const row = document.elementFromPoint(x, y)?.closest?.('.sheet-row');
+    if (!row) return;
+    // A sheet opened by the gesture aims at PLACES ONLY. The action row sits
+    // where the control row was, which is exactly where the finger starts,
+    // so leaving it aimable made every hold land on search: the gesture
+    // opened the switch and then immediately pointed at the way out of it.
+    if (sheet && sheet.via === 'drag' && !$('sheetList').contains(row)) return;
+    setAim(+row.dataset.idx);
+};
+
+// The swipe is armed by the CITY NAME, not by the whole row. The row also
+// holds the three view buttons, and a swipe that started on `temp` opening
+// the city list is a gesture answering a question nobody asked. The name is
+// also where the caret and the hint already point, so the affordance and the
+// origin are the same place.
+// --- The control row is one gesture surface -----------------------------
+// The whole row, not just the name. Two axes, one origin:
+//
+//   swipe up          the city switcher, tracking the finger
+//   swipe sideways    the view switcher, one step per swipe
+//   press and hold    the city switcher, without moving
+//   tap the name      search
+//   tap a view word   that view
+//
+// Every one of them is decided on RELEASE, not on the way down. Deciding on
+// the way down was the original bug: search opened the instant the finger
+// landed, which left no room for the finger to then go anywhere.
+//
+// The axis is locked once, at the slop distance, from whichever component of
+// the travel is larger, and never re-read. Two gestures sharing a surface
+// need one arbiter, not a running argument.
+const controlRow = $('controlRow');
+let rowTouch = null;
+// Set for a moment after a touch has decided the outcome, so the trailing
+// synthetic click cannot decide it a second time. A press that never moved
+// is not preventDefault-ed, so that click does arrive.
+let cityTouchOwns = false;
+
+const armSwitch = () => {
+    if (rowTouch.armed) return false;
+    // Nothing to switch between: leave the touch alone so it falls through
+    // to the tap, which is the only useful thing left.
+    if (sheetPlaces().length < 2) return false;
+    rowTouch.armed = true;
+    openSheet('drag');
+    return true;
+};
+
+controlRow.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) { rowTouch = null; return; }
+    const t = e.touches[0];
+    rowTouch = {
+        x: t.clientX, y: t.clientY, dx: 0,
+        axis: null, armed: false, hold: 0,
+        // Which tap this would be if it turns out to be one.
+        onName: !!e.target.closest?.('#location')
+    };
+    rowTouch.hold = setTimeout(() => {
+        if (!rowTouch || rowTouch.axis) return;
+        if (!armSwitch()) return;
+        rowTouch.axis = 'y';
+        // The finger has not moved, so the aim is whatever the start point
+        // is over: nothing, which leaves it on the bottom row.
+        aimAtPoint(t.clientX, t.clientY);
+    }, SHEET_HOLD_MS);
+}, { passive: true });
+
+controlRow.addEventListener('touchmove', e => {
+    if (!rowTouch || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - rowTouch.x, dy = t.clientY - rowTouch.y;
+    rowTouch.dx = dx;
+    if (!rowTouch.axis) {
+        if (Math.hypot(dx, dy) < SHEET_ARM_PX) return;
+        clearTimeout(rowTouch.hold);
+        if (Math.abs(dy) > Math.abs(dx)) {
+            // Upward only. A downward drag from the bottom row has nowhere
+            // to go, so it is released rather than claimed.
+            if (dy > 0 || !armSwitch()) { rowTouch = null; return; }
+            rowTouch.axis = 'y';
+        } else {
+            rowTouch.axis = 'x';
+        }
+    }
+    e.preventDefault();
+    if (rowTouch.axis === 'y') aimAtPoint(t.clientX, t.clientY);
+}, { passive: false });
+
+const endRowTouch = commit => {
+    const r = rowTouch;
+    rowTouch = null;
+    if (!r) return;
+    clearTimeout(r.hold);
+    cityTouchOwns = true;
+    setTimeout(() => { cityTouchOwns = false; }, 400);
+    if (r.axis === 'x') {
+        // Drag left for the next view, right for the previous, the same
+        // direction the control row reads in. Decided on release off the
+        // travel, so a slow drag and a flick differ only in where they end.
+        if (commit && Math.abs(r.dx) > VIEW_COMMIT_PX) stepView(r.dx < 0 ? 1 : -1);
+        return;
+    }
+    if (!r.armed) {
+        // Neither held nor swiped: a plain tap, and now that the finger has
+        // lifted it is safe to say which one. A tap on a view word is left
+        // to its own click handler.
+        if (commit && r.onName) openSearch();
+        return;
+    }
+    if (sheet) closeSheet(commit);
+};
+controlRow.addEventListener('touchend', () => endRowTouch(true));
+controlRow.addEventListener('touchcancel', () => endRowTouch(false));
+
+// Mouse and stylus, which have no hold to read: a click is the tap, and the
+// saved places are the first thing search lists before anything is typed, so
+// the same list is one step away either way.
+$('location').addEventListener('click', () => {
+    if (cityTouchOwns) return;   // the touch above already answered this one
+    if (!sheet) openSearch();
 });
+$('location').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!sheet) openSearch();
+});
+$('citySheet').addEventListener('click', e => {
+    const row = e.target.closest('.sheet-row');
+    if (!row || !sheet) return;
+    sheet.aim = +row.dataset.idx;
+    closeSheet(true);
+});
+// Hover aims in tap mode, so a mouse previews the same way a thumb does.
+$('citySheet').addEventListener('pointermove', e => {
+    if (!sheet || sheet.mode !== 'tap' || e.pointerType === 'touch') return;
+    aimAtPoint(e.clientX, e.clientY);
+});
+$('sheetScrim').addEventListener('click', () => closeSheet(false));
+
+// The hint. One line, and only until the sheet has been opened once:
+// after that it is chrome on every glance for a thing already learned.
+const LS_SHEET_SEEN = 'mr-sheet-seen';
+const hideSwipeHint = () => {
+    hintLive = false;
+    syncCaption();
+    try { localStorage.setItem(LS_SHEET_SEEN, '1'); } catch { /* private mode */ }
+};
+const renderSwipeHint = () => {
+    let seen = true;
+    try { seen = !!localStorage.getItem(LS_SHEET_SEEN); } catch { /* private mode */ }
+    hintLive = !seen && sheetLive();
+    if (hintLive) $('swipeHint').textContent = 'swipe up for cities';
+    syncCaption();
+};
 
 // --- The two reveals: more hours, more days (DR-29) ---------------
 // Both swipe axes were already taken: horizontal switches the view,
@@ -2664,7 +3025,7 @@ chart.addEventListener('touchcancel', () => {
 //
 // Both are separated by ORIGIN instead: a reveal is armed only by a drag
 // that STARTS on its own rail (#hourRail, the time-label gutter;
-// #dayRail, the day-label row), and a drag that starts anywhere on the
+// the time-label gutter), and a drag that starts anywhere on the
 // grid field is a view or city swipe exactly as before. That makes the
 // two collision-free by construction, with no velocity threshold
 // anywhere and no second gesture recognizer competing with the one in
@@ -2678,6 +3039,14 @@ chart.addEventListener('touchcancel', () => {
 // it claim the gesture. Below the slop nothing renders and nothing is
 // preventDefault-ed, so a stray touch on a rail still behaves like an
 // ordinary touch on the page.
+// Shared movement constants. DWELL is the share of any notch or step
+// spent parked before it starts moving: the linger that makes a drag
+// aimable rather than twitchy. It is used by the page notches, the hour
+// peek's notches, and nothing else now that both list gestures are gone.
+const DWELL = 0.5;
+// A rewind is faster than a completion, but not instant: a blend
+// abandoned at 15px would otherwise snap back inside a single frame.
+const REWIND_MIN_MS = 120;
 const REVEAL_SLOP = 10;   // px before a rail drag is a reveal at all
 const REVEAL_IDLE_MS = 4000; // latched drawer's own way home
 const REVEAL_HOME_MS = 220;  // the going-home tween's own duration
@@ -2727,8 +3096,8 @@ const mapRailNotches = (raw, unit) => {
 const railScrubLive = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Builds the grid for a given day/hour offset without touching the
-// live dayOff/hourOff, the same trick viewColsFor/cityColsFor use:
-// swap the state just long enough to call buildCols(), then restore
+// live dayOff/hourOff, the same trick `sheetColsFor` uses: swap the
+// state just long enough to call buildCols(), then restore
 // it. Cached per drag, since a single drag can cross many notches.
 const dayColsFor = (offset, cache) => {
     const key = Math.max(minDayOff(), Math.min(maxDayOff(), offset));
@@ -3049,6 +3418,10 @@ const hourPeekLive = () => { const r = hourPeekRange(); return r.min !== r.max; 
 // past_days has forward reach and no backward reach, and a payload
 // short enough to have no forward reach left can still be dragged back
 // into last night, so neither end decides this alone.
+//
+// The day RAIL is gone: paging is a horizontal drag on the grid field now.
+// This is what that drag asks before it arms, so the past-day reach carries
+// over to it without the paging code knowing the past exists.
 const drawerLive = () => maxDayOff() > 0 || minDayOff() < 0;
 
 railDrag($('hourRail'), {
@@ -3065,30 +3438,14 @@ railDrag($('hourRail'), {
     colsFor: hourColsFor,
     stateSetter: setHourOffState
 });
-// The day axis, named rather than inlined into the railDrag call. It is
-// origin-independent: nothing in it knows the drag started on the rail,
-// and the clamps inside setDayOff/dayColsFor already carry the reach in
-// both directions. If the H body swipe in Maybe Rain Touch Interaction
-// Rebase §1 is ever built, it binds this same object to the grid and
-// gets the past-day reach for free. What it still has to solve is the
-// origin conflict that object cannot express: an H swipe on the grid
-// meaning "previous day" while an H swipe on the city bar ~10px below
-// means "previous city". That wants the M3 rig, not a config change.
-const dayAxis = {
-    axis: 'x',
-    enabled: drawerLive,
-    base: () => dayOff,
-    scale: () => $('grid').clientWidth / DAY_SPAN,
-    // Drag left and later days arrive from the right, matching the
-    // direction the view swipe already reads. Drag right for the past.
-    step: (base, cols) => setDayOff(base - cols),
-    end: () => armRevealIdle(dayHome),
-    // EXPERIMENTAL (2026-07-29): remove these two lines to fall back
-    // to the shipped instant-repaint behaviour above.
-    colsFor: dayColsFor,
-    stateSetter: setDayOffState
-};
-railDrag($('dayRail'), dayAxis);
+// The day axis was a railDrag bound to #dayRail. Both are gone: the H body
+// swipe that note anticipated is built, and it took the axis with it. The
+// origin conflict it flagged, an H swipe on the grid meaning "previous day"
+// while an H swipe on the bar below means something else, is settled by the
+// bar's H meaning VIEW rather than city: two origins, two axes, no overlap.
+// The paging handler up by `chart` carries the same clamps, so the reach
+// behind today survived the move.
+
 
 railWheel($('hourRail'), {
     axis: 'y',
@@ -3098,12 +3455,6 @@ railWheel($('hourRail'), {
     // latch: there is no input that leaves it open.
     step: dir => { setHourOff(hourOff + dir); armRevealIdle(springHours); }
 });
-railWheel($('dayRail'), {
-    axis: 'x',
-    enabled: drawerLive,
-    step: dir => { setDayOff(dayOff + dir); armRevealIdle(dayHome); }
-});
-
 $('dayHome').addEventListener('click', dayHome);
 
 // A tap anywhere off the grid and off the day row sends the drawer home,
@@ -3126,70 +3477,54 @@ document.addEventListener('visibilitychange', () => {
     if (t.style.opacity === '1' && tappedBlock == null) hideTooltip();
 });
 
-// --- Keyboard route into the same selector (owner call, 2026-07-28,
-// closing SPEC.md's DR-32 "The keyboard was left alone") --------------
-// A key press has no drag underneath it, so there is nothing to read a
-// distance off, but the rail, the pin's detent state and the position
-// counter are still the answer to "where am I in the list", and a
-// keyboard user is owed them exactly as much as a thumb is. Each press
-// is a complete step in itself (unlike a drag, which withholds the
-// selector until it clears the first dwell band): it commits
-// immediately, same as the plain jump this replaces, and plays the
-// rail rolling into place on top rather than gating the commit on the
-// animation finishing.
+// --- Keyboard route into the city list ---------------------------
+// A key press has no drag underneath it and there is no rail left to
+// roll, so a step is what it says it is: commit the neighbouring
+// favourite and let the grid's own wave carry the change. The sheet is
+// for aiming; the arrows are for stepping, and a keyboard user who
+// wants the list can open the sheet with Enter on the city name and
+// walk it with the same arrows.
 //
-// Direction is inverted from the old call site, closing the divergence
-// DR-32 left open rather than leaving it split. A drag is direct
-// manipulation: the rungs travel WITH the finger, so swipe up reaches
-// the NEXT favourite. But a key press has no finger for the rail to
-// follow. Rather than fall back to the listbox convention (↑ =
-// previous, what `stepCity` shipped with), the rail is made to roll in
-// the direction the arrow itself points: increasing `pos` moves every
-// rung toward the TOP (`renderCitySel` places rung `i` at
-// `mid + (i - pos) * RUNG_GAP`), which is the same motion a one-step
-// swipe-up plays. So ↑ is NEXT and ↓ is PREVIOUS: the keyboard now
-// matches the gesture instead of opposing it, and "down" from either
-// input lands on the same city, closing the second-order wrinkle
-// DR-32's writeup flagged alongside the direction itself.
-const KEY_TWEEN_MS = 180;      // the rail's own roll into the new rung
-const KEY_SEL_LINGER_MS = 900; // how long the counter stays up unread
-let keySelTimer = 0;
+// Down is NEXT, up is PREVIOUS. The old rule was the other way round
+// because the rail rolled with the finger and a swipe up reached the next
+// favourite. There is no rail now: the sheet is a plain list, dragging up
+// moves toward rows HIGHER in it, and the arrows have to agree with both
+// the list and the plain listbox convention.
 const keyStepCity = dir => {
-    const cur = favorites.length
-        ? favorites.findIndex(c => placeKey(c) === placeKey(state.place)) : -1;
+    // Walks the sheet's own order, so ↑ is the city you were last on, the
+    // same one a one-row swipe reaches.
+    const list = sheetPlaces();
+    const cur = list.length
+        ? list.findIndex(c => placeKey(c) === placeKey(state.place)) : -1;
     const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
-    const target = cityClamp(base + dir);
-    const place = favorites[target];
-    // Honesty guard: with fewer than two favourites, or already at
-    // the list's first/last favourite, the target clamps straight back
-    // to the city already on screen, so nothing commits and nothing is
-    // drawn, the same inertness `stepCity` had.
+    const place = list[cityClamp(base + dir)];
+    // Honesty guard: with fewer than two favourites, or already at an
+    // end of the list, the target clamps back to the city on screen, so
+    // nothing commits and nothing is drawn.
     if (!place || placeKey(place) === placeKey(state.place)) return;
-    clearTimeout(keySelTimer);
-    const sel = citySel = {
-        base, pos: 0, latch: 0, parked: false, armed: true,
-        lastDetent: 0, target, listDir: dir, cache: new Map()
-    };
-    // Sweep direction opposes the list step, the same rule the drag
-    // uses (SPEC.md DR-32, "Direction, and two things the build must
-    // not get wrong"): the rung arriving at the pin comes from the
-    // side the list is moving toward.
-    changeCity(place, false, { type: 'wave', axis: 'y', dir: -dir });
-    renderCitySel();
-    const t0 = performance.now();
-    const tick = now => {
-        if (citySel !== sel) return; // superseded by a newer press
-        const p = Math.min(1, (now - t0) / KEY_TWEEN_MS);
-        sel.pos = dir * (1 - Math.pow(1 - p, 3)); // ease-out: settles rather than snaps
-        sel.parked = p >= 1;
-        renderCitySel();
-        if (p < 1) { requestAnimationFrame(tick); return; }
-        navigator.vibrate?.(VIBE_DETENT); // one tick landing in the new detent, same as a drag
-        keySelTimer = setTimeout(() => {
-            if (citySel === sel) { clearCitySel(); renderLocation(); }
-        }, KEY_SEL_LINGER_MS);
-    };
-    requestAnimationFrame(tick);
+    // The sweep opposes the list step, so the incoming city arrives from
+    // the side the list is moving toward.
+    changeCity(place, true, { type: 'wave', axis: 'y', dir: -dir });
+};
+
+// Arrow keys walk the sheet while it is open, so the aim, the preview
+// and the readout are the same ones a thumb gets.
+const sheetKey = e => {
+    if (!sheet) return false;
+    // With the menu up, the sheet still owns the keys: the arrows must not
+    // fall through and start stepping the city behind it.
+    if (!$('settings').classList.contains('hidden')) {
+        return ['ArrowUp', 'ArrowDown', 'Enter', ' '].includes(e.key);
+    }
+    const last = sheetPlaces().length;   // the search row; +1 is the menu
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const d = e.key === 'ArrowDown' ? 1 : -1;
+        setAim(Math.max(0, Math.min(last + 1, sheet.aim + d)));
+        return true;
+    }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeSheet(true); return true; }
+    return false;
 };
 
 document.addEventListener('keydown', e => {
@@ -3208,14 +3543,27 @@ document.addEventListener('keydown', e => {
         // change here.
         const openModalEl = document.querySelector('.modal-scrim:not(.hidden)');
         if (openModalEl) { modalClosers[openModalEl.id](); return; }
+        // The sheet is the next layer down. One Escape steps back out of a
+        // mode; the next dismisses the sheet, taking nothing.
+        if (!$('citySheet').hidden) {
+            if (sheetMode !== 'places' && favorites.length) {
+                if (sheetMode === 'search') closeSearch(); else setSheetMode('places');
+                return;
+            }
+            sheet = null;
+            hideSheetChrome();
+            waveRelease();
+            return;
+        }
         closeSearch();
-        toggleSettings(false);
         hideTooltip();
         if (dayOff) dayHome();
         if (hourOff) springHours();
         return;
     }
     if ((e.target.tagName || '') === 'INPUT') return; // don't hijack typing
+    // An open sheet owns the arrows: it is the thing being aimed.
+    if (sheetKey(e)) return;
     // Shift+arrows are the keyboard route into the two reveals, so a
     // keyboard user reaches the same data the rails reveal (the rails are
     // drags, and a drag has no keyboard equivalent). Shift+←/→ steps the
@@ -3237,15 +3585,13 @@ document.addEventListener('keydown', e => {
         }
         return;
     }
-    // ↑/↓ step the location through ★ favorites, through the same
-    // rolling selector a vertical swipe draws (see keyStepCity above);
-    // ←/→ cycle views (same as a horizontal swipe). ↑ is NEXT and ↓ is
-    // PREVIOUS, inverted from plain listbox convention so the rail
-    // rolls the way the arrow points, matching swipe-up = next.
+    // ↑/↓ step the location through ★ favorites (see keyStepCity above);
+    // ←/→ cycle views, which the control row's buttons also do. ↓ is NEXT,
+    // matching the order the sheet lists them in.
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         if (!favorites.length) return;
         e.preventDefault();
-        keyStepCity(e.key === 'ArrowUp' ? 1 : -1);
+        keyStepCity(e.key === 'ArrowDown' ? 1 : -1);
         return;
     }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -3313,7 +3659,13 @@ $('searchInput').addEventListener('keydown', e => {
 });
 
 // Inline GPS button: resolve current position, then close the panel.
-$('geoBtn').addEventListener('click', () => { closeSearch(); useMyLocation(); });
+$('geoBtn').addEventListener('click', () => {
+    // A commit, like picking a result: the sheet goes rather than stepping
+    // back to the list.
+    sheet = null;
+    hideSheetChrome();
+    useMyLocation();
+});
 
 $('searchResults').addEventListener('click', e => {
     const star = e.target.closest('.fav');
@@ -3341,6 +3693,10 @@ $('searchResults').addEventListener('click', e => {
         // same wave as the ↑ arrow); an uncached place keeps skeleton → reveal.
         const entry = loadForecast(place);
         const cached = entry?.payload && !forecastExpired(entry);
+        // A pick is a commit, so the sheet goes with it rather than stepping
+        // back to the list the search was opened from.
+        sheet = null;
+        hideSheetChrome();
         changeCity(place, true, cached ? { type: 'wave', axis: 'y', dir: -1 } : null);
     }
 });
@@ -3362,6 +3718,8 @@ document.addEventListener('click', e => {
     // button before this handler runs; a detached target has no
     // ancestors, which would falsely read as an outside click.
     if (!e.target.isConnected) return;
+    if (e.target.closest('.city-sheet')) return;
+    if (!$('citySheet').hidden) return;   // the scrim and Escape own dismissal
     if (!e.target.closest('.location-wrapper')) {
         // Tap anywhere outside the header (including the dimmed grid,
         // which passes its taps through) fully closes and resets
@@ -3460,14 +3818,14 @@ setView(view); // paints the view toggle + matching legend
 // caret, and the two close controls. The favourite star, the search-row
 // remove control, the now marker, and the status refresh glyph draw in
 // their own render paths.
-$('gear').innerHTML = MR_ICON.gear;
 $('geoBtn').innerHTML = MR_ICON.locate;
 $('locationCaret').innerHTML = MR_ICON.caret;
 $('installDismiss').innerHTML = MR_ICON.close;
 // Every modal's close button (changelog, hourly-data, and any future
 // one registered via registerModal) shares this same glyph.
 document.querySelectorAll('.modal-close').forEach(btn => { btn.innerHTML = MR_ICON.close; });
-if (matchMedia('(pointer: fine)').matches) $('location').title = `Search (${MOD}K)`;
+if (matchMedia('(pointer: fine)').matches) $('location').title = 'Change city';
+renderSwipeHint();
 
 // Precedence: a shared ?lat/lon link wins, else the last saved place,
 // else, for a genuine first visit, a local timezone guess, else the

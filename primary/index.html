@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <!-- interactive-widget=resizes-content is the actual fix for the
+         on-screen keyboard. Without it Android Chrome shrinks only the
+         VISUAL viewport, so anything positioned against the layout viewport
+         (every `position: fixed` element, this app's sheet included) stays
+         where it was and the keyboard covers it. With it the layout viewport
+         shrinks too, `bottom: 0` means "above the keyboard" on its own, and
+         the JS fallback in app.js measures zero and does nothing. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
     <title>Maybe Rain?</title>
     <meta name="theme-color" content="#000000">
     <meta name="description" content="Glanceable weekly weather: should I expect rain, and when?">
@@ -72,6 +79,11 @@
             --on-accent: #000;     /* dark text and glyphs on a gold fill */
             --marker: #fff;        /* the now/focus marker ring, and legend focus */
             --scrim: rgba(0,0,0,0.72); /* dim behind the changelog modal */
+            /* The city switcher's own dim, darker than --scrim because its
+               rows carry 20px names and a gold aim, and the grid behind is a
+               preview rather than something to read through. Its own token,
+               so the changelog is not dragged along with it. */
+            --switch-scrim: rgba(0,0,0,0.86);
             --line-strong: rgba(255,255,255,0.6); /* button hover border, above --line */
             /* Extra text greys past the main three, brightest to faintest. */
             --tip-body: #d0d0d0;   /* tooltip body copy */
@@ -113,39 +125,8 @@
         /* Width follows viewport height so the grid keeps its portrait
            proportions: larger screens get a larger grid, capped at 540px. */
         .container { max-width: clamp(380px, 54vh, 540px); margin: 0 auto; }
-        .location-wrapper {
-            position: relative;
-            display: flex;
-            align-items: center;
-            /* No flex gap: the breathing room before the ⚙ lives inside the
-               location button (as padding) so it's part of the hover/tap
-               target, with no dead sliver between the button and the gear. */
-            gap: 0;
-            /* Anchored to the grid, not floating above it: the header shares
-               the grid's left spine (gutter) and right edge (overhang), so the
-               city name lines up with the day columns and the ⚙ with the last
-               column. A hairline (::after) caps the strip; the gap to the grid
-               is tightened from --sp-4 so the title stops feeling stranded. */
-            padding: 0 var(--overhang) 10px var(--gutter);
-            margin-bottom: var(--sp-2);
-            /* Right inset shared by the search field and its results panel:
-               the field stops this far short of the right edge to clear the
-               ⚙, while the results panel cancels it out to span the full
-               grid width below. Change once, both stay in sync. */
-            --search-right: 44px;
-        }
-        /* Hairline cap spanning the full app area (left:0/right:0, the same
-           span as the chart gridlines) and drawn with the shared --gridline
-           colour, so the header separator and the gridlines read as one system. */
-        .location-wrapper::after {
-            content: '';
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            border-top: 1px solid var(--gridline);
-        }
-        /* Type hierarchy: city name and temps lead, the rest recedes */
+        /* The city name, which lives in the control row at the bottom. The
+           base rule is what the control row then overrides. */
         .location {
             font-size: 24px;
             font-weight: 600;
@@ -190,20 +171,8 @@
            former dead space before the ⚙. Same size/weight as the name (both
            lead the hierarchy); gold ties it to the grid's now-marker. Answers
            "what is it right now?" without spending a second header row. */
-        .location-now {
-            flex-shrink: 0;
-            font-size: 24px;
-            font-weight: 600;
-            line-height: 1;
-            color: var(--accent);
-            padding-left: 8px;
-        }
         /* No reading (locating, or no data for the current hour): collapse it,
            so nothing floats where a value would be. */
-        .location-now:empty { display: none; }
-        /* While searching, the field owns the strip: hide the readout so it
-           never sits stranded beside the input. */
-        .search-container.active ~ .location-now { display: none; }
 
         /* Button styles */
         .btn {
@@ -219,29 +188,18 @@
         .btn:hover, .btn:focus { border-color: var(--line-strong); outline: none; }
         .btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-        /* Settings: the only menu in the app. */
-        .gear {
-            margin-left: auto;
-            border: none;    /* quiet: no outline, just the glyph */
-            font-size: 16px;
-            line-height: 1;
-            color: var(--text-muted);
-            padding: 6px 9px;
-        }
-        .gear:hover, .gear:focus-visible { color: var(--accent); }
+        /* Settings: still the only menu in the app, reached from the one
+           row in the sheet the city name opens. There is no ⚙ on the screen:
+           the header is a readout and the control row is for the two things
+           touched every session. */
         .settings {
-            position: absolute;
-            top: calc(100% + 8px);
-            right: 0;
-            /* Flush with the app, matching the search results list: opaque
-               black, no raised box, rows marked off by hairlines. The grid
-               behind dims (settings-open) so the panel reads on its own. */
+            position: static;
+            /* Flush with the app, matching the sheet's own rows: opaque
+               black, no raised box, rows marked off by hairlines. */
             background: var(--bg);
             border: none;
             border-radius: 0;
             padding: 0;
-            z-index: 30;
-            min-width: 230px;
             display: flex;
             flex-direction: column;
             font-size: 12px;
@@ -252,7 +210,9 @@
             justify-content: space-between;
             align-items: center;
             gap: 12px;
-            padding: 9px 12px;
+            /* aligned to the sheet's own rows, which share the grid gutter */
+            min-height: 40px;
+            padding: 6px var(--gutter);
             color: var(--text-muted);
         }
         /* Hairline between rows, the same one the search results use. */
@@ -308,9 +268,331 @@
             pointer-events: none;
         }
         .view-toggle .seg.has-bar button.active { border-bottom-color: transparent; }
-        /* Slightly tighter than the base seg so the freshness line to its left
-           keeps its full text on narrow phones without ellipsis. */
-        .view-toggle .seg button { padding: 3px 2px 2px; font-size: 11px; }
+        /* --- The one-handed layout --------------------------------------
+           Everything below is the redesign. It changes where controls sit and
+           what arms them; it introduces no colour, no type family, and no
+           radius that the app did not already have. Every value here is an
+           existing token or an existing literal from the row it replaces. */
+
+        /* Conditions summary. Occupies the header strip the city name and the
+           now-temp used to share, so the strip's gutter/overhang alignment and
+           its hairline cap are inherited untouched. The now-temp keeps its own
+           rule above (24px gold, lead type); only the trailing detail is new,
+           at the app's secondary size and grey. */
+        /* The bottom line. One occupant at a time: the status line at rest,
+           the key while the grid is being touched, the swipe hint on a first
+           run. HEIGHT, not min-height, and sized to the tallest of the three
+           (the key, which is a swatch over a label): a slot that sized itself
+           to its occupant would move the control row every time a finger
+           landed on the grid.
+
+           It sits below the grid rather than above it, which is the whole
+           reason the header went. The key exists for the moment a finger is on
+           the grid, and in the header that was exactly the moment the hand was
+           covering it. */
+        .botcap {
+            height: 26px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            margin-left: var(--gutter);
+            margin-right: var(--overhang);
+        }
+        .botcap > * { width: 100%; }
+        .status-wrap[hidden] { display: none; }
+        /* The header is a readout in every state now: search happens in the
+           sheet, so nothing up here ever has to get out of its way. */
+
+        /* Calendar day strip. The weekday keeps the old .day-label rule; the
+           date number is added beneath it at the temp row's own lead size and
+           weight, so the three stacked rows (weekday, date, min/max) read as
+           one type ladder rather than three sizes. Today is gold, exactly as
+           the weekday already was: the marker is not restated as a dot, since
+           the app's rule is one signal per thing. */
+        .day-label { line-height: 1.25; }
+        .day-date {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text);
+        }
+        .day-label.today .day-date { color: var(--accent); }
+
+        /* The control row. Stacked under the status line inside the existing
+           .view-toggle block, so the bottom zone keeps one owner and DR-7's
+           state channel keeps its home. */
+        .view-toggle { flex-direction: column; align-items: stretch; gap: 6px; }
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-1);
+            /* The whole row is dragged: up for the city switcher, sideways
+               for the view switcher. The browser must not claim either as a
+               page pan first, so the whole row opts out, not just the name. */
+            touch-action: none;
+        }
+        /* The city name in the row: lead weight, one step down from the header
+           size it had, because it now shares a line with 44px tap targets. */
+        .control-row .location {
+            /* The largest target on the screen, because it is the one that
+               matters most: tap for search, hold or swipe to switch city.
+               Lead size, and a 52px box so the whole word plus its slack is
+               one hit area rather than a line of text you have to find. */
+            font-size: 20px;
+            font-weight: 600;
+            gap: 6px;
+            /* centred, not baseline: the caret is a glyph in a box, and at
+               20px text in a 52px row the two rules disagree by enough to
+               look like the caret has come loose from the word. */
+            align-items: center;
+            min-height: 52px;
+            padding: 0 12px 0 0;
+        }
+        .control-row .location-caret svg { width: 13px; height: 13px; }
+        /* The caret is the same glyph the header used, turned to point the way
+           the sheet opens, and turned back once it is open. Reusing the signal
+           beats inventing one. */
+        .control-row .location-caret { transform: rotate(180deg); }
+        .control-row .location:hover .location-caret { transform: rotate(180deg) translateY(2px); }
+        .control-row .location.sheet-open .location-caret { transform: rotate(0deg); }
+
+        /* The three view buttons, as the words they name. An icon has to be
+           learned before it can be read, and the underline that names the
+           active view was argued for on exactly that ground: a wind grid and a
+           temperature grid are both coloured squares until something names
+           them. The words do that themselves. The hit box is still 44px tall,
+           grown by padding rather than by type size, so the row does not. */
+        .control-row .seg { flex: none; position: relative; gap: 10px; }
+        .control-row .seg button {
+            min-width: 44px;
+            height: 44px;
+            /* Column, not row: each button carries its current reading above
+               its name. The stack fits because 44px was never a content size —
+               it is the tap-target minimum, and one 13px word only ever used
+               14px of it. The row does not grow by a pixel. */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1px;
+            line-height: 1.1;
+            padding: 0 3px;
+            font-size: 13px;
+        }
+        /* --- The buttons as the readout ---------------------------------
+           Each view button shows its own current-hour value: chance of rain,
+           temperature, wind speed. Three things the app has never shown at
+           once, in a row that already existed, and the button is now a preview
+           of what tapping it gives you.
+
+           The word stays. A control that rewrites its own label cannot be
+           learned — you cannot build muscle memory for "the button that says
+           16°" when tomorrow it says 4° — so the value moves and the name below
+           it does not. That is also what makes the no-data state free: strip
+           the numbers and what is left is exactly the row this replaced. */
+        .control-row .seg .seg-val {
+            font-size: 13px;
+            font-weight: 600;
+            /* fixed-width digits: the value changes every hour and the button
+               must not twitch when 9% becomes 10% */
+            font-variant-numeric: tabular-nums;
+        }
+        .control-row .seg .seg-lb {
+            font-size: 9px;
+            opacity: 0.72;
+        }
+        /* The active view's reading takes lead size. Without this the row is
+           three equal numbers and nothing says which one the grid below is
+           drawing; with it, the largest number on the screen is always the one
+           being shown. It also restores a lead-size reading to the layout,
+           which is the job the 24px header temperature used to do.
+           17 + 1 + 10 = 28px in a 44px box: inside the target, with room. */
+        .control-row .seg button.active .seg-val { font-size: 17px; }
+        /* No reading in hand. `pop` is left null rather than faked, so this is
+           a real state, not an edge case: dim the dash and let the word carry
+           the button. */
+        .control-row .seg .seg-val.none { opacity: 0.45; font-weight: 500; }
+
+        /* The swipe hint. Lives in the status line's own row, shown only while
+           the status line is at rest and only until the sheet has been opened
+           once, so it costs nothing at the glance after that. */
+        .swipe-hint {
+            font-size: 10px;
+            color: var(--text-dimmer);
+            text-align: center;
+            padding-bottom: 2px;
+        }
+        .swipe-hint[hidden] { display: none; }
+
+        /* --- The city sheet ---------------------------------------------
+           Flush black with hairline rows, the treatment the settings menu and
+           the search results already use: no raised card, no new radius, no
+           shadow. Nothing here is drawn at rest. */
+        .sheet-scrim {
+            position: fixed;
+            inset: 0;
+            background: var(--scrim);
+            /* above the install banner (50), which is bottom-anchored too */
+            z-index: 59;
+        }
+        .sheet-scrim[hidden] { display: none; }
+        /* The switch draws its own translucency, so a scrim behind it would
+           only double the dimming. Still there, still catching the tap that
+           dismisses. */
+        .sheet-scrim.clear { background: transparent; }
+        .city-sheet {
+            position: fixed;
+            left: 0;
+            right: 0;
+            /* Sits on top of the on-screen keyboard rather than under it.
+               `position: fixed` is laid out against the LAYOUT viewport,
+               which Android does not shrink when the keyboard opens, so a
+               sheet anchored to bottom:0 ends up behind it with the field
+               and its buttons cut off. --kb is the keyboard's height, read
+               off visualViewport in app.js, and 0 whenever there is none. */
+            bottom: var(--kb, 0px);
+            z-index: 60;
+            background: var(--bg);
+            transition: background 0.15s ease;
+            padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+            /* dvh so mobile browser chrome is accounted for. The sheet is a
+               column: the grip and the action row are fixed, and only the
+               middle scrolls. The action row is how you get between the two
+               modes, so it is the one thing that must never scroll away, and
+               the twelve-row menu is long enough to push it off a phone. */
+            /* Against the VISUAL viewport, for the same reason: with the
+               keyboard up there is far less room than 70dvh claims. */
+            max-height: min(calc(var(--vvh, 100dvh) - 96px), 520px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            /* The drag that opens this never targets it (touchmove goes to
+               the row the touch started on), so the sheet keeps ordinary
+               vertical scrolling for the tap-mode case. */
+            touch-action: pan-y;
+        }
+        .city-sheet > .sheet-grip,
+        .city-sheet > .sheet-actions { flex: none; }
+        .city-sheet > .sheet-list,
+        .city-sheet > .search-results,
+        .city-sheet > .settings {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            touch-action: pan-y;
+        }
+        .city-sheet[hidden] { display: none; }
+        /* More transparent than search and the menu, on purpose: this one is
+           held open for a second over a grid you are still reading. Same
+           spacing, same rows, same everything else, so the two read as one
+           surface in two weights. */
+        .city-sheet.switching { background: var(--switch-scrim); }
+        /* Held open by a finger: the list and the weather, nothing else. The
+           action row cannot be aimed at during a drag, so it is not drawn,
+           and dropping it lets the bottom row of the list fall where the
+           control row sits, which is where the name you release on will
+           rest. Opacity rather than visibility on the row underneath,
+           because the row is the element the touch is captured on and it has
+           to keep receiving the rest of the gesture. */
+        .city-sheet.gesture .sheet-actions { display: none; }
+        .container.switching #viewToggle { opacity: 0; }
+        /* The readout takes the action row's place, at the control row's size,
+           so the two coincide and the release is a swap rather than a move. */
+        .sheet-aim { display: none; }
+        .city-sheet.gesture .sheet-aim {
+            display: flex;
+            align-items: center;
+            flex: none;
+            min-height: 52px;
+            padding: 0 var(--gutter);
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--accent);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sheet-grip {
+            width: 36px;
+            height: 3px;
+            border-radius: var(--radius);
+            background: var(--line);
+            margin: 0 auto 10px;
+        }
+        /* Rows follow .search-result: a reserved bottom hairline whose colour
+           travels with the selection, gold under the row a release would land
+           on. 44px minimum, since this list is aimed at with a thumb. */
+        .sheet-row {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-1);
+            min-height: 44px;
+            padding: 0 var(--gutter) 0 var(--gutter);
+            font-size: 15px;
+            color: var(--text);
+            border-bottom: 1px solid var(--divider);
+            cursor: pointer;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        /* `display:flex` on the row beats the hidden attribute's implicit
+           display:none, so the wide slot has to be told twice. */
+        .sheet-row[hidden] { display: none; }
+        .sheet-row .sr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sheet-row .sr-mark { flex-shrink: 0; font-size: 11px; color: var(--text-dim); }
+        .sheet-row.current .sr-name { font-weight: 600; }
+        .sheet-row.aim {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        .sheet-list:focus { outline: none; }   /* the aim row is the focus cue */
+        /* The sheet's actions. The city name is the only way into anything
+           that is not the grid now, so search and the settings menu both hang
+           off it. They sit under the places, split by one hairline, smaller
+           and grey with a glyph, so a row of this kind can never be mistaken
+           for another city. */
+        .sheet-actions {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+            border-top: 1px solid var(--divider);
+            padding: 6px 0 0;
+        }
+        .sheet-row.sheet-action {
+            color: var(--text-faint);
+            font-size: 15px;
+            border-bottom: none;
+            flex: 1;
+            min-width: 0;
+            min-height: 56px;
+        }
+        /* The other mode, as a button on the end of the same row. It was
+           44px and glyph-only on a bare row, which is the minimum rather than
+           a size, and beside a solid gold GPS square it read as decoration on
+           the end of the field rather than a control you could press. It is
+           drawn as a button now: the app's own outline treatment (--line at
+           one radius, the same as .btn), 44px of ink in a 56px box, and the
+           brighter of the two greys. */
+        .sheet-row.sheet-mode {
+            flex: none;
+            width: 44px;
+            height: 44px;
+            min-height: 44px;
+            margin: 0 var(--sp-1);
+            justify-content: center;
+            padding: 0;
+            gap: 0;
+            color: var(--text-muted);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+        }
+        .sheet-row.sheet-mode:hover { border-color: var(--line-strong); color: var(--accent); }
+        .sheet-row.sheet-mode .sr-glyph { width: 20px; }
+        .sheet-row.sheet-mode .sr-glyph svg { width: 20px; height: 20px; }
+        .sheet-row.sheet-action.aim { color: var(--accent); }
+        /* The current mode's own label is a heading, not a control. */
+        .sheet-row.sheet-here { color: var(--text-muted); cursor: default; }
+        .sheet-row .sr-glyph { flex-shrink: 0; display: inline-flex; width: 16px; }
+        .sheet-row .sr-glyph svg { width: 15px; height: 15px; display: block; }
 
         /* Keyboard focus */
         .location:focus-visible { color: var(--accent); outline: none; }
@@ -374,25 +656,10 @@
             /* No pulse; the was/now tooltip detail still works. */
             .weather-block.changed::after { display: none; }
         }
-        /* Temperature and day labels.
-           All three rows (temps, day labels, grid columns) share the same
-           left gutter, gap, and flex:1 items, so they stay column-aligned
-           at every width. */
-        .temp-row {
-            display: flex;
-            gap: var(--gap);
-            margin-bottom: var(--sp-1);
-            padding-left: var(--gutter);
-            padding-right: var(--overhang);
-        }
-        /* One-line temps "18/9": the ° is dropped here; the unit shows in
-           settings, tooltips, and the temp-view legend. Max is white-medium,
-           min is the lighter axis grey. */
-        .temp-item { flex: 1; text-align: center; white-space: nowrap; }
-        .temp-max { font-weight: 500; font-size: 14px; }
-        .temp-sep { color: var(--text-dim); font-size: 12px; }
-        .temp-min { color: var(--text-faint); font-size: 12px; }
-        /* Day label sits directly above its temps. */
+        /* Day labels.
+           The label row and the grid columns share the same left gutter, gap,
+           and flex:1 items, so they stay column-aligned at every width. */
+        /* The calendar strip: weekday over date, one column per grid column. */
         .day-labels {
             display: flex;
             gap: var(--gap);
@@ -411,10 +678,10 @@
             font-weight: 500;
         }
 
-        /* Days behind today, reachable by dragging the day rail left.
+        /* Days behind today, reachable by paging the grid to the right.
            They are ordinary data and stay fully legible; the recession
            says only that they are behind now, so the eye lands on today
-           first when the drawer is part-way open. Opacity rather than a
+           first when the window is part-way back. Opacity rather than a
            colour change, so it composes with the block colours instead
            of fighting them, and the hazard glyphs and rain lines recede
            by the same amount as the cell they sit on.
@@ -423,8 +690,12 @@
            keeping the blue/grey rain colours apart from each other on
            an OLED phone at low brightness; much below that and light
            rain and overcast stop being distinguishable, which is the
-           one comparison a past column exists to support. */
-        .day-label.past, .temp-item.past { opacity: 0.55; }
+           one comparison a past column exists to support.
+
+           .temp-item is no longer in this list: the min/max row it named
+           is gone, and the day label and the blocks carry the recession
+           between them. */
+        .day-label.past { opacity: 0.55; }
         .weather-block.past { opacity: 0.55; }
         /* The current-hour marker never lands on a past column, so no
            .current interaction to handle here. Focus is left at full
@@ -432,27 +703,21 @@
            see the same focus ring as anywhere else. */
         .weather-block.past:focus-visible { opacity: 1; }
 
-        /* --- Reveal rails (DR-29) ---------------------------------------
-           Two transparent, never-rebuilt gesture layers. Nothing is drawn at
+        /* --- The hour rail (DR-29) --------------------------------------
+           One transparent, never-rebuilt gesture layer. Nothing is drawn at
            rest, so the resting screen is unchanged: the rails are pure hit
            boxes. Each covers the origin that arms its reveal, and `touch-action:
            none` on them keeps the browser from claiming the drag as a page pan
            (the grid itself keeps pan-y, so the view/city swipes are untouched).
 
-           The day rail overhangs the label row above and below. The drawn labels
-           are about 14px tall against a 44px minimum touch target, so the hit box
-           grows without the row growing and eating grid height. */
+           Only the hour rail is left. The day rail went with the drawer: date
+           paging is armed by the grid field now, so there is no second origin
+           left to separate it from. */
         .day-row { position: relative; }
         .rail {
             position: absolute;
             touch-action: none;
             z-index: 2;
-        }
-        #dayRail {
-            left: 0;
-            right: 0;
-            top: -15px;
-            bottom: -15px;
         }
         /* The hour rail is the time-label gutter: the hour axis is what the peek
            moves, so the axis is where you pull it. It stops at the gutter's edge,
@@ -463,65 +728,11 @@
             width: var(--gutter);
             height: 100%;
         }
-        /* --- The city selector (DR-32) ---------------------------------
-           Deliberately absent until the drag has left the first dwell band, so
-           a flick never summons it: under that distance nothing appears on
-           screen at all. It is a ROLLING strip with a FIXED indicator, not a
-           fixed strip with a moving marker: the rungs travel with the finger,
-           exactly as the city name does, so nothing on screen moves against the
-           swipe. Everything is gold, which already means "current state"
-           (now-marker, city name, active view); no hue joins the vocabulary. */
-        #citySel {
-            position: absolute;
-            right: 1px;
-            top: 0;
-            bottom: 0;
-            width: 16px;
-            z-index: 7;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            pointer-events: none;
-        }
-        #citySel[hidden] { display: none; }
-        .city-rail {
-            position: relative;
-            width: 16px;
-            overflow: hidden;
-            -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
-            mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
-        }
-        .city-rail i {
-            position: absolute;
-            left: 50%;
-            width: 5px;
-            height: 5px;
-            margin-left: -2.5px;
-            border-radius: 50%;
-            background: rgba(255, 207, 51, .22);
-        }
-        .city-rail i.home { background: rgba(255, 207, 51, .5); }
-        .city-pin {
-            position: absolute;
-            left: 50%;
-            width: 11px;
-            height: 11px;
-            margin-left: -5.5px;
-            border-radius: 50%;
-            border: 1.5px solid var(--accent);
-            background: rgba(0, 0, 0, .5);
-        }
-        /* Parked in a dwell band: the indicator visibly stops while the finger
-           keeps moving. The detent is DRAWN, not just felt. */
-        .city-pin.parked { background: var(--accent); }
-        /* Position in the ★ list, alongside the name that is already the
-           destination readout. Shown only while the selector is. */
         .city-count {
             margin-left: 6px;
             font-size: 10px;
             letter-spacing: .04em;
-            color: var(--dim);
+            color: var(--text-dim);
             vertical-align: middle;
         }
         .city-count:empty { display: none; }
@@ -695,7 +906,6 @@
         /* Inline SVG icons inherit currentColor and size to ~1em in each
            context (MR_ICON set). One place so the chrome, tooltip, legend, and
            status icons stay in step. */
-        .gear svg { width: 1em; height: 1em; display: block; }
         .geo-btn svg { width: 1em; height: 1em; display: block; }
         .status-icon { display: inline-flex; align-items: center; vertical-align: -0.18em; margin-right: 1px; }
         .status-icon svg { width: 1.15em; height: 1.15em; display: block; }
@@ -775,22 +985,17 @@
             justify-content: center;
             align-items: stretch;
             gap: 2px;
-            margin-top: var(--sp-3);
-            /* same gutter/overhang as the grid: the strip centers on the
-               column field, not the container */
-            padding: var(--sp-2) var(--overhang) 0 var(--gutter);
-            /* full-width separator, shared with the chart gridlines and the
-               header cap (one --gridline token drives all three) */
-            border-top: 1px solid var(--gridline);
         }
+        .legend[hidden], .legend.hidden { display: none; }
+        .sheet-list.hidden { display: none; }
         .legend-step {
             flex: 1;
-            max-width: 52px;
+            max-width: 64px;
             min-width: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
             font-size: 10px;
             color: var(--text-muted);
         }
@@ -1047,8 +1252,9 @@
         .status-wrap {
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 4px;
-            flex: 1 1 auto;
+            max-width: 100%;
             min-width: 0;
         }
         .status {
@@ -1177,120 +1383,70 @@
         }
         .install-banner .dismiss:hover { color: var(--text); }
 
-        /* Search functionality.
-           When active the field overlays the whole header (absolute, filling
-           the wrapper minus the gear on the right) rather than sitting beside
-           the city name. This decouples the search width from the place-name
-           length: a long name can never squeeze the field on a narrow screen.
-           The opaque panel covers the name it replaced; the gear stays clear. */
+        /* Search. The field is the wide slot of the sheet's action row: tap
+           the placeholder and it becomes a live input in the same place, at
+           the bottom of the screen, with its results filling the sheet above
+           it. Nothing about search happens at the top of the screen any more.
+           Flush with the app, no box and no underline: the only gold line in
+           the search UI is the selection under the active result. */
         .search-container {
-            position: absolute;
-            /* Extend 8px below the wrapper and pad the bottom by the same, so
-               the typed text stays vertically aligned with the city name it
-               replaced while the gold underline drops clear of it: no cramp. */
-            inset: 0 var(--search-right) -8px 0;   /* leave room for ⚙ on the right */
             display: flex;
             align-items: center;
-            /* Flush with the app: no raised #111 box, and no underline. The
-               field sits on the same black as everything else; the only gold
-               line in the search UI is the selection highlight above the
-               active result (see .search-result). No horizontal padding, so
-               the typed text starts exactly where the city name did, so the
-               field reads as the same element expanded, not a new box. */
-            background: var(--bg);
-            border: none;
-            border-radius: 0;
-            padding: 0 0 8px 0;
-            opacity: 0;
-            pointer-events: none;   /* hidden until opened, no fade/slide in */
+            flex: 1;
+            min-width: 0;
+            padding: 0 0 0 var(--gutter);
         }
-        .search-container.active {
-            opacity: 1;
-            pointer-events: auto;
-            z-index: 10;
-        }
+        .search-container[hidden] { display: none; }
         .search-input {
             flex: 1;
-            min-width: 0;   /* let the field shrink beside the GPS button */
+            min-width: 0;
             padding: 0;
             background: transparent;
             border: none;
             color: var(--text);
             font-family: inherit;
-            /* One unified search size on every device (not matched to the
-               per-viewport city-name heading): the field only shows while the
-               name is hidden, so a single compact size reads the same on phone,
-               tablet, and desktop. */
-            font-size: 15px;
+            /* One unified search size on every device, matched to the row it
+               replaces so the placeholder and the live field are the same
+               size in the same place. */
+            font-size: 17px;
             font-weight: 600;
             /* type="search" adds native chrome (clear button, inner spin);
-               strip it so the field renders like the plain text input it replaced. */
+               strip it so the field renders like a plain text input. */
             -webkit-appearance: none;
             appearance: none;
         }
         .search-input::-webkit-search-cancel-button,
         .search-input::-webkit-search-decoration { -webkit-appearance: none; }
-        .search-input:focus {
-            outline: none;
-        }
+        .search-input:focus { outline: none; }
         /* Compact "use my location" control, inline at the right edge of the
-           search field: a solid gold square (theme accent + one corner radius)
-           with a dark GPS crosshair glyph, no label. */
+           field: a solid gold square with a dark GPS crosshair, no label. */
         .geo-btn {
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 30px;
-            height: 30px;
+            width: 40px;
+            height: 40px;
             padding: 0;
-            /* Clear the typed text on the left; the container's right inset
-               (--search-right) keeps this button clear of the ⚙ on the right. */
             margin-left: 12px;
-            background: var(--accent);         /* solid gold, the app accent */
+            background: var(--accent);
             border: none;
             border-radius: var(--radius);
-            color: var(--on-accent);                 /* dark glyph on the gold fill */
+            color: var(--on-accent);
             font-family: inherit;
-            font-size: 18px;
+            font-size: 22px;
             line-height: 1;
             cursor: pointer;
             transition: background 0.2s ease;
         }
-        .geo-btn:hover { background: var(--accent-hi); }   /* lighter gold */
-        .geo-btn:active { background: var(--accent-lo); }  /* darker gold */
+        .geo-btn svg { width: 1em; height: 1em; display: block; }
+        .geo-btn:hover { background: var(--accent-hi); }
+        .geo-btn:active { background: var(--accent-lo); }
         .geo-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.55); }
-        .search-results {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            /* Cancel the field's right inset so the panel spans the full grid
-               width below and fully overlaps it, rather than stopping short
-               where the field does. */
-            right: calc(-1 * var(--search-right));
-            /* Butt flush against the opaque field container (top:100%) and keep
-               the breathing room as the panel's own opaque padding, not a
-               transparent margin. A margin here left a ~5px see-through seam
-               where the dimmed grid showed between the field and the list,
-               most visible on Android. */
-            padding-top: 5px;
-            /* Floats over the dimmed grid on the app's own black: no outline
-               box, just the list. */
-            background: var(--bg);
-            border: none;
-            border-radius: 0;
-            /* Longer list: scale with the viewport so it fills more of the
-               screen, instead of a fixed 200px. dvh overrides vh where
-               supported (accurate under mobile browser chrome). */
-            max-height: 60vh;
-            max-height: 60dvh;
-            overflow-y: auto;
-            z-index: 1000;
-        }
-        /* Themed scrollbar, shared by the search results and the changelog
-           body: a hairline-thin gold thumb on a transparent track, matching
-           the app's sunshine accent and the UI's thin lines. Firefox uses the
-           standard props; Chromium/Safari use the ::-webkit-scrollbar pseudos. */
+        /* The results are a sheet body, in flow, sharing the sheet's own
+           scroll behaviour with the places list and the menu. */
+        .search-results { background: var(--bg); }
+        .search-results[hidden] { display: none; }
         .search-results,
         .changelog-body {
             scrollbar-width: thin;
@@ -1311,21 +1467,22 @@
             background-clip: padding-box;
             border-radius: var(--radius);
         }
+        /* A result row and a switch row are the same row: the switch list and
+           the search list are one list shown in two modes of one sheet, so
+           they share height, gutter, type size and the hairline whose colour
+           travels with the selection. Only the actions on the right and the
+           region text differ, because only those are actually different. */
         .search-result {
-            /* Reserve a bottom hairline on every row; its colour is set below
-               (a soft divider between rows, gold under the selected row). This
-               is the one line in the search UI: it underlines the active result
-               and travels with the selection, spanning the full results width,
-               so it runs under the GPS and gear. */
             border-bottom: 1px solid transparent;
-            padding: 6px 0 6px 12px;   /* no right pad: ✕ reaches the gear edge */
-            font-size: 13px;           /* one unified row size on every device */
+            min-height: 44px;
+            padding: 0 var(--sp-1) 0 var(--gutter);
+            font-size: 15px;
             cursor: pointer;
             transition: color 0.2s ease, border-color 0.2s ease;
             color: var(--text);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: var(--sp-1);
         }
         /* City name leads (bold); the region recedes via opacity, so it dims
            in white and follows the gold on the selected row (A3). */
@@ -1403,23 +1560,8 @@
             color: var(--accent);
             border-bottom-color: var(--accent);
         }
-        .container.search-active #content {
-            /* Dim the grid and disable its taps so a stray touch can't open a
-               tooltip while searching. The tap still reaches the document,
-               which reads it as an outside-click and closes search; that
-               dimmed area is the escape target. */
-            filter: brightness(0.4);
-            pointer-events: none;
-            transition: filter 0.3s ease;
-        }
-        /* Settings open dims the grid the same way search does, so the flush
-           panel reads against a calm backdrop and a tap on the grid closes the
-           menu (outside-click) rather than opening a tooltip. */
-        .container.settings-open #content {
-            filter: brightness(0.4);
-            pointer-events: none;
-            transition: filter 0.3s ease;
-        }
+        /* The grid used to be dimmed while searching. The sheet's own scrim
+           does that now, in every mode, so there is one rule instead of two. */
 
         /* Mobile styles */
         @media (max-width: 480px) {
@@ -1430,7 +1572,11 @@
                 --overhang: 10px;
             }
             body {
-                padding: 10px;
+                /* The extra bottom padding is not decoration: Android's
+                   gesture navigation owns a strip along the bottom edge, and
+                   a swipe up that starts inside it goes to the system rather
+                   than to the page. The control row has to sit above it. */
+                padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 12px));
                 min-height: 100vh;
                 min-height: -webkit-fill-available;
                 min-height: 100dvh;
@@ -1457,30 +1603,22 @@
                 min-height: 280px;
                 margin-top: var(--sp-1);
             }
-            .location-wrapper {
-                margin-bottom: var(--sp-1);
-                padding-bottom: 6px;
+            .control-row .location {
+                font-size: 19px;
             }
-            .location, .location-now {
-                font-size: 18px;
-            }
-            .location-caret svg {
-                width: 14px;
-                height: 14px;
+            .control-row .seg { gap: 8px; }
+            /* One step down on phone widths, on the two spans rather than the
+               button: the button's own font-size no longer draws anything. The
+               active value stays clearly the largest thing in the row. */
+            .control-row .seg .seg-val { font-size: 12px; }
+            .control-row .seg button.active .seg-val { font-size: 16px; }
+            .control-row .location-caret svg {
+                width: 10px;
+                height: 10px;
             }
             .time-label {
                 font-size: 10px;
             }
-            .temp-max {
-                font-size: 13px;
-            }
-            .temp-min, .temp-sep {
-                font-size: 11px;
-            }
-            /* °F triple digits ("104/86" = 6 monospace chars) need a font
-               step down to fit a ~36px phone column. °C never triggers it. */
-            .temp-row.unit-f .temp-max { font-size: 10px; }
-            .temp-row.unit-f .temp-min, .temp-row.unit-f .temp-sep { font-size: 9px; }
             .day-label {
                 font-size: 11px;
             }
@@ -1569,12 +1707,9 @@
             }
             /* larger lead type for the bigger canvas (grid cells scale with
                the chart height on their own; these are the text elements) */
-            .location, .location-now { font-size: 28px; }
-            .location-caret svg { width: 18px; height: 18px; }
             .time-label { font-size: 12px; }
             .day-label { font-size: 13px; }
-            .temp-max { font-size: 15px; }
-            .temp-min, .temp-sep { font-size: 13px; }
+            .day-date { font-size: 15px; }
         }
 
         /* Landscape tablet (touch, tall viewport): short and wide. Don't fill
@@ -1625,8 +1760,7 @@
             .chart { height: clamp(300px, 74vh, 900px); }
             /* section gaps scaled up for the larger canvas (the base 8px scale
                stays elsewhere; only these two grouping gaps grow) */
-            .location-wrapper { margin-bottom: var(--sp-3); }
-            .legend { margin-top: var(--sp-4); }
+            .botcap { height: 28px; }
         }
 
         /* desktop keyboard-shortcut reference in the settings pane */
@@ -1662,7 +1796,7 @@
             }
             body { padding-top: calc(env(titlebar-area-height, 33px) + 8px); }
             /* keep controls clickable if any reaches the bar */
-            .location, .gear, .btn, .search-container {
+            .location, .btn, .search-container {
                 -webkit-app-region: no-drag;
                 app-region: no-drag;
             }
@@ -1672,9 +1806,103 @@
 <body>
     <div class="titlebar-drag" aria-hidden="true"></div>
     <div class="container fade-in">
-        <div class="location-wrapper">
-            <div class="location" id="location" role="button" tabindex="0" aria-label="Change city"><span class="location-name" id="locationName"></span><span class="city-count" id="cityCount" aria-hidden="true"></span><span class="location-caret" id="locationCaret" aria-hidden="true"></span></div>
-            <div class="search-container" id="searchContainer">
+        <div id="content">
+            <!-- hourRail (below) is the hour peek's touch target (DR-29). It is
+                 transparent, created once here, and never rebuilt: touch
+                 dispatches every touchmove/touchend to whatever element was
+                 under the finger at touchstart, so a listener living on markup
+                 that a mid-drag re-render replaces (the time labels) would be
+                 detached after one frame and the gesture would die. Mouse is
+                 immune, so that bug looks fine on desktop and is total on a
+                 phone.
+                 The day rail is gone: date paging now lives on the grid field
+                 itself, so there is no second origin to separate it from. -->
+            <div class="day-row">
+                <div class="day-labels" id="days"></div>
+                <button class="home-chip" id="dayHome" type="button" hidden
+                        aria-label="Back to today"></button>
+            </div>
+            <div class="chart">
+                <div id="sunLines"></div>
+                <div class="time-labels" id="times"></div>
+                <div class="chart-grid" id="grid"></div>
+                <div class="rail" id="hourRail" aria-hidden="true"></div>
+            </div>
+            <!-- The control row. One row, in thumb reach: the city name (which
+                 IS the city switcher, tap or swipe up) and the three view
+                 buttons. The status line keeps the line above it, so DR-7's
+                 single state channel costs no new layout. -->
+            <div class="view-toggle" id="viewToggle">
+                <!-- One line, three occupants that never coexist: the status
+                     line at rest, the key while the grid is being touched, and
+                     the swipe hint on a first run. They never needed three
+                     homes. It sits BELOW the grid, which is the point: the key
+                     exists for the moment a finger is on the grid, and up in
+                     the header that was exactly the moment the hand covered
+                     it. -->
+                <div class="botcap" id="botcap">
+                    <div class="status-wrap" id="captionText">
+                        <div id="status" class="status" tabindex="0" role="button"></div>
+                        <button class="status-info" id="statusInfo" aria-label="About forecast freshness"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+                    </div>
+                    <div class="legend" id="legend" hidden></div>
+                    <div class="swipe-hint" id="swipeHint" hidden></div>
+                </div>
+                <div class="control-row" id="controlRow">
+                    <div class="location" id="location" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-controls="sheetList" aria-label="Change city"><span class="location-name" id="locationName"></span><span class="city-count" id="cityCount" aria-hidden="true"></span><span class="location-caret" id="locationCaret" aria-hidden="true"></span></div>
+                    <!-- Each button carries its own current-hour reading above
+                         its name (chance, temperature, wind speed). The value
+                         spans start empty: renderViewValues fills them, and
+                         nothing is ever shown before the data is in hand. -->
+                    <div class="seg" id="viewSeg">
+                        <button data-view="rain"><span class="seg-val"></span><span class="seg-lb">rain</span></button>
+                        <button data-view="temp"><span class="seg-val"></span><span class="seg-lb">temp</span></button>
+                        <button data-view="wind"><span class="seg-val"></span><span class="seg-lb">wind</span></button>
+                        <!-- DR-30: the active underline as a movable element, so
+                             it can slide toward the view a transition is heading
+                             for. At rest it is measured onto the active button
+                             and is the same 1px gold line the words carried. -->
+                        <i class="segbar" id="viewBar" aria-hidden="true" hidden></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="install-banner" id="installBanner">
+        <span id="installText"></span>
+        <button class="btn" id="installGo">Install</button>
+        <button class="dismiss" id="installDismiss" aria-label="Dismiss"></button>
+    </div>
+
+    <!-- The city sheet. Absent from the DOM's flow at rest (hidden), drawn
+         only while a swipe up from the control row is live or a tap has
+         opened it. Flush black, hairline rows: the same treatment the
+         settings menu and the search results already use. -->
+    <div class="sheet-scrim" id="sheetScrim" hidden></div>
+    <!-- The sheet is everything that is not the grid: the saved places, the
+         search, and the menu. Three bodies, one at a time, and one action row
+         pinned to the bottom of all three. Nothing about it appears anywhere
+         near the top of the screen. -->
+    <div class="city-sheet" id="citySheet" hidden>
+        <div class="sheet-grip" aria-hidden="true"></div>
+        <div class="sheet-list" id="sheetList" role="listbox" tabindex="-1"
+             aria-label="Saved cities" aria-activedescendant=""></div>
+        <div class="search-results" id="searchResults" hidden></div>
+        <div class="settings hidden" id="settings"></div>
+        <!-- The destination readout, drawn only while the switch is held. It
+             occupies the slot the action row occupies and sits at the control
+             row's own size and position, so the name you release on does not
+             move when the sheet goes and the control row comes back. -->
+        <div class="sheet-aim" id="sheetAim" aria-hidden="true"></div>
+        <!-- The action row. The wide slot on the left is the mode you are in:
+             the search placeholder in the places list, the live field once
+             you tap it, the menu's own title in the menu. The button on the
+             right is the mode you are not. It sits outside every body so it
+             survives the swap between them, and it is pinned so a long menu
+             cannot scroll the way out of reach. -->
+        <div class="sheet-actions" id="sheetActions">
+            <div class="search-container" id="searchContainer" hidden>
                 <input type="search"
                        class="search-input"
                        id="searchInput"
@@ -1691,66 +1919,10 @@
                        data-form-type="other">
                 <button type="button" class="geo-btn" id="geoBtn"
                         aria-label="Use my location" title="Use my location"></button>
-                <div class="search-results" id="searchResults"></div>
             </div>
-            <span class="location-now" id="locationNow" aria-label="Current temperature"></span>
-            <button class="btn gear" id="gear" aria-label="Settings" aria-expanded="false"></button>
-            <div class="settings hidden" id="settings"></div>
+            <div class="sheet-row sheet-action" id="sheetWide" role="button" tabindex="-1"></div>
+            <div class="sheet-row sheet-action sheet-mode" id="sheetMode" role="button" tabindex="-1"></div>
         </div>
-
-        <div id="content">
-            <!-- dayRail and hourRail (below) are the reveal gestures' touch targets
-                 (DR-29). Both are transparent, created once here, and never
-                 rebuilt: touch dispatches every touchmove/touchend to whatever
-                 element was under the finger at touchstart, so a listener living
-                 on markup that a mid-drag re-render replaces (the day labels,
-                 the time labels) would be detached after one frame and the
-                 gesture would die. Mouse is immune, so that bug looks fine on
-                 desktop and is total on a phone. Each is also its own origin
-                 gate: what separates 'more days' from the view swipe, and 'more
-                 hours' from the city swipe, is where the drag starts, not how
-                 fast it moves. -->
-            <div class="day-row">
-                <div class="day-labels" id="days"></div>
-                <div class="rail" id="dayRail" aria-hidden="true"></div>
-                <button class="home-chip" id="dayHome" type="button" hidden
-                        aria-label="Back to today"></button>
-            </div>
-            <div class="temp-row" id="temps"></div>
-            <div class="chart">
-                <div id="sunLines"></div>
-                <div class="time-labels" id="times"></div>
-                <div class="chart-grid" id="grid"></div>
-                <div class="rail" id="hourRail" aria-hidden="true"></div>
-                <!-- DR-32's city selector. Empty and hidden at rest, and not
-                     drawn at all until a vertical drag has left the FIRST dwell
-                     band, so a flick never summons it. -->
-                <div id="citySel" aria-hidden="true" hidden></div>
-            </div>
-            <div class="view-toggle" id="viewToggle">
-                <div class="status-wrap">
-                    <div id="status" class="status" tabindex="0" role="button"></div>
-                    <button class="status-info" id="statusInfo" aria-label="About forecast freshness"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
-                </div>
-                <div class="seg" id="viewSeg">
-                    <button data-view="rain">rain</button>
-                    <button data-view="temp">temp</button>
-                    <button data-view="wind">wind</button>
-                    <!-- DR-30: the active underline as a movable element, so it
-                         can slide toward the view a scrub is heading for. At
-                         rest it is measured onto the active button and is the
-                         same 1px gold line that was drawn as a border before. -->
-                    <i class="segbar" id="viewBar" aria-hidden="true" hidden></i>
-                </div>
-            </div>
-            <div class="legend" id="legend"></div>
-        </div>
-    </div>
-
-    <div class="install-banner" id="installBanner">
-        <span id="installText"></span>
-        <button class="btn" id="installGo">Install</button>
-        <button class="dismiss" id="installDismiss" aria-label="Dismiss"></button>
     </div>
 
     <div class="tooltip" id="tooltip"></div>

@@ -2,6 +2,38 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.2.0 (2026-08-13)
+
+### the one-handed main screen
+- every control now sits in one row at the bottom of the screen: the city name, then the three view buttons
+- the settings gear is gone from the top corner. tapping the city name opens a sheet holding the saved cities, the search, and the menu, all within reach of a thumb
+- swipe up on the bottom row to switch city. the list opens under the finger, the row it is over is highlighted, and releasing lands that city
+- press and hold opens the same list without moving, for when there is no room to swipe
+- the list is ordered by recency with the current city at the bottom, nearest the thumb, so switching back and forth between two cities is a single short flick either way
+- swipe sideways on the bottom row to change view
+- a horizontal drag on the grid itself now moves the days, forward and back. the day row is no longer a drag handle
+- the per-day min/max row is gone. those temperatures are in the grid it labelled, and in the tooltip
+- the day row carries the date as well as the weekday, since the grid can now be moved to any day
+- the hairlines between sections are gone. spacing separates them instead
+- the search field and the menu open from the bottom of the screen, above the on-screen keyboard rather than behind it
+
+### the rain, temp and wind buttons now show what it is right now
+- each of the three view buttons carries its own reading for the current hour: the chance of rain, the temperature, and the wind speed
+- so the screen answers all three at a glance. it only ever showed the temperature before
+- the active view's reading is printed largest, so the biggest number on the screen is always the one the grid below is drawing
+- each button keeps its name beneath the number. the number changes through the day and the word does not, so a view is still found by looking in the same place
+- tapping still only switches the view. the button now previews what tapping it gives
+- a reading with nothing behind it shows a dash rather than a guess. the chance of rain in particular is left blank by the forecast when it is not known, and stays blank here instead of reading 0%
+- temperature and wind follow the units set in the menu
+
+### the top of the screen is gone
+- the band above the grid held a temperature, a feels-like and a condition line. the three view buttons carry those readings now, so it was stating them twice
+- nothing above the grid but the dates, and the blocks grew taller for it
+- the freshness line moved to a single line beneath the grid, and the forecast in words moved with it: `overcast · Run 18:00 · next ~3:41`
+- the forecast reads first and the freshness second, so on a narrow screen the freshness is what gets cut off, never the weather
+- the colour key shares that line and appears there while the grid is being touched. it used to sit above the grid, which is where the hand was
+- every warning keeps the line to itself: offline, stale data, no data, and a waiting update all read as before
+
 ## v2.1.0 (2026-08-13)
 
 ### past days
