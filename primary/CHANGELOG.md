@@ -9,6 +9,11 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the control row is the only row on this screen that gets pressed, so it takes the position nearest the thumb. the line above it was spending the easiest reach in the app on text that is only ever read
 - the colour key and the first-run hint share that line and moved with it. a hand on the grid is above the line either way, which is the reason the line went below the grid in the first place
 
+### the app talks to screen readers
+- each hour block is announced as something that can be pressed, rather than as an unlabelled box. the empty spacer blocks are skipped entirely
+- loading, offline, stale data and a waiting update are now spoken as they happen. before, the line that carries every one of those was visual only
+- the resting freshness line is deliberately not announced. its countdown changes every minute, and reading that out would drown the states that matter
+
 ### the tooltip stopped chasing the pointer
 - a pointer crossing the grid opened a tooltip on every block it passed over, so the box strobed across the screen ahead of the cursor. a block now has to be settled on for a moment before it opens
 - once one is open, moving to a neighbouring block slides it there instead of teleporting. reading across a row is a continuous movement, not a series of jumps

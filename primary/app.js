@@ -132,6 +132,21 @@ let statusTimer = null;
 // repaint inside this window (so a fetch/paint can't clobber it), then
 // clears. A shared transient timer can't express "re-show while active".
 let whatsNewTimer = null;
+// The status line is the app's only state channel (DR-7), and until now it
+// was a purely visual one: a screen reader was told nothing about loading,
+// going offline, stale data or a waiting update.
+//
+// It announces the states, not the resting line. The resting line carries a
+// countdown that reticks every minute, and a live region repeating "next
+// ~3:40, next ~3:39" is worse than silence. The rule matches the one the
+// layout already follows: a warning keeps the line to itself, and those are
+// exactly the messages worth speaking.
+let lastSpoken = '';
+const announce = msg => {
+    if (!msg || msg === lastSpoken) return;
+    lastSpoken = msg;
+    $('statusLive').textContent = msg;
+};
 const setStatus = (text, cls = '', opts = {}) => {
     const el = $('status');
     // Any new status cancels a pending auto-clear first, so transient
@@ -148,6 +163,11 @@ const setStatus = (text, cls = '', opts = {}) => {
     // It's a button now, so always name the refresh action; updateStatus
     // overrides with a richer description for the run line.
     el.setAttribute('aria-label', label ? `${label}. Refresh forecast` : 'Refresh forecast');
+    // Anything with a class is a state (loading, stale, offline, update
+    // ready); anything transient is a reply to something just done. Both
+    // get spoken. The plain resting line does not.
+    if (cls || opts.transient) announce(label);
+    else lastSpoken = '';
     // Transient messages (opts.transient) carry a ~2s life, after which
     // the line reverts to whatever the resting layer now says. Resting
     // states are set without the flag and persist until their own
@@ -588,9 +608,13 @@ const cellDelay = (anim, c, r, nCols, nRows, desc) => {
     return -1;
 };
 
+// role="button" because that is what a block is: tabbable, and activating
+// it opens the hour's detail. Without it a screen reader reads a labelled
+// group and gives no sign there is anything to press. An empty cell is
+// spacing and is hidden outright rather than announced as a blank.
 const buildCell = desc => desc.empty
-    ? '<div class="weather-block empty"></div>'
-    : `<div class="weather-block${desc.current ? ' current' : ''}${desc.past ? ' past' : ''}" style="background:rgb(${desc.rgb});color:${desc.textColor}" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
+    ? '<div class="weather-block empty" aria-hidden="true"></div>'
+    : `<div class="weather-block${desc.current ? ' current' : ''}${desc.past ? ' past' : ''}" style="background:rgb(${desc.rgb});color:${desc.textColor}" role="button" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
 
 // A cell the sweep has not reached yet, or a destination with no data to
 // paint. Black is the page background rather than a value in any
@@ -616,20 +640,24 @@ const blankCols = (nCols, nRows) =>
 // fade until the next unanimated rebuild happened to restore it. The hover
 // therefore behaved differently depending on how the grid had last been
 // painted, which is not a thing a hover should depend on.
+const CELL_A11Y = ['role', 'tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'];
 const applyCellContent = (node, desc) => {
     if (desc.empty) {
         node.className = 'weather-block empty';
-        ['tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'].forEach(a => node.removeAttribute(a));
+        CELL_A11Y.forEach(a => node.removeAttribute(a));
+        node.setAttribute('aria-hidden', 'true');
         node.innerHTML = '';
         return;
     }
     node.className = 'weather-block' + (desc.current ? ' current' : '') + (desc.past ? ' past' : '');
+    node.removeAttribute('aria-hidden');
     node.innerHTML = desc.marks;
     node.style.color = desc.textColor;
     if (desc.blank) {
-        ['tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'].forEach(a => node.removeAttribute(a));
+        CELL_A11Y.forEach(a => node.removeAttribute(a));
         return;
     }
+    node.setAttribute('role', 'button');
     node.setAttribute('tabindex', '0');
     node.setAttribute('aria-label', desc.info);
     node.dataset.day = desc.dayIndex;

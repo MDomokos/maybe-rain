@@ -1410,6 +1410,20 @@
         .hidden {
             display: none;
         }
+        /* Present to a screen reader, absent to everything else. Not
+           `display:none`, which would take it out of the accessibility tree
+           along with everything else. */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            margin: -1px;
+            padding: 0;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
+            border: 0;
+        }
 
         /* Install banner: bottom-center pill, dismissible, remembered.
            Hidden by default in CSS, since it must never pre-empt the forecast.
@@ -1887,6 +1901,12 @@
 </head>
 <body>
     <div class="titlebar-drag" aria-hidden="true"></div>
+    <!-- The spoken half of the status channel. Off-screen, never drawn, and
+         written to only for states worth interrupting for: loading, offline,
+         stale data, a waiting update, and the transient replies. The resting
+         freshness line is not announced, because its countdown reticks every
+         minute and a live region reading that out is noise. -->
+    <p id="statusLive" class="sr-only" role="status" aria-live="polite"></p>
     <div class="container">
         <div id="content">
             <!-- hourRail (below) is the hour peek's touch target (DR-29). It is
