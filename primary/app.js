@@ -2133,7 +2133,7 @@ const openSearch = () => {
             via: 'tap',
             aim: Math.max(0, sheetPlaces().length - 1),
             cache: new Map(),
-            live: !matchMedia('(prefers-reduced-motion: reduce)').matches
+            live: !reduceMotion()
         };
         renderSheet();
     }
@@ -2705,7 +2705,7 @@ const setAim = idx => {
     // Preview the aimed city on the grid, sweeping the way the list is
     // moving so everything visible moves with the finger. Off under
     // reduced motion, where the sheet is the whole answer.
-    if (!sheet.live) return;
+    if (!sheet.live || reduceMotion()) return;
     const cols = sheetColsFor(idx);
     if (cols) waveTo($('grid'), cols, -(Math.sign(idx - was) || 1), { axis: 'y', hold: true });
 };
@@ -2723,7 +2723,7 @@ const openSheet = via => {
         // whenever it is a favourite: the aim starts where the finger is.
         aim: Math.max(0, sheetPlaces().length - 1),
         cache: new Map(),
-        live: !matchMedia('(prefers-reduced-motion: reduce)').matches
+        live: !reduceMotion()
     };
     setSheetMode('places');
     setGestureMode(via === 'drag');
@@ -2939,7 +2939,7 @@ const closeSheet = (commit = false) => {
         committed = true;
         changeCity(place, true, null);
     };
-    if (!s.live) { land(); return; }
+    if (!s.live || reduceMotion()) { land(); return; }
     waveRelease();
     if (!wave) { land(); return; }
     wave.onSettle = land;
@@ -3183,7 +3183,7 @@ const mapRailNotches = (raw, unit) => {
 // they can lag a frame or two behind the blend until it settles.
 // Off entirely under reduced motion, where there is nothing to
 // blend and the shipped instant behaviour already degrades cleanly.
-const railScrubLive = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
+const railScrubLive = () => !reduceMotion();
 
 // Builds the grid for a given day/hour offset without touching the
 // live dayOff/hourOff, the same trick `sheetColsFor` uses: swap the
@@ -3309,7 +3309,7 @@ const springHours = () => {
     pendingRevealFn = null;
     if (!hourOff) return;
     const from = hourOff, gen = ++hourHomeGen;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { hourOff = 0; repaint(); return; }
+    if (reduceMotion()) { hourOff = 0; repaint(); return; }
     const t0 = performance.now();
     const tick = now => {
         if (gen !== hourHomeGen) return; // superseded by a new drag/press/reset
@@ -3370,7 +3370,7 @@ const dayHome = () => {
     pendingRevealFn = null;
     if (!dayOff) return;
     const from = dayOff, gen = ++dayHomeGen;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { dayOff = 0; repaint(); renderDayHome(); return; }
+    if (reduceMotion()) { dayOff = 0; repaint(); renderDayHome(); return; }
     const t0 = performance.now();
     const tick = now => {
         if (gen !== dayHomeGen) return; // superseded by a new drag/step/reset

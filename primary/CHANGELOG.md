@@ -9,6 +9,11 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the control row is the only row on this screen that gets pressed, so it takes the position nearest the thumb. the line above it was spending the easiest reach in the app on text that is only ever read
 - the colour key and the first-run hint share that line and moved with it. a hand on the grid is above the line either way, which is the reason the line went below the grid in the first place
 
+### reduce motion now covers the whole app
+- the system "reduce motion" setting used to stop the grid animating but left the install prompt sliding in, the caret dipping under the pointer, and every fade running. all of it is covered now
+- turning the setting on or off part-way through a session takes effect straight away instead of at the next gesture
+- removed the last of the old grid animations from the stylesheet. this version has drawn its own transitions in code since the sweep landed, and the leftover rules described behaviour it no longer had
+
 ### the bottom line and the view underline stopped snapping
 - the colour key, the first-run hint and the freshness line share one slot, and used to cut between each other in a single frame. they now dissolve, so the line under the thumb no longer flickers on every touch
 - the gold underline beneath the active view used to jump the instant a view button was tapped, while the grid it labels took a third of a second to answer. it now slides, and still arrives before the grid does

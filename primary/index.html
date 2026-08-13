@@ -679,45 +679,56 @@
             color: var(--text-faint);
             animation: skeletonPulse 1.6s ease-in-out infinite;
         }
-        /* Pixelated reveal when forecast data arrives: no fades. Each
-           block snaps on (dim briefly, then full) at its own discrete
-           tick, in dithered order across the grid. `backwards` fill keeps
-           a block invisible until its delay elapses; afterwards it returns
-           to natural styles, so the hover opacity transition keeps working. */
-        .weather-block.reveal {
-            animation: blockIn 120ms linear backwards;
-        }
-        @keyframes blockIn {
-            0% { opacity: 0; }
-            5%, 60% { opacity: 0.45; }
-            65%, 100% { opacity: 1; }
-        }
-        /* DR-6: one-shot ~2s pulse on cells whose forecast meaningfully
-           moved since the previous model run. Lives on a pseudo-element so
-           it composes with the reveal animation and its inline dither
-           delay; currentColor is the block's luminance-picked glyph color,
-           so the ring reads on any hue. Fires once: the class is set only
-           on the first render after a new model run. */
-        .weather-block.changed { position: relative; }
-        .weather-block.changed::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: inherit;
-            pointer-events: none;
-            box-shadow: inset 0 0 0 2px currentColor;
-            animation: changePulse 2s ease-out forwards;
-        }
-        @keyframes changePulse {
-            0%, 55% { opacity: 1; }
-            100% { opacity: 0; }
-        }
+        /* The reveal and change-pulse animations that used to live here are
+           gone. Both were classic's: primary's grid has been driven by the
+           playhead in app.js since the wave landed, and neither `.reveal` nor
+           `.changed` has been applied by this variant's code since. A changed
+           cell is now the `refresh` sweep, and the first paint is the `reveal`
+           sweep, both of them timed in JS. */
+
+        /* Reduced motion. Two halves that have to agree: the media query
+           below, and `html.reduce-motion`, which app.js keeps in step with
+           the same preference. The class exists because the JS gates read the
+           preference too, and a user who toggles the OS setting mid-session
+           should not get a page where half the rules have noticed and half
+           have not. Every rule here is stated for both. */
         @media (prefers-reduced-motion: reduce) {
             .weather-block.skeleton, .status.updating { animation: none; opacity: 0.7; }
-            .weather-block.reveal { animation: none; }
-            /* No pulse; the was/now tooltip detail still works. */
-            .weather-block.changed::after { display: none; }
+            /* Entrances: nothing arrives by moving. */
+            .city-sheet.sheet-in, .city-sheet.sheet-out,
+            .sheet-scrim.sheet-in, .sheet-scrim.sheet-out,
+            .install-banner.revealed { animation: none; }
+            /* Transitions that move or fade rather than recolour. Colour and
+               border changes are kept: they are how a control says it is
+               focused, and they do not move anything. */
+            .segbar, #viewToggle, .botcap.stacked > *, .tooltip,
+            .weather-block, .location-caret, .btn, .status.outdated,
+            .city-sheet, .sheet-row { transition: none; }
+            /* A hover that MOVES the caret is the exact class of thing this
+               preference is for. The colour change stays. */
+            .location:hover .location-caret,
+            .control-row .location:hover .location-caret { transform: none; }
+            .control-row .location:hover .location-caret { transform: rotate(180deg); }
         }
+        html.reduce-motion .weather-block.skeleton,
+        html.reduce-motion .status.updating { animation: none; opacity: 0.7; }
+        html.reduce-motion .city-sheet.sheet-in,
+        html.reduce-motion .city-sheet.sheet-out,
+        html.reduce-motion .sheet-scrim.sheet-in,
+        html.reduce-motion .sheet-scrim.sheet-out,
+        html.reduce-motion .install-banner.revealed { animation: none; }
+        html.reduce-motion .segbar,
+        html.reduce-motion #viewToggle,
+        html.reduce-motion .botcap.stacked > *,
+        html.reduce-motion .tooltip,
+        html.reduce-motion .weather-block,
+        html.reduce-motion .location-caret,
+        html.reduce-motion .btn,
+        html.reduce-motion .status.outdated,
+        html.reduce-motion .city-sheet,
+        html.reduce-motion .sheet-row { transition: none; }
+        html.reduce-motion .location:hover .location-caret { transform: none; }
+        html.reduce-motion .control-row .location:hover .location-caret { transform: rotate(180deg); }
         /* Day labels.
            The label row and the grid columns share the same left gutter, gap,
            and flex:1 items, so they stay column-aligned at every width. */
@@ -1387,13 +1398,6 @@
             transition: all 0.2s ease;
         }
         .status.outdated:hover { color: var(--warn-strong); border-color: var(--warn-strong); }
-        .fade-in {
-            animation: fadeIn 0.25s ease-in;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
         .hidden {
             display: none;
         }
@@ -1874,7 +1878,7 @@
 </head>
 <body>
     <div class="titlebar-drag" aria-hidden="true"></div>
-    <div class="container fade-in">
+    <div class="container">
         <div id="content">
             <!-- hourRail (below) is the hour peek's touch target (DR-29). It is
                  transparent, created once here, and never rebuilt: touch
