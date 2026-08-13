@@ -1358,6 +1358,10 @@ const renderOffsetChrome = () => {
         if (f < start || f > end + 1) return ''; // outside the hour window
         return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
     }).join('');
+    // The window moved, so what it can still reach has moved with it: a
+    // drag that has just hit the forward cap loses its forward arrow
+    // rather than keeping it until the finger lifts.
+    showReachMarks(legendHeld);
 };
 
 const updateDisplay = (anim = null) => {
@@ -1486,6 +1490,36 @@ const holdLegend = on => {
     if (on === legendHeld) return;
     legendHeld = on;
     syncCaption();
+    showReachMarks(on);
+};
+
+// --- The reach marks -----------------------------------------------
+// The two gestures that move the window are drawn as nothing at rest, and
+// a hit box nobody can see is a feature nobody finds. These are the marks
+// that say where the window can still go: a caret above and below the hour
+// axis, and an arrow at each side of the grid.
+//
+// They follow the key's own rule, which is the rule that made the key work:
+// they exist for the moment a hand is on the surface, and the screen at
+// rest is exactly what it was. So the glance costs nothing, and the answer
+// is there the first time anyone touches the thing.
+//
+// Only the directions that lead somewhere are drawn. At the forward cap
+// there is no forward arrow, at the start of the past days no backward
+// one, and in 24-hour mode no carets at all, so a mark never promises a
+// move the app will refuse.
+const showReachMarks = on => {
+    const live = on && !!state.data.length;
+    const hours = live && hourPeekLive();
+    const { min, max } = hours ? hourPeekRange() : { min: 0, max: 0 };
+    $('reachUp').hidden = !(hours && hourOff > min);
+    $('reachDown').hidden = !(hours && hourOff < max);
+    const days = live && pagingLive();
+    // Dragging the grid to the RIGHT reaches back in time, so the arrow on
+    // the left points the way the content comes from, not the way the
+    // finger goes. It is the column that would arrive that is being named.
+    $('reachPrev').hidden = !(days && dayOff > minDayOff());
+    $('reachNext').hidden = !(days && dayOff < maxDayOff());
 };
 
 const renderLegend = () => {
@@ -3278,19 +3312,52 @@ $('citySheet').addEventListener('pointermove', e => {
 });
 $('sheetScrim').addEventListener('click', () => closeSheet(false));
 
-// The hint. One line, and only until the sheet has been opened once:
-// after that it is chrome on every glance for a thing already learned.
-const LS_SHEET_SEEN = 'mr-sheet-seen';
-const hideSwipeHint = () => {
+// --- The hints -----------------------------------------------------
+// Three gestures carry the app and two of them were invisible. The day
+// drag is the main way around the forecast and nothing on the screen said
+// so; the hour pull hides eight of the twenty-four hours behind a gutter
+// drawn as nothing. The slot that names the third one was already here,
+// spending itself on a single line about the city list and then going
+// quiet forever.
+//
+// So it names all three instead, one per launch, and each retires itself
+// the first time its own gesture is used. A hint for something already
+// learned is chrome on every glance, which is why there is no fourth
+// state and no way to bring them back.
+const LS_HINTS = 'mr-hints-seen';
+const HINTS = [
+    { key: 'sheet', text: 'swipe up for cities', live: () => sheetLive() },
+    { key: 'days', text: 'drag the grid sideways for other days', live: () => pagingLive() },
+    { key: 'hours', text: 'pull the hours for more of the day', live: () => hourPeekLive() }
+];
+const readHints = () => {
+    try { return new Set(JSON.parse(localStorage.getItem(LS_HINTS) || '[]')); }
+    catch { return new Set(); }
+};
+// Which hint this launch shows: the first one still unseen whose gesture
+// is actually available right now. A gesture with nowhere to go (one saved
+// city, no past days) is not worth naming, and would spend its one showing
+// on a suggestion that does nothing.
+let hintKey = null;
+const retireHint = key => {
+    const seen = readHints();
+    if (seen.has(key)) return;
+    seen.add(key);
+    try { localStorage.setItem(LS_HINTS, JSON.stringify([...seen])); } catch { /* private mode */ }
+    if (hintKey !== key) return;
+    hintKey = null;
     hintLive = false;
     syncCaption();
-    try { localStorage.setItem(LS_SHEET_SEEN, '1'); } catch { /* private mode */ }
 };
+// The sheet keeps its own name for this, since it is called from the two
+// places that open the sheet.
+const hideSwipeHint = () => retireHint('sheet');
 const renderSwipeHint = () => {
-    let seen = true;
-    try { seen = !!localStorage.getItem(LS_SHEET_SEEN); } catch { /* private mode */ }
-    hintLive = !seen && sheetLive();
-    if (hintLive) $('swipeHint').textContent = 'swipe up for cities';
+    const seen = readHints();
+    const pick = HINTS.find(h => !seen.has(h.key) && h.live());
+    hintKey = pick ? pick.key : null;
+    hintLive = !!pick;
+    if (pick) $('swipeHint').textContent = pick.text;
     syncCaption();
 };
 
@@ -3477,6 +3544,9 @@ const setHourOffState = n => {
     const v = Math.max(min, Math.min(max, n));  // past the clamp the pull
     if (v === hourOff) return false;            // simply stops: the window
     hourOff = v;                                // may never leave the day
+    // The gesture has been used, so its hint has done its job. Only a pull
+    // AWAY from rest counts: the way home is not a discovery.
+    if (v) retireHint('hours');
     return true;
 };
 const setHourOff = n => {
@@ -3590,6 +3660,7 @@ const setDayOffState = n => {
     const v = Math.max(minDayOff(), Math.min(maxDayOff(), n));
     if (v === dayOff) return false;
     dayOff = v;
+    if (v) retireHint('days');
     renderDayHome();
     return true;
 };

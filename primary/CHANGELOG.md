@@ -9,6 +9,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the control row is the only row on this screen that gets pressed, so it takes the position nearest the thumb. the line above it was spending the easiest reach in the app on text that is only ever read
 - the colour key and the first-run hint share that line and moved with it. a hand on the grid is above the line either way, which is the reason the line went below the grid in the first place
 
+### the gestures say they are there
+- touching the grid now shows a small gold arrow at each side and a caret above and below the hour axis, marking the two directions the window can still be pulled. they go again the moment the finger lifts, so the screen at rest is unchanged
+- an arrow is only drawn where there is somewhere to go: none at the far end of the forecast, none behind the earliest day kept, and no carets at all when the grid is already showing all 24 hours
+- the one hint line under the controls used to name the city list and then go quiet forever. it now names all three gestures, one per launch, and each disappears for good the first time its own gesture is used
+- a gesture with nothing to reach is never suggested
+
 ### swiping between rain, temp and wind follows the finger
 - the sideways swipe on the bottom row did nothing at all until the finger came off, and then jumped a whole view. the grid now changes under the hand, and the gold underline slides toward the view being pulled toward and names it on the way
 - a swipe taken far enough lands; anything short of that rewinds to where it started rather than half-committing

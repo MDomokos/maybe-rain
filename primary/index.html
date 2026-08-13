@@ -801,6 +801,41 @@
             width: var(--gutter);
             height: 100%;
         }
+        /* Reach marks. Six pixels of gold that exist only while the grid is
+           being touched, saying which way the window can still be pulled.
+           Absolutely positioned inside .chart and pointer-events:none, so
+           they sit over the gutter and the column edges without taking a
+           single pixel of hit area from the block or the rail beneath.
+
+           They fade rather than appear, on the caption slot's own timing,
+           so a finger landing on the grid produces one movement across the
+           whole screen rather than two unrelated ones. */
+        .reach {
+            position: absolute;
+            z-index: 3;
+            color: var(--accent);
+            font-size: 8px;
+            line-height: 1;
+            pointer-events: none;
+            opacity: 0.75;
+            animation: reachIn 120ms ease-out;
+        }
+        .reach[hidden] { display: none; }
+        @keyframes reachIn { from { opacity: 0; } to { opacity: 0.75; } }
+        /* The hour carets, centred in the label gutter, level with the top
+           and bottom edges of the grid. */
+        .reach-v { left: calc((var(--gutter) - 8px) / 2); transform: translateX(-50%); }
+        #reachUp { top: -1px; }
+        #reachDown { bottom: -1px; }
+        /* The day arrows, vertically centred against the column field. The
+           left one sits in the gutter's outer edge, the right one in the
+           gridline overhang, so neither covers a block. */
+        .reach-h { top: 50%; transform: translateY(-50%); }
+        #reachPrev { left: 1px; }
+        #reachNext { right: 0; }
+        html.reduce-motion .reach { animation: none; }
+        @media (prefers-reduced-motion: reduce) { .reach { animation: none; } }
+
         .city-count {
             margin-left: 6px;
             font-size: 10px;
@@ -1929,6 +1964,16 @@
                 <div class="time-labels" id="times"></div>
                 <div class="chart-grid" id="grid"></div>
                 <div class="rail" id="hourRail" aria-hidden="true"></div>
+                <!-- The reach marks. Nothing at rest; drawn only while a hand
+                     is on the grid, and only on the sides the window can
+                     still travel to. The carets sit in the hour gutter,
+                     which is the rail the hour pull is armed from; the
+                     arrows sit at the two edges of the column field, which
+                     is where a day drag takes hold. -->
+                <span class="reach reach-v" id="reachUp" aria-hidden="true" hidden>&#9650;</span>
+                <span class="reach reach-v" id="reachDown" aria-hidden="true" hidden>&#9660;</span>
+                <span class="reach reach-h" id="reachPrev" aria-hidden="true" hidden>&#9664;</span>
+                <span class="reach reach-h" id="reachNext" aria-hidden="true" hidden>&#9654;</span>
             </div>
             <!-- The control row. One row, in thumb reach: the city name (which
                  IS the city switcher, tap or swipe up) and the three view

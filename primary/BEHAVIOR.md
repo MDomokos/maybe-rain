@@ -23,8 +23,11 @@ One viewport, no scrolling. Nothing above the grid but dates. Top to bottom:
   reach on the screen, because it is the only row here that gets touched.
 - **Bottom line** — one slot of fixed height with three occupants that never
   coexist: the status line at rest, the condition key while the grid is being
-  touched or hovered, and the swipe hint on a first run. Fixed height, so the
-  swap moves nothing. The last thing on the screen: it is read, never pressed.
+  touched or hovered, and the gesture hint on a first run. Fixed height, so the
+  swap moves nothing, and the three dissolve rather than cut. The last thing on
+  the screen: it is read, never pressed. The hint names one gesture per launch
+  (cities, days, hours), skips any with nowhere to go, and each retires itself
+  the first time its own gesture is used.
 
 There is no header band, no ⚙ and no separate legend band. The three view
 buttons are where the app prints the current temperature, chance of rain and
@@ -72,6 +75,9 @@ Two surfaces, and which one a drag started on is what decides its meaning.
   window slides within the full 24, and springs home on release.
 - **The key** — appears in the caption slot while a finger or pointer is on the
   grid, and gives the slot back on release.
+- **The reach marks** — on the same signal as the key: a gold arrow at each side
+  of the grid and a caret above and below the hour axis, drawn only in the
+  directions the window can still travel. Nothing at rest.
 
 **On the control row**
 
