@@ -9,6 +9,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the control row is the only row on this screen that gets pressed, so it takes the position nearest the thumb. the line above it was spending the easiest reach in the app on text that is only ever read
 - the colour key and the first-run hint share that line and moved with it. a hand on the grid is above the line either way, which is the reason the line went below the grid in the first place
 
+### swiping between rain, temp and wind follows the finger
+- the sideways swipe on the bottom row did nothing at all until the finger came off, and then jumped a whole view. the grid now changes under the hand, and the gold underline slides toward the view being pulled toward and names it on the way
+- a swipe taken far enough lands; anything short of that rewinds to where it started rather than half-committing
+- the first quarter of the pull is deliberately dead, so a tap with a wobble in it still reads as a tap
+- the distance needed to switch has not changed, so an already-learned swipe works exactly as it did
+
 ### letting go of the days or the hours now slides home
 - the movement back to today was a series of hard cuts, one per day crossed, dressed up as an animation. it now crossfades the same way the drag itself does, which is what it was always meant to look like
 - the dates and the hour axis travel with it instead of arriving a beat early

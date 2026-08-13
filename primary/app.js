@@ -2480,13 +2480,32 @@ registerModal('hourly', closeHourly);
 // changed, and the origin gate it used to need went with it.
 const chart = document.querySelector('.chart');
 
-const stepView = dir => {
+const viewStepTo = dir => {
     const enabled = enabledViews();
-    if (enabled.length < 2) return;
+    if (enabled.length < 2) return null;
     const i = enabled.indexOf(view);
+    return enabled[(i + dir + enabled.length) % enabled.length];
+};
+const stepView = dir => {
+    const v = viewStepTo(dir);
+    if (!v) return;
     // Horizontal wave: the new view enters from the side it sits on, so
     // next (right in the control row) fills right-to-left.
-    setView(enabled[(i + dir + enabled.length) % enabled.length], { type: 'wave', axis: 'x', dir: -Math.sign(dir) });
+    setView(v, { type: 'wave', axis: 'x', dir: -Math.sign(dir) });
+};
+
+// The grid as some OTHER view would draw it, without disturbing the live
+// one. Same swap-call-restore `dayColsFor` and `sheetColsFor` use, and
+// cached per gesture, since a drag that crosses the origin asks for the
+// same two views over and over.
+const viewColsFor = (v, cache) => {
+    if (cache.has(v)) return cache.get(v);
+    const keep = view;
+    let built;
+    try { view = v; built = buildCols(); }
+    finally { view = keep; }
+    cache.set(v, built);
+    return built;
 };
 
 // A touch is a TAP until it has moved this far. Below it nothing renders
@@ -3107,6 +3126,10 @@ controlRow.addEventListener('touchstart', e => {
     rowTouch = {
         x: t.clientX, y: t.clientY, dx: 0,
         axis: null, armed: false, hold: 0,
+        // The sideways scrub's own state: whether it ever ran, and the two
+        // neighbouring views it has built, kept for the life of the drag
+        // so crossing back over the origin costs nothing.
+        scrubbed: false, viewCache: new Map(),
         // Which tap this would be if it turns out to be one.
         onName: !!e.target.closest?.('#location')
     };
@@ -3138,8 +3161,68 @@ controlRow.addEventListener('touchmove', e => {
         }
     }
     e.preventDefault();
-    if (rowTouch.axis === 'y') aimAtPoint(t.clientX, t.clientY);
+    if (rowTouch.axis === 'y') { aimAtPoint(t.clientX, t.clientY); return; }
+    scrubView(dx);
 }, { passive: false });
+
+// --- The view switch, scrubbed (DR-30) --------------------------------
+// The sideways drag used to do nothing at all until the finger came off,
+// and then jump a whole view. Every other gesture in the app answers under
+// the hand: the city list aims as the thumb moves, the day drag crossfades
+// per notch. This one was the exception, and the machinery to fix it
+// (`scrubWave`, and `renderViewBar`'s destination interpolation) was
+// already written and simply had no caller.
+//
+// The travel maps to the sweep the same way the rails do: a dwell first,
+// so a drag that is really a tap with a wobble in it moves nothing, then a
+// ramp to a fully played sweep at the commit distance. Past that the sweep
+// is finished and the extra travel is slack, which is what makes a long
+// confident drag and a short exact one land identically.
+const VIEW_DWELL = 0.25;
+const scrubView = dx => {
+    if (!railScrubLive() || !state.data.length) return;
+    const dir = Math.sign(dx);
+    if (!dir) return;
+    const dest = viewStepTo(dx < 0 ? 1 : -1);
+    if (!dest || dest === view) return;
+    const raw = Math.min(1, Math.abs(dx) / VIEW_COMMIT_PX);
+    const p = raw <= VIEW_DWELL ? 0 : (raw - VIEW_DWELL) / (1 - VIEW_DWELL);
+    rowTouch.scrubbed = true;
+    scrubWave($('grid'), viewColsFor(dest, rowTouch.viewCache), dir, p, dest);
+    renderViewBar(p, dest);
+};
+
+// Release. The commit threshold is unchanged, so a gesture that worked
+// before works the same now; what changed is that the grid has already
+// played the sweep, so committing is an instant repaint onto the frame
+// the finger left it on, and abandoning rewinds the sweep rather than
+// discarding an animation that never ran.
+const endViewScrub = commit => {
+    const r = rowTouch;
+    const take = commit && Math.abs(r.dx) > VIEW_COMMIT_PX;
+    if (!r.scrubbed || !wave || !wave.scrub) {
+        renderViewBar();
+        if (take) stepView(r.dx < 0 ? 1 : -1);
+        return;
+    }
+    const dest = viewStepTo(r.dx < 0 ? 1 : -1);
+    wave.scrub = false;
+    if (take) {
+        wave.rate = 0;
+        wave.onSettle = () => { renderViewBar(); };
+        // The view is taken now, not when the sweep lands: the buttons and
+        // the key name the destination the moment the finger says so, and
+        // `'instant'` keeps setView from replaying the sweep already on
+        // screen underneath them.
+        if (dest) setView(dest, 'instant');
+    } else {
+        wave.rewind = true;
+        wave.rate = wave.t / Math.max(REWIND_MIN_MS, wave.t / REWIND_RATE);
+        wave.onSettle = () => { renderViewBar(); };
+        renderViewBar();
+    }
+    waveRelease();
+};
 
 const endRowTouch = commit => {
     const r = rowTouch;
@@ -3152,7 +3235,9 @@ const endRowTouch = commit => {
         // Drag left for the next view, right for the previous, the same
         // direction the control row reads in. Decided on release off the
         // travel, so a slow drag and a flick differ only in where they end.
-        if (commit && Math.abs(r.dx) > VIEW_COMMIT_PX) stepView(r.dx < 0 ? 1 : -1);
+        rowTouch = r;          // endViewScrub reads the gesture it is ending
+        endViewScrub(commit);
+        rowTouch = null;
         return;
     }
     if (!r.armed) {

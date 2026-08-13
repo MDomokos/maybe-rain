@@ -81,7 +81,11 @@ Two surfaces, and which one a drag started on is what decides its meaning.
   you were last on is one row away. While it is held the control row and the
   sheet's own action row are not drawn, and the aimed name is shown where the
   control row's name will be, so the release moves nothing.
-- **Switch view** — swipe sideways, one step per swipe.
+- **Switch view** — swipe sideways, one step per swipe. Scrubbed: the grid
+  crossfades under the finger and the active underline slides toward the view
+  being pulled toward, so the destination is named before the release. Past a
+  short dwell the pull maps to the sweep, and the release either completes it
+  or rewinds it.
 - **Search** — tap the city name. Every one of these is decided on release, so
   a tap that turns into a swipe is still a swipe.
 - **Keyboard** — ↑ ↓ step cities in the sheet's own order; ← → step views.
