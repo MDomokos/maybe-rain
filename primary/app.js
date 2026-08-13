@@ -724,6 +724,16 @@ const cancelFrame = h => {
     if (h.raf) cancelAnimationFrame(h.raf);
     if (h.timer) clearTimeout(h.timer);
 };
+// The common case is not a sweep that STARTS hidden, it is one that is
+// halfway through when the tab goes away, and an already-queued rAF simply
+// stops. Hand the sweep over to the timer at that moment so it finishes on
+// its own and the tab comes back to a settled grid rather than to a
+// half-black one.
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden || !waveRaf || !waveRaf.raf) return;
+    cancelFrame(waveRaf);
+    waveRaf = { timer: setTimeout(() => waveTick(performance.now()), FRAME_MS) };
+});
 
 let wave = null;      // { grid, from, to, delays, shown, dir, anim, t, total, pending }
 let waveRaf = null, waveLast = 0;
@@ -1341,7 +1351,7 @@ const sunForToday = () => {
     const meta = dayMeta.find(d => d.isToday) || dayMeta[0];
     return (meta && state.sun[meta.date]) || {};
 };
-const renderOffsetChrome = () => {
+const renderOffsetChrome = (sun = sunForToday()) => {
     const { start, end } = visibleWindow();
     const rows = end - start + 1;
     renderDayStrip();
@@ -1350,7 +1360,6 @@ const renderOffsetChrome = () => {
     // sunrise/sunset minute (⚙ Sun → hide turns them off). Neighbouring
     // days drift only minutes; each day's exact times are in its blocks'
     // tooltips.
-    const sun = sunForToday();
     $('sunLines').innerHTML = !settings.sunLines ? '' : ['rise', 'set'].map(k => {
         const t = sun[k];
         if (!t) return '';
@@ -1365,13 +1374,17 @@ const renderOffsetChrome = () => {
 };
 
 const updateDisplay = (anim = null) => {
-    renderOffsetChrome();
+    // Measured once and handed down: both the sun lines and the night
+    // swap want the same answer, and working it out asks for the visible
+    // window and a slice of the week each time.
+    const sun = sunForToday();
+    renderOffsetChrome(sun);
 
     const currentHour = cityNow().hour;
     // Hybrid chrome: once the current local hour is past sunset, the
     // background eases to night (blocks already colour per their own
     // hour). Purely ambient: a single --bg swap, accent stays gold.
-    document.body.classList.toggle('night', nightFactor(currentHour, sunForToday()) >= 0.5);
+    document.body.classList.toggle('night', nightFactor(currentHour, sun) >= 0.5);
 
     const cols = buildCols();
     paintGrid($('grid'), cols, anim);
@@ -2532,12 +2545,18 @@ const stepView = dir => {
 // one. Same swap-call-restore `dayColsFor` and `sheetColsFor` use, and
 // cached per gesture, since a drag that crosses the origin asks for the
 // same two views over and over.
+// The offsets go home with it, because a view change is one of the
+// drawer's ways home (DR-29) and `setView` will zero them on commit
+// whatever this builds. Building at the CURRENT offset instead left the
+// release swapping a swept grid for a repainted one at a different day,
+// which is a hard cut in the one place the whole gesture exists to avoid
+// having one.
 const viewColsFor = (v, cache) => {
     if (cache.has(v)) return cache.get(v);
-    const keep = view;
+    const keepView = view, keepDay = dayOff, keepHour = hourOff;
     let built;
-    try { view = v; built = buildCols(); }
-    finally { view = keep; }
+    try { view = v; dayOff = 0; hourOff = 0; built = buildCols(); }
+    finally { view = keepView; dayOff = keepDay; hourOff = keepHour; }
     cache.set(v, built);
     return built;
 };
@@ -2616,6 +2635,10 @@ chart.addEventListener('touchmove', e => {
         // every move. They are fourteen short nodes; the grid, which is
         // the expensive part, is still painted by the wave alone.
         renderDayStrip();
+        // And the marks, for the same reason: a drag that has just
+        // reached the cap must stop advertising a direction it can no
+        // longer go. This path never reaches `renderOffsetChrome`.
+        showReachMarks(legendHeld);
         return;
     }
     setDayOff(touchNav.base - Math.round(sgn * (k + p)));
@@ -3231,8 +3254,8 @@ const scrubView = dx => {
 // played the sweep, so committing is an instant repaint onto the frame
 // the finger left it on, and abandoning rewinds the sweep rather than
 // discarding an animation that never ran.
-const endViewScrub = commit => {
-    const r = rowTouch;
+const endViewScrub = (r, commit) => {
+    if (!r) return;
     const take = commit && Math.abs(r.dx) > VIEW_COMMIT_PX;
     if (!r.scrubbed || !wave || !wave.scrub) {
         renderViewBar();
@@ -3252,8 +3275,11 @@ const endViewScrub = commit => {
     } else {
         wave.rewind = true;
         wave.rate = wave.t / Math.max(REWIND_MIN_MS, wave.t / REWIND_RATE);
+        // The bar is not parked here. `waveFrame` still drives it off
+        // `destView` for the whole rewind, so putting it home now would
+        // snap it back and then let it rewind out from there. It lands
+        // when the sweep does.
         wave.onSettle = () => { renderViewBar(); };
-        renderViewBar();
     }
     waveRelease();
 };
@@ -3269,9 +3295,7 @@ const endRowTouch = commit => {
         // Drag left for the next view, right for the previous, the same
         // direction the control row reads in. Decided on release off the
         // travel, so a slow drag and a flick differ only in where they end.
-        rowTouch = r;          // endViewScrub reads the gesture it is ending
-        endViewScrub(commit);
-        rowTouch = null;
+        endViewScrub(r, commit);
         return;
     }
     if (!r.armed) {
@@ -3330,15 +3354,28 @@ const HINTS = [
     { key: 'days', text: 'drag the grid sideways for other days', live: () => pagingLive() },
     { key: 'hours', text: 'pull the hours for more of the day', live: () => hourPeekLive() }
 ];
+// Read once and kept. `retireHint` runs from `setDayOffState` and
+// `setHourOffState`, which fire once per notch inside a move handler, and
+// a synchronous localStorage read plus a JSON.parse per notch is not
+// something a drag should be paying for. The Set is the truth from here
+// on; storage is only written to.
+let hintsSeen = null;
 const readHints = () => {
-    try { return new Set(JSON.parse(localStorage.getItem(LS_HINTS) || '[]')); }
-    catch { return new Set(); }
+    if (hintsSeen) return hintsSeen;
+    try { hintsSeen = new Set(JSON.parse(localStorage.getItem(LS_HINTS) || '[]')); }
+    catch { hintsSeen = new Set(); }
+    return hintsSeen;
 };
 // Which hint this launch shows: the first one still unseen whose gesture
 // is actually available right now. A gesture with nowhere to go (one saved
 // city, no past days) is not worth naming, and would spend its one showing
 // on a suggestion that does nothing.
-let hintKey = null;
+// Chosen on the first paint of the session and then left alone. Re-running
+// the choice on every repaint promoted the next hint the instant the
+// current one retired, so performing a gesture summoned the next
+// suggestion: three hints in one session, each arriving as a reward for
+// having just done something. One launch, one hint.
+let hintKey = null, hintPicked = false;
 const retireHint = key => {
     const seen = readHints();
     if (seen.has(key)) return;
@@ -3353,8 +3390,17 @@ const retireHint = key => {
 // places that open the sheet.
 const hideSwipeHint = () => retireHint('sheet');
 const renderSwipeHint = () => {
+    if (hintPicked) { syncCaption(); return; }
+    // Not before there is a forecast. Whether a gesture leads anywhere is
+    // a question about the data, and asked too early the answers are wrong
+    // in both directions: paging looks dead because no days have been
+    // parsed yet, while the hour pull looks alive because it only ever
+    // consults a setting. Picking then spent the session's one hint on the
+    // third choice while the second was still loading.
+    if (!state.data.length) { syncCaption(); return; }
     const seen = readHints();
     const pick = HINTS.find(h => !seen.has(h.key) && h.live());
+    hintPicked = true;
     hintKey = pick ? pick.key : null;
     hintLive = !!pick;
     if (pick) $('swipeHint').textContent = pick.text;
@@ -3585,7 +3631,10 @@ const homeTween = ({ from, axis, gen, genOf, setOffset, colsFor, done }) => {
     const scrub = railScrubLive() && !!colsFor;
     const cache = new Map();
     const t0 = performance.now();
-    let lastK = dist, lastOffset = from;
+    // Seeded at the notch the FIRST tick will be in, not at the one the
+    // tween starts from: the first tick always has p > 0, so `dist` would
+    // read as a notch crossing before anything had moved.
+    let lastK = Math.max(0, dist - 1), lastOffset = from;
     const finish = () => {
         setOffset(0);
         renderOffsetChrome();
@@ -3758,6 +3807,10 @@ const railDrag = (el, opts) => {
             drag.lastK = k;
             const nextCols = opts.colsFor(drag.base - sgn * (k + 1), drag.cache);
             scrubReveal(nextCols, sgn, p, opts.axis);
+            // Same as the day drag above: this path bypasses
+            // `renderOffsetChrome`, so the marks are refreshed here or
+            // they keep pointing past the clamp.
+            showReachMarks(legendHeld);
             return;
         }
         opts.step(drag.base, Math.round(sgn * (k + p)));

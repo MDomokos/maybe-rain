@@ -325,11 +325,26 @@
            under the thumb read as a flicker rather than as one thing giving
            way to another. `visibility` rides along so the two that are out
            are not tab stops and cannot be read aloud. */
-        .botcap.stacked { display: grid; align-items: center; }
+        .botcap.stacked {
+            display: grid;
+            align-items: center;
+            /* One row, the slot's own height. The three occupants are all
+               laid out now rather than one at a time, so without this the
+               row would auto-size to the tallest of them and the slot's
+               fixed height would stop being fixed. */
+            grid-template-rows: 100%;
+            overflow: hidden;
+        }
         .botcap.stacked > * {
             grid-area: 1 / 1;
+            align-self: center;
             transition: opacity 120ms ease, visibility 120ms;
         }
+        /* The key's spacing was written for when it was the only child of
+           this slot and could push it around. Stacked, it is one of three
+           in one cell, and 16px of margin plus 16px of padding on a 26px
+           slot would shift everything else in it. */
+        .botcap.stacked .legend { margin-top: 0; padding-top: 0; }
         .botcap.stacked > .cap-off {
             opacity: 0;
             visibility: hidden;
