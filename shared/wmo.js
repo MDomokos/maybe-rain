@@ -32,6 +32,15 @@ const conditionFor = (code, clouds) => {
 const dowOf = dateStr => new Date(dateStr + 'T00:00:00Z').getUTCDay();
 const DAY_ABBR = ['SU', 'M', 'T', 'W', 'TH', 'F', 'S'];
 const weekdayOf = dateStr => DAY_ABBR[dowOf(dateStr)];
+// The "YYYY-MM-DD" date n days before another, for the past-day trim in
+// processData. Read and written at UTC midnight like the two above, so
+// it steps whole calendar days. The strings it is compared against are
+// Open-Meteo's own city-local dates, which carry no offset.
+const dateDaysBefore = (dateStr, n) => {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+};
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dateLabel = dateStr => {
     const d = new Date(dateStr + 'T00:00:00Z');

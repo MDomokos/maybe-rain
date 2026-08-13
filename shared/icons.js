@@ -4,7 +4,7 @@
 // currentColor so each icon inherits its context: the block's
 // luminance-picked contrast colour, gold for now/saved, grey for
 // chrome. One source of truth; keys map to the render slots below.
-// Full reference: "Weather PWA/Maybe Rain Icons.md". A few marks
+// Full reference: "Maybe Rain/Design/Maybe Rain Icons.md". A few marks
 // (snow, solar, sunrise, sunset) are kept for features not built yet
 // and need no wiring today. mrIcon(key) returns the SVG or ''.
 const MR_ICON = {

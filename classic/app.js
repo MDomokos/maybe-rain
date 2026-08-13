@@ -9,9 +9,17 @@ const hourRange = () => settings.allHours
 // The window rendered: the full week (up to 7 days of real data) across
 // the whole hour range. Kept as a function so its callers still read
 // { start, end, days } unchanged.
+//
+// `off` is where the frame starts in state.data. It is always today, so
+// the window classic shows is unchanged, but state.data now begins at
+// PAST_DAYS before today rather than at today (see shared/forecast.js),
+// and a frame anchored at 0 would put last night in the first column.
+// Classic has no way to reach a past day and no wish to show one, so it
+// steps over them here. state.todayIndex is 0 for any payload that
+// predates past_days, which is the old behaviour exactly.
 const visibleWindow = () => {
     const { start, end } = hourRange();
-    return { start, end, days: 7 };
+    return { start, end, days: 7, off: state.todayIndex || 0 };
 };
 const applyBand = () => {
     const w = visibleWindow();
@@ -64,13 +72,17 @@ const setStatus = (text, cls = '', opts = {}) => {
 // hour are both on screen, that hour's label becomes a gold marker
 // with the current temp; no temp data, arrow only (never a guess).
 const renderTimes = () => {
-    const { start, end, days } = visibleWindow();
+    const { start, end, days, off } = visibleWindow();
     const rows = end - start + 1;
     const band = 100 / rows;
     const step = 1;
     const now = cityNow().hour;
     const ti = state.days.findIndex(d => d.isToday);
-    const hasNow = ti >= 0 && ti < days && now >= start && now <= end;
+    // `ti` and `off` are both absolute indices into state.days, which no
+    // longer starts at today. In classic `off` IS today's index, so this
+    // is only ever true of the first column, but it is written against
+    // the frame rather than against 0 so it stays right if that changes.
+    const hasNow = ti >= off && ti < off + days && now >= start && now <= end;
     // Separator lines run above every labeled row except the first
     // (that boundary is the grid's own top edge, left bare) so the
     // grid's top and bottom stay free of lines.
@@ -494,10 +506,10 @@ const paintGrid = (grid, cols, anim) => {
 };
 
 const updateDisplay = (anim = null) => {
-    const { start, end, days } = visibleWindow();
+    const { start, end, days, off } = visibleWindow();
     const rows = end - start + 1;
-    const shownDays = state.data.slice(0, days);   // today-first, up to 7
-    const dayMeta = state.days.slice(0, days);
+    const shownDays = state.data.slice(off, off + days);   // today-first, up to 7
+    const dayMeta = state.days.slice(off, off + days);
 
     $('days').innerHTML = dayMeta.map(day =>
         `<div class="day-label ${day.isToday ? 'today' : ''}">${day.text}</div>`
@@ -703,7 +715,10 @@ const updateDisplay = (anim = null) => {
                 + arrow
                 + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
                 + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
-            cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex, hour: h.hour, moved: !!movedInView });
+            // Absolute index into state.days, so the tooltip reads the
+            // right day back out now that the frame starts at `off`
+            // rather than at 0.
+            cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex: off + dayIndex, hour: h.hour, moved: !!movedInView });
         }
         return cells;
     });

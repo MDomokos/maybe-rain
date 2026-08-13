@@ -2,7 +2,8 @@ let state = {
     place: DEFAULT_PLACE,
     tz: 'Pacific/Auckland', // overwritten by every forecast response
     data: [],     // [day][{hour, temp, pop, condition, description}], all real hours
-    days: [],     // [{text, isToday, date}]
+    days: [],     // [{text, isToday, date, past}]
+    todayIndex: 0, // index of today within data/days; past days sit before it
     sun: {},      // date → { rise: {h, m}, set: {h, m} } (city-local)
     fetchedAt: 0, // timestamp of the forecast currently displayed
     modelRun: null, // global model run: { init, interval, nextUpdate } ms, from the metadata API

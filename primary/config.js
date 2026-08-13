@@ -15,3 +15,14 @@ const DAY_OFF_MAX = 7;   // drawer's hard cap: leftmost column = lead day 7,
 // day drops out and the spare slides in, so the window stays full without
 // waiting on the network).
 const FORECAST_DAYS = DAY_SPAN + DAY_OFF_MAX + 1; // 15
+
+// How far back the drawer may reach, in days before today. Two covers
+// last night and the night before, which is the span the question "did
+// it rain overnight, and how much?" is asked over. Longer spans are a
+// climatology question and the archive API answers those better.
+//
+// shared/forecast.js trims the parsed days to this rather than showing
+// whatever the payload contains. A payload fetched three days ago still
+// holds three past days, so without the trim the reach behind today
+// would vary with how long ago the app was last opened.
+const PAST_DAYS = 2;

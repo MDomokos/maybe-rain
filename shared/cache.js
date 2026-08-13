@@ -19,7 +19,8 @@ const forecastCacheKey = p => `${LS_FORECAST}:${placeKey(p)}`;
 const loadForecast = p => loadJSON(forecastCacheKey(p));
 // Every write stamps the horizon the payload was fetched with, so there
 // is one place to keep it honest rather than four call sites.
-const saveForecast = (p, entry) => saveJSON(forecastCacheKey(p), { ...entry, days: FORECAST_DAYS });
+const saveForecast = (p, entry) =>
+    saveJSON(forecastCacheKey(p), { ...entry, days: FORECAST_DAYS, pastDays: PAST_DAYS });
 // Fully expired: the payload's hourly times are place-local ISO
 // strings and it carries utc_offset_seconds, so "is the last hour in
 // the past?" is a string compare against place-local now. For a
@@ -37,7 +38,16 @@ const saveForecast = (p, entry) => saveJSON(forecastCacheKey(p), { ...entry, day
 // its own horizon, where this fires exactly once per place, on the first
 // load after the reach changed. Entries written before this existed have
 // no `days` and read as 0, which is correct, they predate it.
-const staleHorizon = entry => (entry?.days || 0) < FORECAST_DAYS;
+//
+// `pastDays` is the same check on the other end of the horizon. Entries
+// written before the drawer could reach behind today hold no past hours
+// and read as 0, so the first load after this shipped revalidates once
+// per place instead of leaving the drawer clamped at a reach the user
+// can see is wrong. Both ends are checked because an entry from the
+// previous build is long forward and short backward, and that is the
+// case that must not be held for the rest of the freshness window.
+const staleHorizon = entry =>
+    (entry?.days || 0) < FORECAST_DAYS || (entry?.pastDays || 0) < PAST_DAYS;
 const forecastExpired = entry => {
     const t = entry?.payload?.hourly?.time;
     if (!t?.length) return true;
@@ -68,9 +78,24 @@ const sweepForecasts = () => {
 // payloads count as the same run when the hourly arrays that drive
 // the grid are identical; string equality on ~9 KB is microseconds,
 // so no hash function (principle 5: less code).
+//
+// `precipitation` is in the list for the past days. When a payload is
+// identical by this measure the new one is DISCARDED and the cached one
+// kept (see fetchWeather), so anything left out of it can go stale in
+// the cache indefinitely. For forecast hours that was harmless, since
+// amount and probability move together. For a past hour it is not:
+// probability is the retained forecast and does not move once the hour
+// has happened, the weather code is coarse enough that a revised total
+// can stay inside the same code, and temperature settles early. So a
+// revision that only sharpens how much fell overnight, which is the one
+// number a past day exists to answer, could otherwise report as no
+// change and be thrown away. Costs one more array in a stringify that
+// already walks four, and does not defeat the no-change skip: amounts
+// are quantized to 0.1 mm and identical across polls of the same run.
 const hourlySnapshot = p => JSON.stringify([
     p.hourly.time, p.hourly.temperature_2m, p.hourly.weather_code,
-    p.hourly.precipitation_probability, p.hourly.wind_speed_10m
+    p.hourly.precipitation_probability, p.hourly.precipitation,
+    p.hourly.wind_speed_10m
 ]);
 // Cells present in both payloads whose delta crosses a per-view
 // threshold, as "date|hour" → {pop|temp|wind: [was, now]}.

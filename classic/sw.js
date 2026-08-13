@@ -15,7 +15,7 @@
 // for a small one. Classic's history up to v40 is in its CHANGELOG under
 // the old flat numbering.
 const CACHE_PREFIX = 'maybe-rain-1.';
-const CACHE_NAME = CACHE_PREFIX + '2.0';
+const CACHE_NAME = CACHE_PREFIX + '2.1';
 // Base path of wherever the app is served from (works at a domain root
 // or under a subpath like GitHub Pages' /repo-name/).
 const BASE = new URL('./', self.location).pathname;

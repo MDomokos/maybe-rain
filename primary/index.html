@@ -411,6 +411,27 @@
             font-weight: 500;
         }
 
+        /* Days behind today, reachable by dragging the day rail left.
+           They are ordinary data and stay fully legible; the recession
+           says only that they are behind now, so the eye lands on today
+           first when the drawer is part-way open. Opacity rather than a
+           colour change, so it composes with the block colours instead
+           of fighting them, and the hazard glyphs and rain lines recede
+           by the same amount as the cell they sit on.
+
+           0.55 was picked to sit clearly below the live columns while
+           keeping the blue/grey rain colours apart from each other on
+           an OLED phone at low brightness; much below that and light
+           rain and overcast stop being distinguishable, which is the
+           one comparison a past column exists to support. */
+        .day-label.past, .temp-item.past { opacity: 0.55; }
+        .weather-block.past { opacity: 0.55; }
+        /* The current-hour marker never lands on a past column, so no
+           .current interaction to handle here. Focus is left at full
+           strength: a keyboard user tabbing into a past block should
+           see the same focus ring as anywhere else. */
+        .weather-block.past:focus-visible { opacity: 1; }
+
         /* --- Reveal rails (DR-29) ---------------------------------------
            Two transparent, never-rebuilt gesture layers. Nothing is drawn at
            rest, so the resting screen is unchanged: the rails are pure hit

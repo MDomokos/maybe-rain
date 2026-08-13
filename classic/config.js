@@ -18,3 +18,16 @@
 // displays. In return, switching variants paints from cache with no extra
 // fetch and no drift in the stale window.
 const FORECAST_DAYS = 15;
+
+// Classic has no way to reach a past day: the window is fixed at today
+// plus six, with no drawer or rail to step behind it. It fetches the
+// same past days as primary for the reason it fetches the same 15
+// forward. staleHorizon checks the horizon an entry was written with
+// against the horizon this variant wants, so a classic entry stamped
+// past_days=0 would make primary revalidate over the network on every
+// load of that place. Matching keeps staleHorizon false both ways, at
+// the cost of a payload classic does not display.
+//
+// The past days that arrive are held off screen by visibleWindow's
+// `off`, which starts the frame at state.todayIndex instead of 0.
+const PAST_DAYS = 2;

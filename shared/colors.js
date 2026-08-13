@@ -19,7 +19,7 @@ const scaleRGB = (stops, t) => {
 // comfortable. Each band carries one prep cue. Danger stays an escalation
 // glyph (dangerGlyph), not a band, so a normal Minneapolis winter or
 // Florida summer never cries wolf. Edges, colours and cues are locked in
-// Weather PWA/Maybe Rain Temperature.md (5y ERA5, four cities).
+// Maybe Rain/Design/Maybe Rain Temperature.md (5y ERA5, four cities).
 const TEMP_BANDS = [
     { max: -8,       rgb: [58, 45, 107],   name: 'Bitter',   cue: 'bundle up - gloves and hat, skip the run' },
     { max: 0,        rgb: [70, 110, 196],  name: 'Freezing', cue: 'below freezing - coat, watch for ice' },

@@ -19,7 +19,19 @@ const forecastURL = p =>
     // native cadence). The coarsening may still be right, but it is a
     // resolution and confidence question, not a data-availability one,
     // and it waits on the confidence pass with the rest of DR-33/35.
-    `&timezone=auto&forecast_days=${FORECAST_DAYS}`;
+    //
+    // past_days extends the same request backward. It is a parameter,
+    // not a second call, and the hourly fields and the daily
+    // sunrise/sunset come back for the past days on the same terms as
+    // the forward ones, so a past column is an ordinary column with
+    // ordinary tooltips and sun lines.
+    //
+    // For the recent past Open-Meteo returns the model's own analysis
+    // in place of a pure forecast, which is what makes overnight rain
+    // totals worth reading. ERA5 via the archive API is the better
+    // record but lags about five days, so it cannot answer anything
+    // about last night. See Maybe Rain Climatology for where it fits.
+    `&timezone=auto&forecast_days=${FORECAST_DAYS}&past_days=${PAST_DAYS}`;
 
 // Parse the metadata payload (Unix seconds) into ms state. The next
 // update is computed from the *actual* previous release: the model's

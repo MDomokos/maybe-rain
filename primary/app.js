@@ -23,10 +23,24 @@ let hourOff = 0;  // whole hours the hour window has slid; springs back
 // the offset instead of fighting whatever set it next.
 let dayHomeGen = 0, hourHomeGen = 0;
 
-// How far the drawer may reach right now. Capped by the data actually in
-// hand as well as by DAY_OFF_MAX, so a short cached payload can never be
-// stepped into columns that do not exist (principle 4).
-const maxDayOff = () => Math.max(0, Math.min(DAY_OFF_MAX, state.data.length - DAY_SPAN));
+// `dayOff` counts days from TODAY, not from the start of state.data: 0
+// is today-first, positive reaches forward into the forecast, negative
+// reaches back into the past days processData keeps. Measuring from
+// today is what keeps the home model intact now that the array no longer
+// begins at today. `!dayOff` still means home, `dayHome` still tweens to
+// 0, and the ⌂ chip still shows whenever the frame is off today, with no
+// second variable for where home sits.
+//
+// How far the drawer may reach either way. Capped by the data in hand as
+// well as by the configured limits, so a short or stale cached payload
+// cannot be stepped into columns that do not exist (principle 4).
+const maxDayOff = () =>
+    Math.max(0, Math.min(DAY_OFF_MAX, state.data.length - state.todayIndex - DAY_SPAN));
+// Backward is bounded by the past days actually parsed. An entry that
+// predates past_days has todayIndex 0 and no reach behind it, so the
+// drawer behaves as it did before this shipped until the first
+// revalidation lands; staleHorizon forces that on the next load.
+const minDayOff = () => -Math.min(PAST_DAYS, state.todayIndex);
 // Hour peek travel, in whole hours, either side of the default window.
 // Clamped so the window can never leave the real day: earliest slot
 // 00:00, latest 23:00. In 24-hour mode the window already fills the day,
@@ -44,9 +58,18 @@ const hourRange = () => {
 // The window rendered: 7 columns from the current day offset, across the
 // current hour window. Kept as a function so its callers still read
 // { start, end, days } unchanged; `off` is the day the frame starts on.
+//
+// `off` stays an ABSOLUTE index into state.data/state.days, which is how
+// every caller already reads it: updateDisplay and buildCols slice with
+// it, renderTimes compares today's absolute index against it to decide
+// whether there is a "now" on screen, and buildCols stamps
+// `off + dayIndex` into data-day so a tooltip opened with the drawer out
+// reads the right day back. Only `dayOff` changed meaning, so the
+// conversion happens here and nowhere else.
 const visibleWindow = () => {
     const { start, end } = hourRange();
-    return { start, end, days: DAY_SPAN, off: Math.min(dayOff, maxDayOff()) };
+    const rel = Math.max(minDayOff(), Math.min(maxDayOff(), dayOff));
+    return { start, end, days: DAY_SPAN, off: state.todayIndex + rel };
 };
 
 // The drawer's ⌂ chip is the only thing either reveal ever draws, and it
@@ -482,7 +505,7 @@ const cellDelay = (anim, c, r, nCols, nRows, desc) => {
 
 const buildCell = desc => desc.empty
     ? '<div class="weather-block empty"></div>'
-    : `<div class="weather-block${desc.current ? ' current' : ''}" style="background:rgb(${desc.rgb});color:${desc.textColor}" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
+    : `<div class="weather-block${desc.current ? ' current' : ''}${desc.past ? ' past' : ''}" style="background:rgb(${desc.rgb});color:${desc.textColor}" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
 
 // A cell the sweep has not reached yet, or a destination with no data to
 // paint. Black is the page background rather than a value in any
@@ -490,7 +513,7 @@ const buildCell = desc => desc.empty
 // what lets an uncached favourite be swept to honestly (DR-32: every
 // rung is reachable, but only the ones with a cached forecast have
 // colours to arrive at; the rest land black and fill in on fetch).
-const blankDesc = { blank: true, rgb: [0, 0, 0], textColor: '#fff', marks: '', info: '', current: false, dayIndex: 0, hour: 0 };
+const blankDesc = { blank: true, rgb: [0, 0, 0], textColor: '#fff', marks: '', info: '', current: false, past: false, dayIndex: 0, hour: 0 };
 const blankCols = (nCols, nRows) =>
     Array.from({ length: nCols }, () => Array.from({ length: nRows }, () => blankDesc));
 
@@ -507,7 +530,7 @@ const applyCellContent = (node, desc) => {
         node.style.transition = 'none'; node.innerHTML = '';
         return;
     }
-    node.className = 'weather-block' + (desc.current ? ' current' : '');
+    node.className = 'weather-block' + (desc.current ? ' current' : '') + (desc.past ? ' past' : '');
     node.innerHTML = desc.marks;
     node.style.transition = 'none';
     node.style.color = desc.textColor;
@@ -901,6 +924,10 @@ const actualTemp = (di, hh) => {
 
 return shownDays.map((dayData, dayIndex) => {
     const isToday = dayMeta[dayIndex].isToday;
+    // A day behind today. Carried onto every cell so the painter can
+    // recede the column. A dimmed past column is the affordance for
+    // the axis running backward, so no control has to announce it.
+    const isPast = !!dayMeta[dayIndex].past;
     const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
     const cells = [];
     for (let hour = start; hour <= end; hour++) {
@@ -1007,7 +1034,13 @@ return shownDays.map((dayData, dayIndex) => {
         // Sky event (moon phase / lunar eclipse): a night fact, so
         // it rides the day's 21:00 block, bottom-left, in all views.
         const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
-        const popText = h.pop != null ? ` · ${h.pop}% rain` : '';
+        // Chance of rain is a forecast statement, so it is dropped on a
+        // past hour: the outcome is known, and Open-Meteo keeps
+        // returning the probability that was forecast rather than
+        // retiring it, which reads as a live prediction about something
+        // that already happened. The measured amount stays, and is the
+        // only rain figure a past hour reports.
+        const popText = (!isPast && h.pop != null) ? ` · ${h.pop}% rain` : '';
         // Rain view: the exact amount lives in the tooltip, never
         // printed in the cell, so the grid stays glanceable.
         const mmText = rainView && h.mm != null && h.mm >= 0.1
@@ -1032,7 +1065,12 @@ return shownDays.map((dayData, dayIndex) => {
         // previous model run drives the one-shot blink on a refresh
         // (view-gated: a temp move only blinks in temp view). The
         // was/now detail rides the tooltip either way.
-        const ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
+        let ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
+        // A past hour does not report its probability (see popText), so
+        // a change to it must not pulse the cell or print a was/now line
+        // for a number that is not on screen. Dropped from a copy, since
+        // state.changed is shared with every other column.
+        if (isPast && ch?.pop) { ch = { ...ch }; delete ch.pop; }
         const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
         const chText = changeLines(ch).map(l => ` · ${l}`).join('');
         // DR-17: name the comfort band in the temperature view so the
@@ -1056,7 +1094,7 @@ return shownDays.map((dayData, dayIndex) => {
         // dataset.day is absolute (an index into state.days), not the
         // column position, so a tooltip opened while the drawer is
         // open still reads the right day back out.
-        cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, dayIndex: off + dayIndex, hour: h.hour, moved: !!movedInView });
+        cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, past: isPast, dayIndex: off + dayIndex, hour: h.hour, moved: !!movedInView });
     }
     return cells;
 });
@@ -1081,6 +1119,12 @@ const colsForPlace = place => {
     const keep = {
         place: state.place, tz: state.tz, utcOffset: state.utcOffset,
         sun: state.sun, data: state.data, days: state.days,
+        // processData writes todayIndex, and the preview city's payload
+        // can put today at a different index (a city a day ahead across
+        // the date line, or one whose cache holds fewer past days). It
+        // has to be restored with data/days or the live grid would index
+        // its own week through another city's anchor.
+        todayIndex: state.todayIndex,
         changed: state.changed, pulsePending: state.pulsePending
     };
     try {
@@ -1118,17 +1162,20 @@ const updateDisplay = (anim = null) => {
     const shownDays = state.data.slice(off, off + days);
     const dayMeta = state.days.slice(off, off + days);
 
+    // The past class goes on all three rows (day label, temps, blocks),
+    // not just the grid, so a receded column reads as one whole column
+    // sitting behind today.
     $('days').innerHTML = dayMeta.map(day =>
-        `<div class="day-label ${day.isToday ? 'today' : ''}">${day.text}</div>`
+        `<div class="day-label ${day.isToday ? 'today' : ''}${day.past ? ' past' : ''}">${day.text}</div>`
     ).join('');
 
     // Min/max over the displayed hour window as a one-line "18/9"
     // pair, in the chosen unit (° implied; see .temp-item CSS).
     $('temps').className = `temp-row${settings.unit === 'F' ? ' unit-f' : ''}`;
-    $('temps').innerHTML = shownDays.map(dayData => {
+    $('temps').innerHTML = shownDays.map((dayData, i) => {
         const t = dayData.filter(h => h.hour >= start && h.hour <= end).map(h => h.temp);
         const fmt = v => t.length ? String(displayTemp(v)) : '–';
-        return `<div class="temp-item"><span class="temp-max">${fmt(Math.max(...t))}</span><span class="temp-sep">/</span><span class="temp-min">${fmt(Math.min(...t))}</span></div>`;
+        return `<div class="temp-item${dayMeta[i]?.past ? ' past' : ''}"><span class="temp-max">${fmt(Math.max(...t))}</span><span class="temp-sep">/</span><span class="temp-min">${fmt(Math.min(...t))}</span></div>`;
     }).join('');
 
     renderTimes();
@@ -1334,6 +1381,13 @@ const applyPrefs = () => {
 // same frame even with the drawer open, then revalidates from
 // the network. Self-arming, so it also picks up a timezone that moved
 // with a city switch.
+//
+// The re-slice is also what re-anchors state.todayIndex: processData
+// recomputes it against the new local date, so yesterday becomes two
+// days back and the day before it falls off the front under the
+// PAST_DAYS trim. dayOff is measured from today, so a drawer left open
+// across midnight keeps pointing at the same distance from today rather
+// than at the same calendar day, which is what the ⌂ chip promises.
 let dayRolloverTimer = null;
 const msUntilCityMidnight = () => {
     // Shift "now" into city-local time, then read how far it is past
@@ -1497,7 +1551,15 @@ const showTooltip = el => {
         // (--divider, .tip-when's border-bottom) separates it from the
         // stats block below.
         const range = `${hourLabel(h.hour)}–${hourLabel((h.hour + 1) % 24)}`;
-        const when = `<div class="tip-when"><span class="d">${day.isToday ? 'Today' : day.text} ${dateLabel(day.date)}</span><span class="t">${range}</span></div>`;
+        // "Yesterday" is named outright, the way "Today" already is. It
+        // is the past day the drawer is opened for most of the time, and
+        // reading a weekday letter back as a date is the step the header
+        // exists to save. Two days back keeps its weekday, since
+        // "the day before yesterday" is longer than the date it replaces.
+        const yesterday = dateDaysBefore(cityNow().date, 1);
+        const dayName = day.isToday ? 'Today'
+            : day.date === yesterday ? 'Yesterday' : day.text;
+        const when = `<div class="tip-when"><span class="d">${dayName} ${dateLabel(day.date)}</span><span class="t">${range}</span></div>`;
 
         // Three main lines, fixed order (temp, rain, wind) in every
         // view: only the line matching the active view gets the
@@ -1515,9 +1577,12 @@ const showTooltip = el => {
         // 0 mm/h, so a "% rain" never appears without an amount). A
         // snow amount (sleet) wraps to its own line below, inheriting
         // whatever weight the rain line gets for the active view.
+        // On a past day the chance is dropped and the line is the amount
+        // alone: the hour has happened, so what fell is the answer and a
+        // probability beside it is a prediction about a known outcome.
         const rainBits = [];
         let snowBit = '';
-        if (h.pop != null) rainBits.push(`${h.pop}%`);
+        if (!day.past && h.pop != null) rainBits.push(`${h.pop}%`);
         if (h.snow != null && h.snow > 0) {
             if (h.liquid != null && h.liquid >= 0.1) rainBits.push(`${h.liquid} mm/h`);
             snowBit = `${h.snow} cm/h snow`;
@@ -2666,7 +2731,7 @@ const railScrubLive = () => !matchMedia('(prefers-reduced-motion: reduce)').matc
 // swap the state just long enough to call buildCols(), then restore
 // it. Cached per drag, since a single drag can cross many notches.
 const dayColsFor = (offset, cache) => {
-    const key = Math.max(0, Math.min(maxDayOff(), offset));
+    const key = Math.max(minDayOff(), Math.min(maxDayOff(), offset));
     if (cache.has(key)) return cache.get(key);
     const ref = (wave ? wave.to : lastCols) || buildCols();
     const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
@@ -2821,7 +2886,7 @@ const springHours = () => {
 // why EXPERIMENTAL's rail crossfade needs this split.
 const setDayOffState = n => {
     dayHomeGen++;                          // a live drag/step owns it now
-    const v = Math.max(0, Math.min(maxDayOff(), n));
+    const v = Math.max(minDayOff(), Math.min(maxDayOff(), n));
     if (v === dayOff) return false;
     dayOff = v;
     renderDayHome();
@@ -2835,6 +2900,12 @@ const setDayOff = n => {
 // Home again, the same eased tween `springHours` plays: no `anim`, so
 // every tick is the instant, no-wave repaint a drag step already uses,
 // and the drawer just slides itself the rest of the way shut.
+//
+// The tween is signed and needed no change for negative offsets: `from`
+// is negative coming back from last night, and `from - round(from *
+// ease)` walks -2 up to 0 the same way it walks 7 down to 0. `!dayOff`
+// is still the right "already home" test, since 0 is the only offset
+// that is falsy.
 const dayHome = () => {
     clearTimeout(revealTimer);
     pendingRevealFn = null;
@@ -2974,7 +3045,11 @@ const railWheel = (el, opts) => {
 };
 
 const hourPeekLive = () => { const r = hourPeekRange(); return r.min !== r.max; };
-const drawerLive = () => maxDayOff() > 0;
+// Live if there is anywhere to go on either end. An entry that predates
+// past_days has forward reach and no backward reach, and a payload
+// short enough to have no forward reach left can still be dragged back
+// into last night, so neither end decides this alone.
+const drawerLive = () => maxDayOff() > 0 || minDayOff() < 0;
 
 railDrag($('hourRail'), {
     axis: 'y',
@@ -2990,20 +3065,30 @@ railDrag($('hourRail'), {
     colsFor: hourColsFor,
     stateSetter: setHourOffState
 });
-railDrag($('dayRail'), {
+// The day axis, named rather than inlined into the railDrag call. It is
+// origin-independent: nothing in it knows the drag started on the rail,
+// and the clamps inside setDayOff/dayColsFor already carry the reach in
+// both directions. If the H body swipe in Maybe Rain Touch Interaction
+// Rebase §1 is ever built, it binds this same object to the grid and
+// gets the past-day reach for free. What it still has to solve is the
+// origin conflict that object cannot express: an H swipe on the grid
+// meaning "previous day" while an H swipe on the city bar ~10px below
+// means "previous city". That wants the M3 rig, not a config change.
+const dayAxis = {
     axis: 'x',
     enabled: drawerLive,
     base: () => dayOff,
     scale: () => $('grid').clientWidth / DAY_SPAN,
     // Drag left and later days arrive from the right, matching the
-    // direction the view swipe already reads.
+    // direction the view swipe already reads. Drag right for the past.
     step: (base, cols) => setDayOff(base - cols),
     end: () => armRevealIdle(dayHome),
     // EXPERIMENTAL (2026-07-29): remove these two lines to fall back
     // to the shipped instant-repaint behaviour above.
     colsFor: dayColsFor,
     stateSetter: setDayOffState
-});
+};
+railDrag($('dayRail'), dayAxis);
 
 railWheel($('hourRail'), {
     axis: 'y',
@@ -3139,7 +3224,9 @@ document.addEventListener('keydown', e => {
     // timer, since a key press has no release to spring back from.
     if (e.shiftKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         const horiz = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
-        if (horiz && maxDayOff() < 1) return;
+        // Same both-ends test the rails use: Shift+← now reaches last
+        // night as well as Shift+→ reaching next week.
+        if (horiz && !drawerLive()) return;
         const r = hourPeekRange();
         if (!horiz && r.min === r.max) return;
         e.preventDefault();

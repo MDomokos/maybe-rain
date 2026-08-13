@@ -6,6 +6,12 @@ this is the classic variant. its versions start `1.0.` and count on their
 own; primary starts `2.0.`. everything below v1.0.0 is the old flat
 numbering from before the two variants split.
 
+## v1.2.1 (2026-08-13)
+
+- primary gained a two-day look back, so the shared forecast now carries past
+  days. classic keeps showing today first and does not display them
+
+
 ## v1.2.0 (2026-07-29)
 
 - split the app into two versions: primary and classic. classic keeps the

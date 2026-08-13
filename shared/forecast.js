@@ -49,14 +49,42 @@ const processData = payload => {
     }
 
     // Only days that actually have data; no fabricated columns.
-    // DR-6: days fully in the past drop out here, so an old cached
-    // payload renders as a shorter week (principle 4), never as a
-    // past day relabeled current.
+    //
+    // Past days are kept, back to PAST_DAYS before today, so the drawer
+    // can be stepped behind today. They used to be dropped here under
+    // DR-6, which required that a past day never appear relabeled as
+    // current. That requirement still holds; it is now met by labeling
+    // instead of by deletion. Every day carries its own date and its own
+    // isToday, state.todayIndex records which one is today, and the frame
+    // is positioned from that index instead of from 0, so a past day
+    // paints as a past day.
+    //
+    // The trim is measured against today, not against the payload. A
+    // payload fetched three days ago still contains three past days, so
+    // without the trim the reach behind today would vary with the age of
+    // the cache. Trimming here gives a stale payload and a fresh one the
+    // same window. A payload with fewer past days than PAST_DAYS still
+    // renders short, per principle 4, and is never padded.
+    //
+    // Past days are kept only when today is in the payload at all. A
+    // payload whose newest day is already behind (an entry stale enough
+    // that forecastExpired would purge it, or a response that arrived
+    // that way) has nothing current to anchor them to, and two dim
+    // columns with no today beside them read as a forecast rather than
+    // as the absence of one. In that case the old rule stands and the
+    // grid renders empty, which the no-data status line then explains.
     const today = cityNow().date;
+    const hasToday = !!byDate[today];
+    const earliest = hasToday ? dateDaysBefore(today, PAST_DAYS) : today;
     state.data = []; state.days = [];
+    state.todayIndex = 0;
     for (const date of Object.keys(byDate).sort()) {
-        if (date < today) continue;
+        if (date < earliest) continue;
+        if (date === today) state.todayIndex = state.data.length;
         state.data.push(byDate[date]);
-        state.days.push({ text: weekdayOf(date), isToday: date === today, date });
+        state.days.push({
+            text: weekdayOf(date), isToday: date === today, date,
+            past: date < today
+        });
     }
 };

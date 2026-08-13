@@ -2,6 +2,15 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.1.0 (2026-08-13)
+
+### past days
+- the day drawer now goes back two days as well as forward. drag the day row to the right, or press shift+left
+- so you can check what happened overnight before heading out: how cold it got, whether it rained, and how much
+- past days are dimmed, and yesterday is named "yesterday" in the tooltip
+- a past hour shows what fell, not a chance of rain. the percentage is a forecast, and the hour already happened
+- overnight rainfall totals now follow the model when it revises them, instead of keeping the first figure fetched
+
 ## v2.0.0 (2026-07-29)
 
 - split the app into two versions: primary and classic, with classic keeping the old static screen, and this version getting the UI overhaul
