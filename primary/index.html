@@ -1099,6 +1099,11 @@
         .legend-swatch:focus-visible { outline: 1px solid var(--marker); outline-offset: 1px; }
         .tooltip {
             position: absolute;
+            /* Placed entirely by transform, so left/top are the origin and
+               never move. left/top cannot be composited, and this element
+               repositions on every block a pointer visits. */
+            left: 0;
+            top: 0;
             background: var(--bg);
             color: var(--text);
             padding: 8px 12px;
@@ -1111,6 +1116,10 @@
             transition: opacity 0.2s ease;
             z-index: 1000;
         }
+        /* Only while MOVING from one block to another. An opening tooltip has
+           no previous position worth travelling from, so it fades up in place
+           and this class is off. */
+        .tooltip.travel { transition: opacity 0.2s ease, transform 0.14s ease-out; }
         /* One fact per line, never wrapped mid-fact ("wind 6 km/h NW"
            stays whole); the tooltip grows to fit instead. */
         .tooltip div { white-space: nowrap; line-height: 1.5; }

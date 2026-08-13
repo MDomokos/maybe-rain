@@ -1667,8 +1667,14 @@ const armClocks = () => { scheduleDayRollover(); scheduleHourTick(); };
 
 // --- Tooltip: shared by grid blocks and legend cells --------------
 const TIP_SEL = '.weather-block[data-info], .legend-swatch';
+const tooltipOpen = () => $('tooltip').style.opacity === '1';
 const showTooltip = el => {
     const tooltip = $('tooltip');
+    // Whether this is an OPEN or a MOVE, decided before anything below
+    // touches the opacity. A move travels to the new block; an open lands
+    // where it is asked to and fades up, because a box sliding in from
+    // wherever it was last used is not an entrance.
+    const moving = tooltipOpen();
     // A tooltip opening means the screen is being read: pause any
     // reveal-idle countdown already running (the day drawer / hour
     // peek's own way home) rather than let it fire mid-investigation.
@@ -1839,19 +1845,29 @@ const showTooltip = el => {
 
         tooltip.innerHTML = when + temp + rain + wind + divider + detailLine + chg + chipHtml;
     }
+    // The travel transition is armed BEFORE the position is written, and
+    // only for a move. Placed after the innerHTML write so the box is
+    // already the size it will be when it starts travelling.
+    tooltip.classList.toggle('travel', moving && !reduceMotion());
     tooltip.style.opacity = '1';
     // Measure the real size, center on the block, clamp to the
     // viewport; flip below the block near the top edge.
     const rect = el.getBoundingClientRect();
     const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
-    tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - tw - 8, rect.left + rect.width / 2 - tw / 2))}px`;
-    tooltip.style.top = `${rect.top < th + 16 ? rect.bottom + 8 : rect.top - th - 8}px`;
+    const x = Math.max(8, Math.min(window.innerWidth - tw - 8, rect.left + rect.width / 2 - tw / 2));
+    const y = rect.top < th + 16 ? rect.bottom + 8 : rect.top - th - 8;
+    // transform rather than left/top: neither of those can be composited,
+    // and this element moves on every block the pointer visits.
+    tooltip.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
 };
 let tappedBlock = null; // element whose tooltip was opened by a tap/click (DR-24: shared by mouse and touch again)
 let activeBlock = null; // {day,hour} of the open block tooltip, for re-render on repaint
 const hideTooltip = () => {
     const t = $('tooltip');
     t.style.opacity = '0';
+    // Closed, so the next open is an open: it must land where it is asked
+    // to rather than slide there from the block this one was on.
+    t.classList.remove('travel');
     t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
     tappedBlock = null;
     activeBlock = null;
@@ -2084,12 +2100,26 @@ const renderSuggestions = async query => {
     tip.addEventListener('mouseleave', () => { if (tip.classList.contains('explain')) hideTooltip(); });
 }
 
+// A pointer crossing the grid passes over a lot of blocks on the way to
+// the one it wants, and each of those used to open a tooltip. The result
+// was a box strobing across the screen ahead of the cursor. A short grace
+// means the crossing costs nothing and only the block the pointer stops on
+// opens. Once one IS open the grace is skipped: moving between blocks with
+// a tooltip already up is reading, not crossing, and it should keep up.
+const TIP_HOVER_MS = 90;
+let tipHoverTimer = 0;
+const cancelTipHover = () => { if (tipHoverTimer) { clearTimeout(tipHoverTimer); tipHoverTimer = 0; } };
 document.addEventListener('mouseover', e => {
     const el = e.target.closest(TIP_SEL);
-    if (el) showTooltip(el);
+    if (!el) return;
+    cancelTipHover();
+    if (tooltipOpen()) { showTooltip(el); return; }
+    tipHoverTimer = setTimeout(() => { tipHoverTimer = 0; showTooltip(el); }, TIP_HOVER_MS);
 });
 document.addEventListener('mouseout', e => {
-    if (e.target.closest(TIP_SEL)) hideTooltip();
+    if (!e.target.closest(TIP_SEL)) return;
+    cancelTipHover();
+    hideTooltip();
 });
 // Keyboard: blocks and legend cells are tabbable; focus shows the
 // same tooltip.
@@ -3261,7 +3291,7 @@ const endRailScrub = (p, afterEnd) => {
 // recorded either way; `showTooltip`/`hideTooltip` below pause and
 // resume the timer itself around whatever tooltip comes and goes,
 // without needing to know which reveal (or whether one) is waiting.
-const tooltipOpen = () => $('tooltip').style.opacity === '1';
+// `tooltipOpen` is declared with the tooltip itself, further up.
 const armRevealIdle = fn => {
     clearTimeout(revealTimer);
     pendingRevealFn = fn;

@@ -9,6 +9,10 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the control row is the only row on this screen that gets pressed, so it takes the position nearest the thumb. the line above it was spending the easiest reach in the app on text that is only ever read
 - the colour key and the first-run hint share that line and moved with it. a hand on the grid is above the line either way, which is the reason the line went below the grid in the first place
 
+### the tooltip stopped chasing the pointer
+- a pointer crossing the grid opened a tooltip on every block it passed over, so the box strobed across the screen ahead of the cursor. a block now has to be settled on for a moment before it opens
+- once one is open, moving to a neighbouring block slides it there instead of teleporting. reading across a row is a continuous movement, not a series of jumps
+
 ### reduce motion now covers the whole app
 - the system "reduce motion" setting used to stop the grid animating but left the install prompt sliding in, the caret dipping under the pointer, and every fade running. all of it is covered now
 - turning the setting on or off part-way through a session takes effect straight away instead of at the next gesture
