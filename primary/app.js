@@ -1330,36 +1330,44 @@ const renderDayStrip = () => {
     ).join('');
 };
 
-const updateDisplay = (anim = null) => {
-    const { start, end, days, off } = visibleWindow();
-    const rows = end - start + 1;
-    // The 7-column frame, starting at the paged day offset (0 at rest, so
-    // this is today-first). The strip that labels it is rendered
-    // separately, since a drag moves it far more often than this runs.
+// Everything outside the grid whose position depends on `dayOff`/`hourOff`:
+// the day strip, the hour axis, and the sun hairlines. Split out of
+// `updateDisplay` because a slide changes exactly these and nothing else,
+// so the home tweens can keep them in step with the blend underneath
+// without paying for a whole repaint per notch.
+const sunForToday = () => {
+    const { days, off } = visibleWindow();
     const dayMeta = state.days.slice(off, off + days);
-
+    const meta = dayMeta.find(d => d.isToday) || dayMeta[0];
+    return (meta && state.sun[meta.date]) || {};
+};
+const renderOffsetChrome = () => {
+    const { start, end } = visibleWindow();
+    const rows = end - start + 1;
     renderDayStrip();
     renderTimes();
-
-    const currentHour = cityNow().hour;
-
-    // Sun hairlines: one straight line across the whole grid at
-    // today's sunrise/sunset minute (⚙ Sun → hide turns them off).
-    // Neighbouring days drift only minutes; each day's exact times
-    // are in its blocks' tooltips.
-    const todayMeta = dayMeta.find(d => d.isToday) || dayMeta[0];
-    const sunToday = (todayMeta && state.sun[todayMeta.date]) || {};
-    // Hybrid chrome: once the current local hour is past sunset, the
-    // background eases to night (blocks already colour per their own
-    // hour). Purely ambient: a single --bg swap, accent stays gold.
-    document.body.classList.toggle('night', nightFactor(currentHour, sunToday) >= 0.5);
+    // Sun hairlines: one straight line across the whole grid at today's
+    // sunrise/sunset minute (⚙ Sun → hide turns them off). Neighbouring
+    // days drift only minutes; each day's exact times are in its blocks'
+    // tooltips.
+    const sun = sunForToday();
     $('sunLines').innerHTML = !settings.sunLines ? '' : ['rise', 'set'].map(k => {
-        const t = sunToday[k];
+        const t = sun[k];
         if (!t) return '';
         const f = t.h + t.m / 60;
         if (f < start || f > end + 1) return ''; // outside the hour window
         return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
     }).join('');
+};
+
+const updateDisplay = (anim = null) => {
+    renderOffsetChrome();
+
+    const currentHour = cityNow().hour;
+    // Hybrid chrome: once the current local hour is past sunset, the
+    // background eases to night (blocks already colour per their own
+    // hour). Purely ambient: a single --bg swap, accent stays gold.
+    document.body.classList.toggle('night', nightFactor(currentHour, sunForToday()) >= 0.5);
 
     const cols = buildCols();
     paintGrid($('grid'), cols, anim);
@@ -3398,21 +3406,76 @@ const setHourOff = n => {
 // reverse. `repaint()` with no `anim` is the instant, no-wave paint a
 // drag step already uses, so every tick of the tween looks exactly like
 // the finger easing back to rest.
+// The shared way home, for both axes.
+//
+// It used to be a rAF tween that called `repaint()` on every frame. That
+// is a full `innerHTML` rebuild of 112 blocks, the model behind them and
+// every SVG mark on them, roughly fourteen times over for one 220ms
+// movement, and it invalidated focus and any open tooltip's element
+// reference each time. It also rounded the offset to a whole notch per
+// frame, so what it actually drew was a handful of hard cuts rather than
+// a movement.
+//
+// This is the drag's own path with an eased clock in place of the finger:
+// the offsets stay whole (a block holds exactly one hour, never a blend of
+// two, DR-29), and what moves continuously is the crossfade between the
+// two notches either side of the playhead. The chrome that names the
+// window travels with it, and the grid is rebuilt once, at the end.
+const homeTween = ({ from, axis, gen, genOf, setOffset, colsFor, done }) => {
+    const sgn = Math.sign(from);
+    const dist = Math.abs(from);
+    // A longer way home takes longer, but sublinearly: seven days back
+    // should not take seven times as long as one.
+    const dur = REVEAL_HOME_MS * Math.min(2.2, Math.sqrt(dist));
+    const scrub = railScrubLive() && !!colsFor;
+    const cache = new Map();
+    const t0 = performance.now();
+    let lastK = dist, lastOffset = from;
+    const finish = () => {
+        setOffset(0);
+        renderOffsetChrome();
+        repaint();
+        if (done) done();
+    };
+    const tick = now => {
+        if (gen !== genOf()) return;  // superseded by a new drag/press/reset
+        const p = Math.min(1, (now - t0) / dur);
+        if (p >= 1) { finish(); return; }
+        // Continuous position, `from` sliding to 0 on a cubic ease-out.
+        const mag = dist * Math.pow(1 - p, 3);
+        const k = Math.floor(mag);
+        // How far past notch k the window still sits, measured AWAY from
+        // home; `1 - frac` is therefore progress toward notch k.
+        const frac = mag - k;
+        // The committed offset flips at the halfway point of each notch,
+        // the same place the drag's own Math.round puts it.
+        const offset = sgn * Math.round(mag);
+        if (offset !== lastOffset) { lastOffset = offset; setOffset(offset); renderOffsetChrome(); }
+        if (scrub) {
+            // A whole notch crossed: promote what the wave was blending
+            // toward into its new starting point, exactly as the drag does.
+            if (k !== lastK) { if (wave && wave.scrub) { wave.from = wave.to; wave.t = 0; } lastK = k; }
+            scrubReveal(colsFor(sgn * k, cache), sgn, 1 - frac, axis);
+        }
+        scheduleFrame(tick);
+    };
+    scheduleFrame(tick);
+};
+
 const springHours = () => {
     clearTimeout(revealTimer);
     pendingRevealFn = null;
     if (!hourOff) return;
     const from = hourOff, gen = ++hourHomeGen;
     if (reduceMotion()) { hourOff = 0; repaint(); return; }
-    const t0 = performance.now();
-    const tick = now => {
-        if (gen !== hourHomeGen) return; // superseded by a new drag/press/reset
-        const p = Math.min(1, (now - t0) / REVEAL_HOME_MS);
-        hourOff = from - Math.round(from * (1 - Math.pow(1 - p, 3))); // ease-out
-        repaint();
-        if (p < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    homeTween({
+        from,
+        axis: 'y',
+        gen,
+        genOf: () => hourHomeGen,
+        setOffset: n => { hourOff = n; },
+        colsFor: (offset, cache) => hourColsFor(offset, cache)
+    });
 };
 
 // --- Days: a latched drawer ---------------------------------------
@@ -3465,16 +3528,17 @@ const dayHome = () => {
     if (!dayOff) return;
     const from = dayOff, gen = ++dayHomeGen;
     if (reduceMotion()) { dayOff = 0; repaint(); renderDayHome(); return; }
-    const t0 = performance.now();
-    const tick = now => {
-        if (gen !== dayHomeGen) return; // superseded by a new drag/step/reset
-        const p = Math.min(1, (now - t0) / REVEAL_HOME_MS);
-        dayOff = from - Math.round(from * (1 - Math.pow(1 - p, 3))); // ease-out
-        repaint();
-        renderDayHome();
-        if (p < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    homeTween({
+        from,
+        axis: 'x',
+        gen,
+        genOf: () => dayHomeGen,
+        // The ⌂ chip belongs to this axis: it is drawn whenever the frame
+        // is off today, so it has to keep up with the offset rather than
+        // wait for the repaint at the end.
+        setOffset: n => { dayOff = n; renderDayHome(); },
+        colsFor: (offset, cache) => dayColsFor(offset, cache)
+    });
 };
 
 // --- Rail drag, shared by both axes -------------------------------
