@@ -289,7 +289,12 @@
            It sits below the grid rather than above it, which is the whole
            reason the header went. The key exists for the moment a finger is on
            the grid, and in the header that was exactly the moment the hand was
-           covering it. */
+           covering it.
+
+           It is also the LAST row, under the control row rather than over it.
+           The control row is the only thing on this screen that gets touched,
+           so it takes the position nearest the thumb; the line above it was
+           spending the best reach in the app on text that is only ever read. */
         .botcap {
             height: 26px;
             display: flex;
@@ -1860,21 +1865,6 @@
                  buttons. The status line keeps the line above it, so DR-7's
                  single state channel costs no new layout. -->
             <div class="view-toggle" id="viewToggle">
-                <!-- One line, three occupants that never coexist: the status
-                     line at rest, the key while the grid is being touched, and
-                     the swipe hint on a first run. They never needed three
-                     homes. It sits BELOW the grid, which is the point: the key
-                     exists for the moment a finger is on the grid, and up in
-                     the header that was exactly the moment the hand covered
-                     it. -->
-                <div class="botcap" id="botcap">
-                    <div class="status-wrap" id="captionText">
-                        <div id="status" class="status" tabindex="0" role="button"></div>
-                        <button class="status-info" id="statusInfo" aria-label="About forecast freshness"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
-                    </div>
-                    <div class="legend" id="legend" hidden></div>
-                    <div class="swipe-hint" id="swipeHint" hidden></div>
-                </div>
                 <div class="control-row" id="controlRow">
                     <div class="location" id="location" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false" aria-controls="sheetList" aria-label="Change city"><span class="location-name" id="locationName"></span><span class="city-count" id="cityCount" aria-hidden="true"></span><span class="location-caret" id="locationCaret" aria-hidden="true"></span></div>
                     <!-- Each button carries its own current-hour reading above
@@ -1891,6 +1881,26 @@
                              and is the same 1px gold line the words carried. -->
                         <i class="segbar" id="viewBar" aria-hidden="true" hidden></i>
                     </div>
+                </div>
+                <!-- One line, three occupants that never coexist: the status
+                     line at rest, the key while the grid is being touched, and
+                     the swipe hint on a first run. They never needed three
+                     homes, and the slot is a fixed height so the swap between
+                     them moves nothing above it.
+
+                     It sits under the control row: the row is what the hand
+                     reaches for, so it takes the position nearest the thumb,
+                     and the line that only ever has to be READ sits below it.
+                     The key is the one occupant with a reason to be near the
+                     grid, and a hand on the grid is a hand above this line
+                     either way. -->
+                <div class="botcap" id="botcap">
+                    <div class="status-wrap" id="captionText">
+                        <div id="status" class="status" tabindex="0" role="button"></div>
+                        <button class="status-info" id="statusInfo" aria-label="About forecast freshness"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+                    </div>
+                    <div class="legend" id="legend" hidden></div>
+                    <div class="swipe-hint" id="swipeHint" hidden></div>
                 </div>
             </div>
         </div>
