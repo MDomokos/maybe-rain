@@ -9,6 +9,9 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the control row is the only row on this screen that gets pressed, so it takes the position nearest the thumb. the line above it was spending the easiest reach in the app on text that is only ever read
 - the colour key and the first-run hint share that line and moved with it. a hand on the grid is above the line either way, which is the reason the line went below the grid in the first place
 
+### the grid responds to a pointer again
+- hovering a block dimmed it slightly, and that fade stopped working after the first animated repaint of the session. it now works whatever the grid last did
+
 ### the city sheet opens and closes
 - the sheet used to appear fully formed at the bottom of the screen in a single frame. it now rises into place over 140ms, and the dim behind it fades in with it
 - it leaves the same way, still holding its list. before, the rows were cleared in the same frame the sheet was hidden, so the last thing drawn was an empty black box

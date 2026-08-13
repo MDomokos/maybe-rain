@@ -948,6 +948,13 @@
         .tooltip svg { width: 1em; height: 1em; vertical-align: -0.15em; }
         .legend .swatch svg { width: 1em; height: 1em; display: block; }
         .setting-row span svg { width: 1em; height: 1em; vertical-align: -0.15em; }
+        /* While a sweep is running the playhead owns every block's colour and
+           writes it frame by frame, so the block's own transition has to stay
+           out of the way. One class on the grid, cleared when the sweep ends.
+           It replaces an inline `transition:none` that was written onto all
+           112 cells and never cleared, which left the hover fade dead until
+           some later unanimated rebuild happened to restore it. */
+        .chart-grid.sweeping .weather-block { transition: none; }
         .weather-block:hover {
             opacity: 0.8;
         }

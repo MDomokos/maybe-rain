@@ -608,16 +608,23 @@ const blankCols = (nCols, nRows) =>
 // that cell is already flipped. Never per frame: only the colour moves
 // every frame, and it is set directly rather than by a CSS transition,
 // because the playhead now owns the timeline.
+// The transition suppression this used to do inline (`node.style.transition
+// = 'none'`, on every cell, every flip) is now one class on the grid, set
+// for the life of a sweep and cleared when it ends. It was never cleared
+// before: after any animated paint all 112 blocks carried an inline
+// `transition:none` for good, which silently defeated the block's own hover
+// fade until the next unanimated rebuild happened to restore it. The hover
+// therefore behaved differently depending on how the grid had last been
+// painted, which is not a thing a hover should depend on.
 const applyCellContent = (node, desc) => {
     if (desc.empty) {
         node.className = 'weather-block empty';
         ['tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'].forEach(a => node.removeAttribute(a));
-        node.style.transition = 'none'; node.innerHTML = '';
+        node.innerHTML = '';
         return;
     }
     node.className = 'weather-block' + (desc.current ? ' current' : '') + (desc.past ? ' past' : '');
     node.innerHTML = desc.marks;
-    node.style.transition = 'none';
     node.style.color = desc.textColor;
     if (desc.blank) {
         ['tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'].forEach(a => node.removeAttribute(a));
@@ -758,7 +765,15 @@ const endWave = () => {
     }
     wave = null;
     if (waveRaf) { clearTimeout(waveRaf); waveRaf = 0; }
+    setSweeping(false);
 };
+
+// The sweep owns the timeline while it runs, so the block's own CSS
+// transition has to stay out of the way; the rest of the time it is what
+// draws the hover. One class on the container rather than an inline style
+// on every cell, so there is exactly one thing to clear and `endWave` is
+// the only place that has to remember to.
+const setSweeping = on => $('grid').classList.toggle('sweeping', on);
 
 const waveTick = now => {
     waveRaf = 0;
@@ -837,8 +852,7 @@ const kickWave = () => {
 const paintGrid = (grid, cols, anim) => {
     const now = performance.now();
     const nCols = cols.length, nRows = cols[0] ? cols[0].length : 0;
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const animated = !!anim && !reduce;
+    const animated = !!anim && !reduceMotion();
 
     // A refresh that lands while a directional wave is still settling waits
     // for it to finish, so the wave never gets clipped mid-sweep. Any newer
@@ -858,11 +872,13 @@ const paintGrid = (grid, cols, anim) => {
 
     // No animation (or reduced motion): rebuild the grid instantly.
     if (!animated) {
+        setSweeping(false);
         grid.innerHTML = cols.map(cells =>
             `<div class="day-column">${cells.map(buildCell).join('')}</div>`).join('');
         lastCols = cols;
         return;
     }
+    setSweeping(true);
 
     // The blink runs in place, so the DOM must already match the layout. A
     // skeleton grid (first visit) already matches and is reused. A cold
