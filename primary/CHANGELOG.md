@@ -2,6 +2,22 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.3.0 (2026-08-13)
+
+### the grid now shows what the sky actually looks like
+- the colour of each block used to come out of a table: the weather code picked one of eight fixed colours. it now comes from two things about the light itself — how much of it is getting through the cloud, and whether the sun is actually out
+- how bright a block is means how much light there is. how gold it is means the sun is on you. the two no longer interfere, so a bright hazy hour and a bright sunny hour are both bright, and only one of them is gold
+- **cloud is not darkness any more.** a cloud lit by a high sun is close to white, and the grid shows it that way. an ordinary overcast day is a light grey, not a dark one. dark blocks are kept for genuinely thick, wet, stormy sky
+- the old palette had a flaw worth naming: a 30%-cloud hour rendered *brighter* than a clear one, because the gold hit the ceiling and the paler "mostly clear" colour did not. sunshine could not stand out because it was not the brightest thing on the grid. it is now
+- clear, mostly clear and partly cloudy used to snap between three fixed colours at 20% and 50% cloud, so two nearly identical skies could look very different and two very different ones identical. the change is smooth now, and lands where the sky actually changes
+- rain colours the block more, and in proportion: a likely soaking goes much bluer than a possible sprinkle, where before every rainy hour got the same small nudge
+- storms are no longer painted violet. a storm sky is dark slate and that is what it looks like now — the ⚡ marker is what tells you it is a storm. a cell passing well to one side no longer paints the hour as though it is overhead
+- the key at the bottom of the screen follows the new colours automatically
+
+### notes
+- nothing extra is downloaded for this. the colours are worked out from the cloud cover and weather code already in the forecast
+- the previous colour system is still running, unchanged, in the classic version
+
 ## v2.2.0 (2026-08-13)
 
 ### the one-handed main screen

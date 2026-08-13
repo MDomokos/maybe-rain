@@ -210,6 +210,202 @@ const conditionRGB = (h, nf) => {
     return c.map(v => clamp255(v * f));
 };
 
+// --- Sky model B: the sky as seen overhead (DR-38) -----------------
+// Everything above this line is model A (DR-14) and is frozen: classic
+// selects it, and research/test-lines.mjs pins its exact output.
+//
+// Model A asks the weather code which of eight colours to use. Model B
+// asks two questions with two different answers, and gives each its own
+// channel:
+//
+//   value  = the clearness index Kt, how much light reaches the ground
+//   chroma = the sunshine fraction, whether the sun's disc was visible
+//
+// Brightness belongs to Kt alone. The sun tint is built at the neutral's
+// own value, so tinting can never change how bright a block is; mixing
+// toward a fixed gold instead collapses every sunlit hour onto one
+// yellow no matter how bright the sky actually was.
+//
+// The rule that keeps the palette clean: chroma is shed BEFORE value
+// moves or hue shifts. The gold means "the sun is on you", and once it
+// is raining or storming that is no longer the story. Darkening a
+// saturated gold gives brown; mixing one toward navy gives tan. Both are
+// the same failure as a straight gold-to-grey ramp, which passes through
+// olive for the same reason.
+//
+// Constants tuned by eye against live data (Maybe Rain Live Palette
+// Comparison, 2026-08-13) and re-checked numerically: monotonic in Kt,
+// zero muddy results across 157k condition combinations, worst streak
+// contrast 3.5:1 against DR-13's 3.0 floor.
+const SKY = {
+    gold: 1.00,          // how gold a fully sunlit hour goes
+    sunContrast: 1.80,   // S-curve on the sunshine axis; 1 = linear
+    goldGate: 0.37,      // Kt below which sunshine buys no gold at all
+    overcastLift: 1.06,  // dry overcast reads as bright cloud, not grey
+    stormFloor: 1.20,    // scales the darkest anchor
+    stormCap: 0.35,      // a storm hour may not render brighter than this
+    rainBlue: 0.40,      // navy tint weight at full amount x chance
+    desatLead: 1.6       // chroma is shed this much faster than value falls
+};
+// Neutral value ramp on Kt. The sunny end (0.50-0.78) is spread out on
+// purpose: brilliant clear and hazy sun are both "sunny" and look very
+// different, so Kt needs room to move between them. Anchors are the
+// published clearness bands: clear ~0.70-0.78, thin cloud ~0.5-0.6,
+// broken ~0.35-0.45, overcast stratus ~0.16-0.24, rain ~0.10-0.14,
+// deep storm ~0.04-0.08.
+const SKY_RAMP = [
+    [0.00, [44, 48, 56].map(v => v * SKY.stormFloor)],
+    [0.10, [74, 80, 88]],
+    [0.16, [112, 119, 127]],
+    [0.24, [150, 157, 165].map(v => v * SKY.overcastLift)],
+    [0.35, [180, 187, 194]],
+    [0.50, [210, 216, 221]],
+    [0.62, [234, 238, 242]],
+    [0.78, [252, 253, 255]]
+];
+const SUN_GOLD = [255, 201, 46];
+const NIGHT_CLEAR = [84, 72, 50], NIGHT_THICK = [30, 32, 38];
+const STORM_CODES = new Set([95, 96, 99]);
+const FOG_CODES = new Set([45, 48]);
+
+const skyLum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
+// Luminance-preserving desaturation, with a slight cool cast so a sky
+// that loses its sun reads as overcast rather than as flat grey.
+const coolGrey = c => {
+    const l = skyLum(c), t = [l * 0.95, l * 0.99, l * 1.06], tl = skyLum(t);
+    return tl === 0 ? [0, 0, 0] : t.map(v => v * (l / tl));
+};
+const desat = (c, t) => mix3(c, coolGrey(c), clamp01(t));
+// Symmetric contrast curve, fixed at 0, 0.5 and 1. Sharpens "sun out"
+// versus "sun behind cloud" into a category without reintroducing a
+// threshold at some arbitrary cloud percentage. k = 1 is exactly linear.
+const sunCurve = (s, k) => {
+    if (k === 1) return s;
+    const a = Math.pow(s, k), b = Math.pow(1 - s, k);
+    return (a + b) === 0 ? s : a / (a + b);
+};
+const neutralSky = kt => {
+    const k = clamp01(kt / 0.78) * 0.78;
+    for (let i = 1; i < SKY_RAMP.length; i++) {
+        if (k <= SKY_RAMP[i][0] || i === SKY_RAMP.length - 1) {
+            const [k0, c0] = SKY_RAMP[i - 1], [k1, c1] = SKY_RAMP[i];
+            return mix3(c0, c1, clamp01((k - k0) / (k1 - k0)));
+        }
+    }
+};
+// Kt and sunshine come from the payload when it carries them, and are
+// estimated from cloud cover and the weather code when it does not. The
+// estimator is not a nicety: radiation coverage varies by model and
+// region, and every payload cached before this shipped lacks the fields.
+// It is also the whole of step 1 of the rollout, which adds no API
+// fields at all.
+//
+// For a dry hour Open-Meteo derives weather_code by thresholding
+// cloud_cover and nothing else, so the code caps the band and the cover
+// positions the hour inside it. That is the best cloud-only
+// reconstruction available; what it cannot do is separate a bright thin
+// overcast from a dark thick lid, which is exactly what the measured
+// ratio adds.
+const KT_NIGHT_FLOOR = 20; // W/m2 top-of-atmosphere; below this Kt is noise
+const ktFor = h => {
+    if (h.sw != null && h.terr != null && h.terr > KT_NIGHT_FLOOR)
+        return clamp01(h.sw / h.terr);
+    if (STORM_CODES.has(h.code)) return 0.05;
+    if (FOG_CODES.has(h.code)) return 0.14;
+    if (SNOW_CODES.has(h.code)) return 0.12;
+    if (RAIN_CODES.has(h.code))
+        return (h.mm ?? 0) >= 2 ? 0.09 : (h.mm ?? 0) >= 0.3 ? 0.13 : 0.17;
+    const c = h.code;
+    const ceil = c === 0 ? 0.76 : c === 1 ? 0.58 : c === 2 ? 0.40 : 0.22;
+    const floor = c === 0 ? 0.68 : c === 1 ? 0.44 : c === 2 ? 0.26 : 0.16;
+    const lo = c === 0 ? 0 : c === 1 ? 20 : c === 2 ? 50 : 80;
+    const span = c === 0 ? 20 : c === 1 ? 30 : c === 2 ? 30 : 20;
+    return ceil + (floor - ceil) * clamp01(((h.cloud ?? 0) - lo) / span);
+};
+const sunFor = h => {
+    if (h.sunSec != null) return clamp01(h.sunSec / 3600);
+    if (STORM_CODES.has(h.code) || FOG_CODES.has(h.code)
+        || SNOW_CODES.has(h.code) || RAIN_CODES.has(h.code)) return 0;
+    return Math.pow(clamp01(1 - (h.cloud ?? 0) / 100 / 0.80), 0.8);
+};
+// The model-B colour for one hour. nf is the same day/night blend
+// factor model A uses, so twilight behaviour is unchanged.
+const skyRGB = (h, nf) => {
+    const kt = ktFor(h), n = neutralSky(kt);
+    const V = Math.max(n[0], n[1], n[2]);
+    const goldAtV = SUN_GOLD.map(v => v * (V / 255));
+    const gate = clamp01((kt - SKY.goldGate) / 0.25);
+    const s = sunCurve(sunFor(h), SKY.sunContrast);
+    const day = mix3(n, goldAtV, s * SKY.gold * gate);
+    const night = mix3(NIGHT_THICK, NIGHT_CLEAR, clamp01(kt / 0.78));
+    let c = mix3(day, night, nf);
+    // Storms do not override the colour: the base stays physical and the
+    // hazard rides the glyph (DR-31). The cap exists only so a distant or
+    // high-based cell in an otherwise bright sky cannot read as a nice
+    // day. Chroma is shed first, or capping a golden sky yields brown.
+    if (STORM_CODES.has(h.code) && SKY.stormCap < 1) {
+        const maxL = SKY.stormCap * 255, l = skyLum(c);
+        if (l > maxL) {
+            c = desat(c, (1 - maxL / l) * SKY.desatLead);
+            const l2 = skyLum(c);
+            if (l2 > maxL) c = c.map(v => v * (maxL / l2));
+        }
+    }
+    // Rain: drop the sun-gold, then tint. Scaled by amount x chance, so a
+    // likely soaking tints far more than a possible sprinkle (model A
+    // applies a flat 12% to both).
+    if (RAIN_CODES.has(h.code) || (STORM_CODES.has(h.code) && h.mm > 0)) {
+        const t = Math.pow(Math.min(h.mm ?? 0, 8) / 8, 0.5);
+        const w = SKY.rainBlue * t * clamp01((h.pop ?? 100) / 100);
+        if (w > 0) c = mix3(desat(c, w * SKY.desatLead), RAIN_TINT, w);
+    }
+    return c.map(clamp255);
+};
+// A model-B swatch at a chosen clearness and sunshine, for the legend.
+// Forces the measured path so Kt is exact, and uses a dry clear code so
+// no rain or storm branch fires.
+const skySample = (kt, sun) =>
+    skyRGB({ code: 0, cloud: 0, mm: 0, pop: 0, sw: kt * 1000, terr: 1000, sunSec: sun * 3600 }, 0);
+
+// --- The one dispatch point ---------------------------------------
+// SKY_MODEL comes from the variant's config.js, which loads ahead of
+// shared/ for exactly this reason (the same inversion api.js relies on
+// for FORECAST_DAYS). 'radiance' is DR-38; 'wmo' is DR-14, kept
+// runnable in classic as the reference implementation.
+const skyBaseRGB = SKY_MODEL === 'radiance' ? skyRGB : conditionRGB;
+
+// The rain-view legend strip, derived from whichever model is active, so
+// the key can never teach a palette the grid is not painting. Both
+// variants' legendSteps() call this rather than building the strip
+// themselves. The wmo branch reproduces the pre-DR-38 strip exactly.
+// lnBlue picks the hatch blue by the swatch's own luminance, which is
+// the same rule the streaks follow on the grid.
+const skyLegend = () => {
+    // The radiance anchors are chosen so the strip reads as one ramp in
+    // the order the model actually works: chroma drains first (gold ->
+    // pale gold -> white, as the sun goes in) and only then does value
+    // fall (white -> grey -> slate, as the cloud thickens). Sampling on
+    // Kt alone would put a pale hazy swatch brighter than the gold one,
+    // since a saturated gold is intrinsically darker than near-white.
+    const s = SKY_MODEL === 'radiance'
+        ? { sun: skySample(0.74, 1), thin: skySample(0.52, 0.8), cloud: skySample(0.36, 0.15),
+            over: skySample(0.22, 0), storm: skySample(0.05, 0) }
+        : { sun: SKY_DAY.clear, thin: SKY_DAY.partly, cloud: SKY_DAY.cloudy,
+            over: SKY_DAY.overcast, storm: SKY_DAY.storm };
+    const b = lnBlue(s.cloud);
+    const hatch = `repeating-linear-gradient(118deg, rgba(${b[0]},${b[1]},${b[2]},0.85) 0 1.6px, transparent 1.6px 8px), rgb(${s.cloud})`;
+    const dots = `radial-gradient(rgba(255,255,255,0.92) 1px, rgba(0,0,0,0) 1.4px) 0 0 / 7px 7px, rgb(${s.over})`;
+    return [
+        { bg: `rgb(${s.sun})`, label: 'sun' },
+        { bg: `rgb(${s.thin})`, label: '' },
+        { bg: `rgb(${s.cloud})`, label: 'cloud' },
+        { bg: `rgb(${s.over})`, label: '' },
+        { bg: hatch, label: 'rain' },
+        { bg: dots, label: 'snow' },
+        { bg: `rgb(${s.storm})`, label: 'storm' }
+    ];
+};
+
 // Hazard markers: redundant non-color icons for hazards only, never
 // ordinary data. Vocabulary of five (DR-10): storm (lightning, incl.
 // hail), fog, and freeze (freezing rain/drizzle) are weather-coded

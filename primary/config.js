@@ -26,3 +26,10 @@ const FORECAST_DAYS = DAY_SPAN + DAY_OFF_MAX + 1; // 15
 // holds three past days, so without the trim the reach behind today
 // would vary with how long ago the app was last opened.
 const PAST_DAYS = 2;
+
+// Which sky model paints the rain view's base (DR-38). 'radiance' is the
+// two-axis model: clearness sets brightness, sunshine sets how gold.
+// 'wmo' is the DR-14 bucket palette, kept runnable in classic as the
+// reference implementation. Read at load by shared/colors.js, which is
+// why it lives here rather than in app.js.
+const SKY_MODEL = 'radiance';

@@ -978,7 +978,8 @@ const buildCols = () => {
     const dayMeta = state.days.slice(off, off + days);
     const currentHour = cityNow().hour;
 
-// The rain view is the sky base (conditionRGB) plus the streak
+// The rain view is the sky base (skyBaseRGB, which is DR-38's radiance
+// model here and DR-14's palette in classic) plus the streak
 // overlay; temp and wind views draw their own scales.
 const rainView = view === 'rain';
 
@@ -1013,7 +1014,7 @@ return shownDays.map((dayData, dayIndex) => {
         const rgb = view === 'temp' ? bandRGB(h.feels != null ? h.feels : h.temp)
             : view === 'wind'
                 ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
-                : conditionRGB(h, nightFactor(hour, sun));
+                : skyBaseRGB(h, nightFactor(hour, sun));
         // Hazard icons (DR-10): every applicable hazard shows,
         // packed into the bottom-right corner in a fixed order so
         // two never swap places: the weather-coded hazard first
@@ -1342,17 +1343,11 @@ const legendSteps = () => {
     // = cloudier, storm darkest) plus a blue-hatched "rain" swatch
     // (DR-13, teaching "blue = rain") and a white-dot "snow" swatch.
     // Block tooltips still name every condition on tap.
-    const hatch = `repeating-linear-gradient(118deg, rgba(${LN_BLUE_HI[0]},${LN_BLUE_HI[1]},${LN_BLUE_HI[2]},0.85) 0 1.6px, transparent 1.6px 8px), rgb(${SKY_DAY.cloudy})`;
-    const dots = `radial-gradient(rgba(255,255,255,0.92) 1px, rgba(0,0,0,0) 1.4px) 0 0 / 7px 7px, rgb(${SKY_DAY.overcast})`;
-    return [
-        { bg: `rgb(${SKY_DAY.clear})`, label: 'sun' },
-        { bg: `rgb(${SKY_DAY.partly})`, label: '' },
-        { bg: `rgb(${SKY_DAY.cloudy})`, label: 'cloud' },
-        { bg: `rgb(${SKY_DAY.overcast})`, label: '' },
-        { bg: hatch, label: 'rain' },
-        { bg: dots, label: 'snow' },
-        { bg: `rgb(${SKY_DAY.storm})`, label: 'storm' }
-    ];
+    //
+    // Built in shared/colors.js, not here, so the key is sampled from
+    // whichever sky model is painting the grid (DR-38). Swapping
+    // SKY_MODEL swaps the legend with it; the two cannot drift apart.
+    return skyLegend();
 };
 // Whether the key is currently the caption slot's occupant. It is not a
 // resting element any more: it appears while a finger (or a pointer) is on

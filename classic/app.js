@@ -546,7 +546,8 @@ const updateDisplay = (anim = null) => {
         return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
     }).join('');
 
-    // The rain view is the sky base (conditionRGB) plus the streak
+    // The rain view is the sky base (skyBaseRGB, which classic pins to
+    // DR-14's conditionRGB via SKY_MODEL) plus the streak
     // overlay; temp and wind views draw their own scales.
     const rainView = view === 'rain';
 
@@ -577,7 +578,7 @@ const updateDisplay = (anim = null) => {
             const rgb = view === 'temp' ? bandRGB(h.feels != null ? h.feels : h.temp)
                 : view === 'wind'
                     ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
-                    : conditionRGB(h, nightFactor(hour, sun));
+                    : skyBaseRGB(h, nightFactor(hour, sun));
             // Hazard icons (DR-10): every applicable hazard shows,
             // packed into the bottom-right corner in a fixed order so
             // two never swap places: the weather-coded hazard first
@@ -779,17 +780,11 @@ const legendSteps = () => {
     // = cloudier, storm darkest) plus a blue-hatched "rain" swatch
     // (DR-13, teaching "blue = rain") and a white-dot "snow" swatch.
     // Block tooltips still name every condition on tap.
-    const hatch = `repeating-linear-gradient(118deg, rgba(${LN_BLUE_HI[0]},${LN_BLUE_HI[1]},${LN_BLUE_HI[2]},0.85) 0 1.6px, transparent 1.6px 8px), rgb(${SKY_DAY.cloudy})`;
-    const dots = `radial-gradient(rgba(255,255,255,0.92) 1px, rgba(0,0,0,0) 1.4px) 0 0 / 7px 7px, rgb(${SKY_DAY.overcast})`;
-    return [
-        { bg: `rgb(${SKY_DAY.clear})`, label: 'sun' },
-        { bg: `rgb(${SKY_DAY.partly})`, label: '' },
-        { bg: `rgb(${SKY_DAY.cloudy})`, label: 'cloud' },
-        { bg: `rgb(${SKY_DAY.overcast})`, label: '' },
-        { bg: hatch, label: 'rain' },
-        { bg: dots, label: 'snow' },
-        { bg: `rgb(${SKY_DAY.storm})`, label: 'storm' }
-    ];
+    //
+    // Built in shared/colors.js, not here, so the key is sampled from
+    // whichever sky model is painting the grid (DR-38). Classic pins
+    // SKY_MODEL='wmo', so this returns the same strip it always did.
+    return skyLegend();
 };
 const renderLegend = () => {
     const legend = $('legend');

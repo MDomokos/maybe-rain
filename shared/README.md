@@ -48,7 +48,7 @@ are shared directly instead of parameterised.
 | `cache.js` | `placeKey`, localStorage JSON, per-place forecast cache, sweep, change detection | see below |
 | `settings.js` | `settings`/`view` declaration, defaults, `VIEWS` | yes |
 | `format.js` | unit and clock formatting | yes |
-| `colors.js` | the whole colour/gradient system: temp bands, wind ramp, sky palette, conditions, rain/snow/hail overlays | yes (390 lines) |
+| `colors.js` | the whole colour/gradient system: temp bands, wind ramp, both sky models, conditions, rain/snow/hail overlays, the legend strip | yes — the file is identical; which sky model it uses is picked by `SKY_MODEL` (see below) |
 | `icons.js` | `MR_ICON` | yes |
 | `astro.js` | moon phase, lunar eclipses | yes |
 | `wmo.js` | WMO code to condition, weekday and date labels | yes |
@@ -69,6 +69,35 @@ version rather than the code being parameterised:
 Both reduce to the same decision. The two variants now fetch the same 15
 days. See `classic/config.js` for why: a shared cache holding two different
 horizons is asymmetric in both directions.
+
+### The one deliberate divergence: `SKY_MODEL`
+
+`colors.js` carries **two** sky models and each variant picks one with a
+`SKY_MODEL` constant in its `config.js` (DR-38). Primary uses `'radiance'`,
+where clearness sets a block's brightness and sunshine sets how gold it is;
+classic holds `'wmo'`, the DR-14 palette that picks one of eight fixed colours
+by weather code. The file itself stays byte-identical, which is why it is still
+shared — the divergence is one constant, in the file that already exists to
+hold per-variant constants.
+
+This is the opposite resolution from `cache.js` and `api.js` above, and
+deliberately so. Those two converged because holding two behaviours cost
+correctness in a shared cache. This one diverges because the *point* is to keep
+the superseded system runnable: classic is where DR-14 can still be opened,
+compared against primary on the same city and hour, and regression-tested.
+`research/test-lines.mjs` pins classic's exact output for that reason, so a
+change to `conditionRGB` fails a test instead of quietly drifting.
+
+Two things depend on the dispatch staying in `colors.js` rather than leaking
+into the variants:
+
+- `skyBaseRGB` is the single call site each `app.js` uses to paint a block.
+- `skyLegend()` builds the rain-view key from whichever model is active, so the
+  legend cannot describe a palette the grid is not painting. Neither `app.js`
+  assembles the strip itself any more.
+
+`SKY_MODEL` is read at evaluation time by `colors.js`, which is legal for the
+same reason `api.js` may read `FORECAST_DAYS`: `config.js` loads first.
 
 ## What is not here
 
