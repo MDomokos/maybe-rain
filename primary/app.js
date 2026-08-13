@@ -694,19 +694,39 @@ const cellPhase = (t, delay) => {
 // clock resets, so a sweep that is retargeted again simply carries on
 // from wherever it is, which is DR-32's "retargets rather than restarts"
 // falling out of the model rather than being special-cased.
-// Ticked on a timer rather than requestAnimationFrame, deliberately.
-// `t` is advanced from real elapsed time, so the animation is
-// frame-rate independent either way and the interval is only how often
-// it is sampled; what a timer buys is that it cannot monopolise the
-// event loop. A rAF chain that reschedules itself every frame runs as
-// fast as the host will dispatch it, and under jsdom that is a tight
-// loop with no vsync to pace it, which starves the timer queue outright,
-// so every harness that awaits anything during a sweep hangs. The old
-// scheduler this replaces was timer-driven for the same practical
-// reason, and 16ms is finer than the eye needs for a 350ms wipe.
 const FRAME_MS = 16;
+
+// --- One clock ------------------------------------------------------
+// Everything that animates in this app schedules through here: the sweep,
+// and the two return-home tweens. They used to run on two different
+// clocks, a 16ms timer and a rAF chain, both writing the same DOM, which
+// is a beat pattern waiting to happen on any display that is not exactly
+// 60Hz.
+//
+// rAF where there is one, because a timer sampling a 350ms wipe every
+// 16ms is not aligned to anything the screen does, and on a 120Hz panel
+// that shows as a stutter no amount of frame-rate-independent maths can
+// remove. `t` is still advanced from real elapsed time, so the interval
+// remains only how often the wipe is sampled.
+//
+// The timer is kept as the fallback, and not only for a host with no rAF:
+// rAF stops in a hidden tab, and a sweep frozen half-black until the tab
+// comes back is worse than one that finishes unwatched. The original
+// reason for the timer was jsdom starving under a self-rescheduling rAF
+// chain; the boot test runs with `pretendToBeVisual`, whose rAF is itself
+// paced at 16ms, so that hazard is not what it was.
+const scheduleFrame = fn =>
+    (typeof requestAnimationFrame === 'function' && !document.hidden)
+        ? { raf: requestAnimationFrame(fn) }
+        : { timer: setTimeout(() => fn(performance.now()), FRAME_MS) };
+const cancelFrame = h => {
+    if (!h) return;
+    if (h.raf) cancelAnimationFrame(h.raf);
+    if (h.timer) clearTimeout(h.timer);
+};
+
 let wave = null;      // { grid, from, to, delays, shown, dir, anim, t, total, pending }
-let waveRaf = 0, waveLast = 0;
+let waveRaf = null, waveLast = 0;
 let lastCols = null;  // the grid as last painted, the `from` of the next sweep
 
 const gridBusy = () => !!wave && wave.anim.type !== 'refresh';
@@ -792,7 +812,7 @@ const endWave = () => {
         lastCols.push(col);
     }
     wave = null;
-    if (waveRaf) { clearTimeout(waveRaf); waveRaf = 0; }
+    if (waveRaf) { cancelFrame(waveRaf); waveRaf = null; }
     setSweeping(false);
 };
 
@@ -804,7 +824,7 @@ const endWave = () => {
 const setSweeping = on => $('grid').classList.toggle('sweeping', on);
 
 const waveTick = now => {
-    waveRaf = 0;
+    waveRaf = null;
     const w = wave;
     if (!w) return;
     // The two modes must never both advance `t`. While a scrubbed drag
@@ -859,7 +879,7 @@ const waveTick = now => {
         w.delays = built.delays; w.total = built.total;
     }
     waveFrame();
-    if (waveSweeping(w) || w.pending) { waveRaf = setTimeout(waveStep, FRAME_MS); return; }
+    if (waveSweeping(w) || w.pending) { waveRaf = scheduleFrame(waveTick); return; }
     if (w.hold) return;   // a drag is still holding the sweep open
     // Only a sweep that ran to its natural end settles. A sweep that is
     // superseded by another paint is abandoned in paintGrid, which
@@ -869,12 +889,11 @@ const waveTick = now => {
     if (settled) settled();
 };
 
-const waveStep = () => waveTick(performance.now());
 const kickWave = () => {
     // A live scrub owns `t`; there is nothing for a ticker to advance.
     if (waveRaf || (wave && wave.scrub)) return;
     waveLast = performance.now();
-    waveRaf = setTimeout(waveStep, FRAME_MS);
+    waveRaf = scheduleFrame(waveTick);
 };
 
 const paintGrid = (grid, cols, anim) => {
@@ -1016,7 +1035,7 @@ const scrubWave = (grid, cols, dir, p, destView) => {
     wave.destView = destView;
     // paintGrid/kickWave may have started a ticker a moment before the
     // flag was set. Stop it here rather than leaving the two to race.
-    if (waveRaf) { clearTimeout(waveRaf); waveRaf = 0; }
+    if (waveRaf) { cancelFrame(waveRaf); waveRaf = null; }
     wave.t = Math.max(0, Math.min(wave.total, p * wave.total));
     waveFrame();
 };
@@ -2786,6 +2805,10 @@ const openSheet = via => {
     setSheetMode('places');
     setGestureMode(via === 'drag');
     renderSheet();
+    // The one re-measure. renderSheet's alignment ran while the sheet was
+    // still rising, so take the reading again once it has landed and let
+    // every detent after this reuse it.
+    if (via === 'drag') setTimeout(() => alignAimReadout(true), SHEET_EXIT_MS + 20);
     // The list is the listbox, so it is what holds focus while the sheet
     // is open: aria-activedescendant is only read off the focused element.
     if (via === 'tap') $('sheetList').focus({ preventScroll: true });
@@ -2868,8 +2891,18 @@ const openSheetChrome = () => {
 // padding, the safe-area inset, the row's own margins and its line box, and a
 // formula built from those would be four numbers that have to stay true. The
 // control row is only at opacity 0, so it still has a box to measure.
-const alignAimReadout = () => {
+// Measured once per gesture, not once per detent. The write-read-write it
+// does is a forced synchronous layout, and it used to run on every row the
+// finger crossed, which is exactly where a stutter is most visible. The
+// correction cannot change mid-gesture anyway: it is the distance between
+// two boxes that both stay put for the life of the sheet.
+//
+// `force` is the one exception. The first measurement can catch the sheet
+// mid-entrance, so the entrance schedules one forced re-measure when it
+// lands, and that is the last of them.
+const alignAimReadout = (force = false) => {
     if (!sheet || sheet.via !== 'drag') return;
+    if (sheet.aligned && !force) return;
     const pin = $('sheetAim'), name = $('locationName');
     // Zeroed first, then measured, so the reading is never contaminated by a
     // previous gesture's correction. Reading a rect after writing a style
@@ -2879,7 +2912,10 @@ const alignAimReadout = () => {
     pin.style.paddingBottom = '0px';
     pin.style.paddingLeft = '0px';
     const a = pin.getBoundingClientRect(), b = name.getBoundingClientRect();
+    // Nothing laid out yet: leave `aligned` false so the next aim tries
+    // again rather than locking in a measurement that never happened.
     if (!a.height || !b.height) return;
+    sheet.aligned = true;
     // border-box: the padding eats into the 52px row, and the row centres its
     // content, so P of bottom padding lifts the text by P/2.
     const dy = (a.top + a.height / 2) - (b.top + b.height / 2);
@@ -3288,7 +3324,7 @@ const scrubReveal = (cols, dir, p, axis) => {
     if (!wave) return;
     wave.scrub = true;
     wave.rewind = false;
-    if (waveRaf) { clearTimeout(waveRaf); waveRaf = 0; }
+    if (waveRaf) { cancelFrame(waveRaf); waveRaf = null; }
     wave.t = Math.max(0, Math.min(wave.total, p * wave.total));
     waveFrame();
 };
