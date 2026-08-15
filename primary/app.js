@@ -2264,6 +2264,7 @@ const openSearch = () => {
         sheet = {
             via: 'tap',
             aim: Math.max(0, sheetPlaces().length - 1),
+            moved: false,
             cache: new Map(),
             live: !reduceMotion()
         };
@@ -2334,6 +2335,10 @@ const setSheetMode = m => {
     $('settings').classList.toggle('hidden', m !== 'settings');
     if (m === 'settings') renderSettings();
     renderActions();
+    // The readout is mode-dependent (see paintAim), and callers set the mode
+    // AFTER building the sheet, so it has to be repainted here or the control
+    // row keeps whatever the previous mode wrote into it.
+    if (sheet) paintAim();
 };
 // Kept as a name because a dozen call sites already say "close the menu"
 // and mean it, including Escape and the outside-click guard.
@@ -2704,13 +2709,25 @@ chart.addEventListener('wheel', e => {
 // its true colours, because comparing two cities during the gesture is
 // the thing this replaces and a preview that withholds the colours until
 // release would not serve it. Nothing dims.
-const SHEET_ARM_PX = 12;        // upward travel before the touch is a switch
+// Upward travel before the touch is a switch. 12 was under every platform's
+// own tap slop (Android's ViewConfiguration is 8dp, which is 16-24 CSS px on
+// a real phone; iOS allows about 10pt), so the thumb roll that every tap on a
+// 52px target has in it was arming the switcher and eating the tap. The slop
+// that decides between a tap and a drag cannot be tighter than the slop the
+// platform uses to decide the same thing.
+const SHEET_ARM_PX = 18;
 // A press that has not moved becomes a switch anyway once it has lasted this
 // long. The project distrusts time thresholds for good reasons (DR-18/19 were
 // reverted over one), and this is allowed for two: it is not the only way in,
 // the swipe is, so a missed hold costs nothing; and its failure mode is a
 // list you can release on your own city to dismiss, not a wrong state.
-const SHEET_HOLD_MS = 220;
+//
+// 220 was wrong on the first count. A deliberate tap on a phone routinely
+// lasts 200-300ms — the number is a long-press threshold, and both platforms
+// put theirs at 500ms — so ordinary taps on the name were crossing it, arming
+// the switch, and making the tap-to-search branch below unreachable. 400 sits
+// clear of a tap and still short of a press that has to be waited out.
+const SHEET_HOLD_MS = 400;
 // Sideways travel that commits a view step. Larger than the arming slop, so
 // a drag that wandered off the vertical axis and came back does not also
 // change the view on the way out.
@@ -2846,7 +2863,15 @@ const paintAim = () => {
     $('sheetList').setAttribute('aria-activedescendant', sheet.aim < n ? `sheetRow${sheet.aim}` : '');
     // The name in the control row is the destination readout; the counter
     // says where that sits in the list. Both revert on close.
-    const aimed = sheetPlaces()[sheet.aim];
+    //
+    // Only the PLACES list has a destination. Search and the menu keep a sheet
+    // object around purely as the list to step back out to, and its aim is the
+    // bottom row by default — which is the current city only when the current
+    // city is a favourite. Look at somewhere unstarred, open search, and the
+    // control row relabelled itself with an unrelated favourite: the city name
+    // visibly changed without the city changing, which reads exactly like the
+    // switch having fired by mistake.
+    const aimed = sheetMode === 'places' ? sheetPlaces()[sheet.aim] : null;
     $('locationName').textContent = aimed ? aimed.name : state.place.name;
     $('cityCount').textContent = aimed ? `${sheet.aim + 1}/${n}` : '';
     // The readout at the bottom of the held sheet, which sits exactly where
@@ -2861,6 +2886,9 @@ const setAim = idx => {
     if (!sheet || idx === sheet.aim) return;
     const was = sheet.aim;
     sheet.aim = idx;
+    // The aim has been pointed somewhere on purpose. A drag will not commit
+    // without this: see closeSheet.
+    sheet.moved = true;
     navigator.vibrate?.(VIBE_DETENT);
     paintAim();
     // Preview the aimed city on the grid, sweeping the way the list is
@@ -2882,7 +2910,16 @@ const openSheet = via => {
         via,
         // The bottom row, which the ordering above makes the current city
         // whenever it is a favourite: the aim starts where the finger is.
+        //
+        // "Whenever it is a favourite" is the catch, and it was the bug. The
+        // list is the ★ favourites, and the city on screen is not necessarily
+        // one of them — search for somewhere and do not star it and it never
+        // is. Then the bottom row is somebody ELSE, the opening aim is a real
+        // destination rather than a no-op, and a release that never aimed
+        // anywhere took it. `moved` is what makes the opening aim inert
+        // regardless of who is standing on it.
         aim: Math.max(0, sheetPlaces().length - 1),
+        moved: false,
         cache: new Map(),
         live: !reduceMotion()
     };
@@ -3057,6 +3094,20 @@ const hideSheetChrome = () => {
 };
 
 const closeSheet = (commit = false) => {
+    // A sheet the FINGER opened only commits a city the finger actually aimed
+    // at. The x-axis has always worked this way — a sideways drag under
+    // VIEW_COMMIT_PX changes nothing — and the y-axis had no equivalent: it
+    // took whatever the opening aim happened to be, on the assumption that the
+    // opening aim was always the current city and therefore always a no-op.
+    // It is not (see openSheet), so a touch that armed the switcher by
+    // accident — a tap that outlasted the hold, a thumb roll past the slop —
+    // and then released without ever crossing a row would change the city.
+    // That is the whole reported bug: tapping the name swapped cities.
+    //
+    // A tap-opened sheet is untouched by this. There the aim IS the intent:
+    // the row you tap is the row you get, and the click handler sets the aim
+    // and commits in one go.
+    if (commit && sheet && sheet.via === 'drag' && !sheet.moved) commit = false;
     // The two action indices are answered before anything is torn down. The
     // wide one is the mode the sheet is already in; the compact one is the
     // mode it is not. So the same index means different things depending on
@@ -3183,6 +3234,9 @@ controlRow.addEventListener('touchstart', e => {
     rowTouch = {
         x: t.clientX, y: t.clientY, dx: 0,
         axis: null, armed: false, hold: 0,
+        // When it started, and whether the hold timer is what armed it. A
+        // release reads both to tell a press from a tap that wobbled.
+        t0: performance.now(), held: false,
         // The sideways scrub's own state: whether it ever ran, and the two
         // neighbouring views it has built, kept for the life of the drag
         // so crossing back over the origin costs nothing.
@@ -3194,9 +3248,17 @@ controlRow.addEventListener('touchstart', e => {
         if (!rowTouch || rowTouch.axis) return;
         if (!armSwitch()) return;
         rowTouch.axis = 'y';
+        rowTouch.held = true;
         // The finger has not moved, so the aim is whatever the start point
         // is over: nothing, which leaves it on the bottom row.
         aimAtPoint(t.clientX, t.clientY);
+        // ...except that this runs on the sheet's FIRST frame, where sheetIn
+        // still has it translated 14px down, so the row under the start point
+        // is whichever one the entrance animation has parked there — not the
+        // one that will be there when it lands. That reading must not count as
+        // the finger having aimed, or a motionless press would commit a row it
+        // was never pointed at. The finger has not moved; nothing has moved.
+        if (sheet) sheet.moved = false;
     }, SHEET_HOLD_MS);
 }, { passive: true });
 
@@ -3298,14 +3360,31 @@ const endRowTouch = commit => {
         endViewScrub(r, commit);
         return;
     }
+    const tap = commit && r.onName;
     if (!r.armed) {
         // Neither held nor swiped: a plain tap, and now that the finger has
         // lifted it is safe to say which one. A tap on a view word is left
         // to its own click handler.
-        if (commit && r.onName) openSearch();
+        if (tap) openSearch();
         return;
     }
+    // Armed, but the finger never aimed at anything. Two ways to get here and
+    // they want opposite answers:
+    //
+    //   a press that was waited out    the switcher, opened and then not used.
+    //                                  Release dismisses it, which is what the
+    //                                  hold's stated failure mode always was.
+    //   a tap with a roll in it        the slop was crossed by the thumb
+    //                                  pivoting, not by an intent to switch.
+    //                                  It is a tap, and the tap is search.
+    //
+    // Told apart by the clock: a gesture shorter than the hold cannot have
+    // been the hold, and a tap that never reached another row in that time was
+    // never going anywhere. Without this the wobbly tap was simply swallowed —
+    // the sheet flashed open and shut and search never came.
+    const idle = !sheet || !sheet.moved;
     if (sheet) closeSheet(commit);
+    if (idle && tap && !r.held && performance.now() - r.t0 < SHEET_HOLD_MS) openSearch();
 };
 controlRow.addEventListener('touchend', () => endRowTouch(true));
 controlRow.addEventListener('touchcancel', () => endRowTouch(false));
@@ -3326,7 +3405,12 @@ $('location').addEventListener('keydown', e => {
 $('citySheet').addEventListener('click', e => {
     const row = e.target.closest('.sheet-row');
     if (!row || !sheet) return;
-    sheet.aim = +row.dataset.idx;
+    // Through setAim, not by assignment: a tapped row is an aim like any
+    // other, and the commit gate in closeSheet reads the flag setAim sets.
+    // Tapping the row that is already aimed is still a commit, so the flag
+    // is set either way rather than left to setAim's no-op early return.
+    setAim(+row.dataset.idx);
+    sheet.moved = true;
     closeSheet(true);
 });
 // Hover aims in tap mode, so a mouse previews the same way a thumb does.
@@ -3973,6 +4057,12 @@ const sheetKey = e => {
     if (!$('settings').classList.contains('hidden')) {
         return ['ArrowUp', 'ArrowDown', 'Enter', ' '].includes(e.key);
     }
+    // Same for search. The sheet that search keeps around is a list to step
+    // back to, not a thing being aimed, and its default aim is a real city
+    // whenever the current one is unstarred — so Enter here would have
+    // committed a city nobody chose. Swallow the keys rather than acting on
+    // them: search owns them, and the field usually has focus anyway.
+    if (sheetMode === 'search') return ['ArrowUp', 'ArrowDown', 'Enter', ' '].includes(e.key);
     const last = sheetPlaces().length;   // the search row; +1 is the menu
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();

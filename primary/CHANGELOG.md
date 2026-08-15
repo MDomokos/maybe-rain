@@ -2,6 +2,14 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## unreleased
+
+### tapping the city name opens search again
+- tapping the name to search often switched to another city instead, or did nothing at all. a slightly slow tap, or one with the usual thumb roll in it, was being read as the swipe that switches city. it now takes a longer press and more travel before a tap counts as a gesture
+- the city switcher only changes city when a row is actually aimed at. opening it and letting go without moving to another row takes nothing, whichever way it was opened
+- the city name in the bottom row no longer changes when search opens
+- with search open, Enter searches instead of switching city
+
 ## v2.4.0 (2026-08-14)
 
 ### the status line moved under the controls
