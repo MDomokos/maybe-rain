@@ -2,6 +2,12 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.5.3 (2026-08-16) — bugfix
+
+- make the city switcher UI more obviously pinned / unpinned
+- fix layout and spacing issues
+- line up the held city name with the row it lands in, and give the space it was wasting back to the list
+
 ## v2.5.1 (2026-08-15) — bugfix
 
 ### the city name is a tap, and only a tap
