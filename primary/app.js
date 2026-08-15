@@ -4033,6 +4033,23 @@ const openSheetChrome = () => {
 // `force` is the one exception. The first measurement can catch the sheet
 // mid-entrance, so the entrance schedules one forced re-measure when it
 // lands, and that is the last of them.
+//
+// What the entrance does to the measurement, taken back out of it. The
+// sheet rises 14px on the way in, and `getBoundingClientRect` reports that
+// transform: measured at the first frame, the readout is 14px lower than
+// where it will come to rest, so the correction came out 14px too big and
+// the re-measure 160ms later took those 14px away again — the whole list
+// settling downward a moment after the switcher opened. Discounting the
+// animation makes the first reading the same as the last one, and the
+// forced re-measure a confirmation rather than a correction.
+const sheetShift = () => {
+    const t = getComputedStyle($('citySheet')).transform;
+    if (!t || t === 'none') return { x: 0, y: 0 };
+    try {
+        const m = new DOMMatrixReadOnly(t);
+        return { x: m.m41, y: m.m42 };
+    } catch { return { x: 0, y: 0 }; }
+};
 const alignAimReadout = (force = false) => {
     if (!sheet || sheet.via !== 'drag') return;
     if (sheet.aligned && !force) return;
@@ -4068,9 +4085,15 @@ const alignAimReadout = (force = false) => {
     // this is the last thing in the sheet and the list above it takes whatever
     // is left, so a transform would slide the readout up over rows that still
     // think they own that space. The margin makes the list give the space up.
-    const dy = (a.top + a.height / 2) - (b.top + b.height / 2);
+    //
+    // Both readings are taken where the sheet will REST: the readout is
+    // inside it and carries its entrance, the control row's name is not and
+    // does not, so the animation would otherwise land entirely in the gap
+    // between them.
+    const s = sheetShift();
+    const dy = (a.top - s.y + a.height / 2) - (b.top + b.height / 2);
     pin.style.marginBottom = dy > 0 ? `${Math.round(dy)}px` : '0px';
-    pin.style.paddingLeft = `${Math.max(0, Math.round(b.left - a.left))}px`;
+    pin.style.paddingLeft = `${Math.max(0, Math.round(b.left - (a.left - s.x)))}px`;
 };
 
 const setGestureMode = on => {
