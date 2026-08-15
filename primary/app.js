@@ -3366,6 +3366,11 @@ chart.addEventListener('pointermove', e => {
         // measures travel from HERE, so the slop is spent exactly once at
         // the start of the gesture and is never re-applied.
         pull.slop = dx;
+        // When, for the same reason: a flick and a drag differ only in how
+        // long the finger stays down, and this is the moment the clock
+        // starts. The press before it may have been a tap deciding not to
+        // be one, which is not part of the gesture.
+        pull.t0 = performance.now();
         if (dayMode !== 'locked') dayMode = 'stretch';
         // Deliberately NOT closing an open tooltip: it survives the pull
         // and keeps reading the same block, which is what makes it the
@@ -3386,6 +3391,7 @@ chart.addEventListener('pointermove', e => {
     // Peeking forward and then back in a single motion crosses it every
     // time.
     const travel = -(dx - pull.slop);
+    pull.travel = travel;
     const raw = rawFromPx(pull.basePx + travel);
     const side = Math.sign(raw) || 1, cap = reachOn(side);
     // An end with no days behind it does not stretch and does not arm.
@@ -3432,9 +3438,16 @@ const endPull = e => {
         dayMode = 'locked';
         setArmed(false);
         springTo(side * cap, 0, LOCK_SETTLE_MS, easeInOut);
+        // The gesture has been used to its end. Nothing left to explain.
+        retireFlickSay();
         return;
     }
     setArmed(false);
+    // A peek that was over almost before it began was a flick: thrown at
+    // the grid the way a calendar is paged, and answered with a twitch,
+    // because this axis has no momentum in it to catch. Say what it wants
+    // instead, once the days are already on their way back.
+    if (performance.now() - p.t0 < FLICK_MS && Math.abs(p.travel || 0) >= FLICK_PX) sayFlick();
     elasticHome();
 };
 // On the window, not the chart. Capture is only taken once the axis is
@@ -4609,6 +4622,67 @@ const renderSwipeHint = () => {
     if (pick) $('swipeHint').textContent = pick.text;
     syncCaption();
 };
+
+// --- The flick answer ----------------------------------------------
+// The day axis is a DRAG. It is one-to-one under the finger for its whole
+// length, and it has no velocity anywhere in it: nothing is thrown, nothing
+// coasts, and a fast swipe that leaves the screen after 80ms opens three
+// days and shuts them again before they can be read. That is correct — the
+// elastic is a thing you hold, not a page you turn — but it is invisible,
+// and a phone has taught everyone that a sideways flick on a calendar is
+// how you get to next week. Someone who flicks gets a twitch and no days,
+// twice, and then stops trying.
+//
+// So the app answers, in the one line it already has for saying how a
+// gesture works, at the one moment the question is actually being asked:
+// the release that just gave them nothing. Not a first-run hint — a first
+// run is before anyone has tried anything — and not a new surface. It says
+// the thing the flick got wrong, which is not WHERE to drag but HOW LONG
+// to keep hold of it.
+//
+// It is said through `setStatus`, transient, like every other reply to
+// something just done (DR-7): the app has one state channel and this is a
+// message, not a fourth occupant of the caption slot. That also settles the
+// two collisions for free — a transient status outranks the key, so a
+// finger going back onto the grid cannot cover it, and it clears itself
+// back down to the resting line without anything having to remember what
+// was there before.
+//
+// Three times, ever, and never again once a stretch has actually been
+// locked open: at that point the gesture has been used properly and the
+// app has nothing left to explain.
+const LS_FLICKS = 'mr-flicks';
+// A release sooner than this after the pull was claimed, having travelled
+// at least this far, was thrown rather than dragged. Both are needed: the
+// time alone catches a small deliberate peek, and the distance alone
+// catches every drag there is.
+const FLICK_MS = 260;
+const FLICK_PX = 24;
+const FLICK_SAYS = 3;
+const FLICK_TEXT = 'keep hold of the drag — the days follow your finger';
+// Counted in memory and written through, the way the hints are: storage can
+// refuse (private mode), and a count that comes back zero every time would
+// turn a three-times-ever line into one that answers every flick forever.
+let flicksSaid = null;
+const readFlicks = () => {
+    if (flicksSaid == null) {
+        try { flicksSaid = +localStorage.getItem(LS_FLICKS) || 0; } catch { flicksSaid = 0; }
+    }
+    return flicksSaid;
+};
+const writeFlicks = n => {
+    flicksSaid = n;
+    try { localStorage.setItem(LS_FLICKS, String(n)); } catch { /* private mode */ }
+};
+const sayFlick = () => {
+    const n = readFlicks();
+    if (n >= FLICK_SAYS) return;
+    writeFlicks(n + 1);
+    setStatus(FLICK_TEXT, '', { transient: true });
+};
+// Understood, demonstrably: they held a drag past the end of the axis and
+// locked it there. Nothing more to say, this session or any other.
+const retireFlickSay = () => { if (readFlicks() < FLICK_SAYS) writeFlicks(FLICK_SAYS); };
 
 // --- The two reveals: more hours, more days (DR-29) ---------------
 // Both swipe axes were already taken: horizontal switches the view,
