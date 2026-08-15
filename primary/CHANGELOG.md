@@ -2,6 +2,14 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## unreleased
+
+### elastic day axis, fine-tuning
+- the day label leads with the date and fades the weekday out as a column narrows, so the row no longer jumps part-way through a pull
+- the grid eases home on release instead of overshooting it. the overshoot used to flash in a day from the opposite end, and made a drag that crossed back over look like the animation ran twice
+- a pull that starts while the days are still closing continues from where they are, rather than snapping them shut and reopening
+- days held open now survive a city or view switch, clamped to whatever the new city's forecast actually reaches
+
 ## v2.5.0 (2026-08-15)
 
 ### the days stretch instead of paging
@@ -11,21 +19,6 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the days used to move one at a time, stay where you left them, and then close themselves after four seconds. all three are gone
 - the two gold arrows that appeared at the sides of the grid are gone with them. the columns making room say it better
 - on a keyboard, shift and the arrows move a day at a time and stay put; shift+end holds the days open and lets go again
-
-### letting go of the days no longer flashes a day you didn't ask for
-- the grid used to spring slightly past this week on its way home, which pulled in a sliver of a day from the opposite end for a moment and took it away again. it now eases home and stops there
-- dragging one way and then back the other in a single gesture used to look like the animation played twice, for the same reason. it is one movement now
-- putting a finger down while the days are still closing and dragging again picks up from where they actually are, instead of snapping them shut and starting over
-
-### days you held open stay open when you switch city or view
-- hold the extra days open, then switch to another city or another view, and they stay open. that was the whole point of holding them — comparing the same days somewhere else, or in wind instead of rain — and it used to close them and make you pull again
-- if the new city's forecast doesn't reach that far, it holds as far as that city goes; if it has nothing out there at all, it closes
-- tapping the city name or a view no longer counts as the tap in empty space that closes them
-- a peek you were only holding with your thumb still springs back, and the app still opens on this week
-
-### the date row stops jumping while you pull
-- the date is now the top line of each day label, with the weekday under it. as a column narrows the weekday fades out instead of the label being rewritten, and the date stays exactly where it was
-- it used to be the other way round, so the moment a column got tight the weekday vanished and the date jumped up into its place
 
 ### the far days say what they really are
 - days a week or more out no longer pretend to be hourly. they draw in three-hour blocks, then six, and a single bar for the whole day once the forecast is only a daily one
