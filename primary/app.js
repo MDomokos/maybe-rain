@@ -2778,25 +2778,31 @@ const sheetPlaces = () => {
 const sheetLive = () => favorites.length >= 2;
 let sheet = null;   // { mode, aim, cache, live }
 
-// The destination grid for a row, built once per opening and reused: a
-// finger can cross the same row many times before it releases.
-const sheetColsFor = (idx, sh = sheet) => {
-    const pl = sheetPlaces()[idx];
+// The destination grid for a PLACE, fitted to the live frame and cached
+// per opening under `key`: a finger can cross the same row many times
+// before it releases. Keyed by place rather than by row index because the
+// way out needs the grid for the city that is actually current, and that
+// city is not always one of the rows (see closeSheet).
+const previewCols = (pl, key, sh = sheet) => {
     if (!pl || !sh) return null;
-    if (sh.cache.has(idx)) return sh.cache.get(idx);
+    if (sh.cache.has(key)) return sh.cache.get(key);
     const raw = colsForPlace(pl);
     // No cached forecast for that city yet. Preview NOTHING rather than
     // sweeping the grid to black: black is the app's "absent", and a grid
     // that goes blank under the finger reads as the preview having failed
     // rather than as the data not being here yet. The commit still
     // fetches, and the status line says so.
-    if (!raw) { sh.cache.set(idx, null); return null; }
+    if (!raw) { sh.cache.set(key, null); return null; }
     const ref = (wave ? wave.to : lastCols) || buildCols();
     const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
     const built = fitCols(raw, nCols, nRows);
-    sh.cache.set(idx, built);
+    sh.cache.set(key, built);
     return built;
 };
+const sheetColsFor = (idx, sh = sheet) => previewCols(sheetPlaces()[idx], idx, sh);
+// The grid for the city that is actually on screen. Its cache key is a
+// string, so it can never collide with a row index.
+const hereCols = (sh = sheet) => previewCols(state.place, 'here', sh);
 
 // Built once, when the sheet opens.
 const renderSheet = () => {
@@ -3108,6 +3114,17 @@ const closeSheet = (commit = false) => {
     // the row you tap is the row you get, and the click handler sets the aim
     // and commits in one go.
     if (commit && sheet && sheet.via === 'drag' && !sheet.moved) commit = false;
+    // The same bug by the other door, and this one catches a tap-opened
+    // sheet too. `openSheet` aims at the bottom row on the assumption that
+    // the bottom row is the current city, which `sheetPlaces` only
+    // guarantees while the current city is IN the list. Reach a city by
+    // search without pinning it and it is in neither list, so the opening
+    // aim names some other city and a release that never chose anything
+    // takes it. Every route that does choose — a thumb crossing a row, a
+    // tapped row, an arrow key — sets `moved`, so gating on it here leaves
+    // the deliberate cases alone and only refuses the accidental one.
+    if (commit && sheet && !sheet.moved &&
+        sheetPlaces().findIndex(c => placeKey(c) === placeKey(state.place)) < 0) commit = false;
     // The two action indices are answered before anything is torn down. The
     // wide one is the mode the sheet is already in; the compact one is the
     // mode it is not. So the same index means different things depending on
@@ -3145,8 +3162,15 @@ const closeSheet = (commit = false) => {
         // So aim it back at the city that is actually current before letting
         // go, or the grid settles showing one city while every label on the
         // screen names another.
+        //
+        // That is exactly what used to happen when the current city was in
+        // neither list: `cur` came back -1, the guard below could not fire,
+        // and dismissing a preview left the previewed city's colours on the
+        // grid under the real city's name. The current city always has a
+        // grid whether or not it has a row, so ask for it by place.
         const cur = sheetPlaces().findIndex(c => placeKey(c) === placeKey(state.place));
-        const back = cur >= 0 && cur !== s.aim ? sheetColsFor(cur, s) : null;
+        const back = cur < 0 ? hereCols(s)
+            : cur !== s.aim ? sheetColsFor(cur, s) : null;
         if (back) waveTo($('grid'), back, -(Math.sign(cur - s.aim) || 1), { axis: 'y' });
         waveRelease();
         if (!wave) repaint();
@@ -4068,6 +4092,10 @@ const sheetKey = e => {
         e.preventDefault();
         const d = e.key === 'ArrowDown' ? 1 : -1;
         setAim(Math.max(0, Math.min(last + 1, sheet.aim + d)));
+        // An arrow is a choice, the same as a thumb crossing a row or a
+        // tap on one, so Enter after it commits. Without this the commit
+        // gate above would read the sheet as never aimed at.
+        sheet.moved = true;
         return true;
     }
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeSheet(true); return true; }
