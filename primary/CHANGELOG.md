@@ -12,6 +12,11 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - a sideways swipe that finishes on top of rain, temp or wind no longer also taps it
 - the hint about peeking at another city now says to swipe up rather than to hold
 
+### the switcher fits in one thumb sweep
+- the switcher is capped at eight rows. it could reach ten, which is more than the sheet holds, and the overflow fell off the bottom — hiding the city you are on and the one you came from, the two rows nearest your thumb and the two the swipe exists to move between
+- pinned cities are still capped at five. when there is not room for everything, the recently-looked-up rows give way instead, oldest first, since those drop off by themselves anyway
+- a list still too long to fit — anyone who pinned more than five before the cap came down keeps them — now loses rows off the top, which is the end that costs the most reach
+
 ### elastic day axis, fine-tuning
 - the day label leads with the date and fades the weekday out as a column narrows, so the row no longer jumps part-way through a pull
 - the grid eases home on release instead of overshooting it. the overshoot used to flash in a day from the opposite end, and made a drag that crossed back over look like the animation ran twice

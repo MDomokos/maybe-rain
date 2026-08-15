@@ -112,6 +112,33 @@ const MAX_FAVORITES = 5;
 // because the whole sheet has to stay inside one thumb sweep, and three
 // unpinned places is already more than a trip usually needs at once.
 const MAX_TRANSIENT = 3;
+// The whole switcher, every tier together. Five pinned plus three transient
+// plus the two anchors is ten, and ten does not fit: at 44px a row, ten rows
+// is 440px of list, and the sheet only ever gives the list about 335 of it.
+// The overflow fell off the BOTTOM, taking `back` and `here` with it — the
+// two rows the gesture is built to move between, and the two nearest the
+// thumb. A list that drops its cheapest rows to keep its most expensive ones
+// has the trade exactly backwards.
+//
+// Eight is the figure because of reach rather than pixels. Nine fit on a
+// 6.1" phone and eight on the smallest one still worth supporting, but the
+// swipe is a single unbroken gesture that starts at the very bottom of the
+// screen, and the sheet at its full height already reaches the top of the
+// thumb's arc. Rows past the eighth are ones you can see and cannot
+// comfortably swipe to, which is a worse failure than not showing them.
+//
+// The tiers are not each capped to fit; the TRANSIENT tier absorbs it. Its
+// rows are the disposable ones — they expire on their own after
+// TRANSIENT_TTL_MS — where a pinned city is a thing someone chose to keep,
+// and MAX_FAVORITES is a number the interface has already told them. So the
+// squeeze falls on the tier that costs nothing, oldest first and silently.
+//
+// This is a render cap, not a storage one, and it cannot be relied on alone:
+// MAX_FAVORITES only gates ADDING, so anyone who pinned more before the cap
+// dropped still has them and can still overflow the list. `openSheet` pins
+// the list's scroll to the bottom for that case, so what is lost is lost off
+// the far end.
+const MAX_SHEET_ROWS = 8;
 // How long a place stays in that tier without being visited. A trip
 // spans days, so it survives a restart; a week later it is not "recent"
 // by any reading, and a tier that never expires is just a worse

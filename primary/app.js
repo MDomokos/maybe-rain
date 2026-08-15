@@ -2848,6 +2848,7 @@ const setSheetMode = m => {
         if (!sheet) sheet = { via: 'tap', aim: 0, moved: false, cache: new Map(), live: !reduceMotion() };
         resnapSheet();
         renderSheet();
+        pinListToBottom();   // a re-snapped list is read from the bottom too
         return;   // renderSheet does the actions and the aim
     }
     renderActions();
@@ -3580,11 +3581,23 @@ const buildSheetRows = () => {
     // seen now. Slicing by position dropped it on the floor whenever three
     // fresher recents already existed, which is the opposite of the
     // demotion the button promises.
+    //
+    // It is also the tier that gives way when the sheet is full. Everything
+    // else in the list has a claim: `here` is where you are, `back` is the
+    // swap the gesture exists for, and a pinned city was chosen and counted
+    // against a cap the interface states out loud. A transient row is a place
+    // you passed through that is going to expire by itself anyway, so when
+    // there is no room it simply does not draw, oldest first. See
+    // MAX_SHEET_ROWS for why the total is what it is.
+    const room = Math.max(0, Math.min(
+        MAX_TRANSIENT,
+        MAX_SHEET_ROWS - pinned.length - (back ? 1 : 0) - 1
+    ));
     const fresh = Date.now() - TRANSIENT_TTL_MS;
     const transient = savedCities
         .filter(c => !taken.has(placeKey(c)) && (c.seenAt || 0) >= fresh)
         .sort((a, b) => (b.seenAt || 0) - (a.seenAt || 0))
-        .slice(0, MAX_TRANSIENT)
+        .slice(0, room)
         .reverse();   // newest-first above; the list runs oldest at the top
 
     const rows = [
@@ -3868,6 +3881,21 @@ const setAim = idx => {
 
 // `via` is how the sheet was reached, tap or drag, and is not the same
 // thing as which mode it is showing.
+// A scrolling list starts at the top, and this one must not. The list is
+// read from the BOTTOM: the current city is the last row, the one you came
+// from sits directly above it, and the ordering spends the cheapest travel on
+// the likeliest answer. So a list too tall for the sheet has to lose its top,
+// which costs the most reach anyway — losing the bottom instead threw away
+// `here` and `back`, the two rows the whole gesture is about.
+//
+// MAX_SHEET_ROWS means this should not trigger. It still can: the pin cap
+// only gates ADDING, so anyone who pinned more before the cap came down keeps
+// them, and their list is legitimately longer than the sheet.
+const pinListToBottom = () => {
+    const l = $('sheetList');
+    l.scrollTop = l.scrollHeight;   // clamped by the browser to the real max
+};
+
 const openSheet = via => {
     openSheetChrome();
     // Nothing to pick between: skip the list and land straight in search,
@@ -3895,10 +3923,11 @@ const openSheet = via => {
     setSheetMode('places');
     setGestureMode(via === 'drag');
     renderSheet();
+    pinListToBottom();
     // The one re-measure. renderSheet's alignment ran while the sheet was
     // still rising, so take the reading again once it has landed and let
     // every detent after this reuse it.
-    if (via === 'drag') setTimeout(() => alignAimReadout(true), SHEET_EXIT_MS + 20);
+    if (via === 'drag') setTimeout(() => { alignAimReadout(true); pinListToBottom(); }, SHEET_EXIT_MS + 20);
     // The list is the listbox, so it is what holds focus while the sheet
     // is open: aria-activedescendant is only read off the focused element.
     if (via === 'tap') $('sheetList').focus({ preventScroll: true });
