@@ -4,6 +4,20 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ## unreleased
 
+### the days stretch instead of paging
+
+- pull the grid sideways and the days come in from that side as you pull, the week making room for them. today stays on screen the whole time
+- let go and it springs back. nothing is left open behind you, so there is nothing to find your way back from
+- pull past the last day and the grid keeps moving under your thumb. a mark appears at the edge, and letting go while it is lit holds the extra days open — the same pull again, a pull back, or ⌂ closes it
+- the days used to move one at a time, stay where you left them, and then close themselves after four seconds. all three are gone
+- the two gold arrows that appeared at the sides of the grid are gone with them. the columns making room say it better
+- on a keyboard, shift and the arrows move a day at a time and stay put; shift+end holds the days open and lets go again
+
+### the far days say what they really are
+
+- days a week or more out no longer pretend to be hourly. they draw in three-hour blocks, then six, and a single bar for the whole day once the forecast is only a daily one
+- tapping one of those blocks tells you which hours it covers, how much rain fell across the block rather than per hour, and that the data behind it is no longer hourly
+
 ### a city you just looked up is now in the switcher
 - search a city and it goes straight into the switcher, under a line, without being starred. swap between it and home for as long as the trip lasts, and it drops off by itself after three days
 - your main cities sit in their own block above that line, in the order you pinned them, and they stay put. the list used to re-sort itself every time you switched, so no place ever kept its position
