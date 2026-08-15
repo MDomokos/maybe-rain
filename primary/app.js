@@ -3,15 +3,19 @@
 // Data: Open-Meteo (keyless, true hourly, 7 days, city-local time).
 // ---------------------------------------------------------------
 
-// --- The reveal windows (DR-29) ----------------------------------
-// The grid frame never changes size. Both reveals slide a fixed window
-// over more data instead of growing the grid: the viewport is already
-// full at 7x16, so more rows or columns could only come out of block
-// size, and shrinking blocks to fit a temporary look degrades the
-// resting glance to pay for it. A block therefore always holds exactly
-// one hour, never a blend of two.
-// DAY_SPAN, DAY_OFF_MAX and FORECAST_DAYS live in config.js: the shared
-// core reads the horizon, so it has to be declared before shared/ loads.
+// --- The two reveals (DR-29, and DR-39 for the day axis) ----------
+// The grid frame never changes size. The hour peek slides a fixed
+// window over more hours; the day axis is elastic and makes room inside
+// the same frame. Neither grows the grid: the viewport is already full
+// at 7x16, so more rows could only come out of block size, and shrinking
+// the resting glance to pay for a temporary look is the trade DR-29
+// refused. An hour block still holds exactly one hour, never a blend of
+// two. A day pulled in from past the model's native hourly horizon is
+// the one departure, and it is honest about it: those blocks are wider
+// in TIME and say so (DR-39).
+// DAY_SPAN, FUTURE_REACH, DAY_TOTAL and FORECAST_DAYS live in config.js:
+// the shared core reads the horizon, so it has to be declared before
+// shared/ loads.
 const HOUR_SPAN = HOUR_END - HOUR_START + 1; // 16 slots
 
 // --- Reduced motion, asked once ----------------------------------
@@ -27,34 +31,35 @@ const syncReduceMotion = () =>
     document.documentElement.classList.toggle('reduce-motion', REDUCE_Q.matches);
 REDUCE_Q.addEventListener?.('change', syncReduceMotion);
 syncReduceMotion();
-// Both offsets are transient view state, never persisted: the app always
-// opens on the default week and the default hours (principle 2).
-let dayOff = 0;   // lead day of the leftmost column; latched by the drawer
+// The hour peek is transient view state, never persisted: the app always
+// opens on the default hours (principle 2). The day axis is the elastic
+// below; its own state lives with the gesture that owns it.
 let hourOff = 0;  // whole hours the hour window has slid; springs back
-// Bumped whenever dayOff/hourOff changes for a reason OTHER than the
-// home-tween's own tick (a fresh drag, a step, a reset), so a tween
-// already in flight notices it has been superseded and stops touching
-// the offset instead of fighting whatever set it next.
-let dayHomeGen = 0, hourHomeGen = 0;
+// Bumped whenever hourOff changes for a reason OTHER than the home
+// tween's own tick (a fresh drag, a step, a reset), so a tween already in
+// flight notices it has been superseded and stops touching the offset
+// instead of fighting whatever set it next.
+let hourHomeGen = 0;
 
-// `dayOff` counts days from TODAY, not from the start of state.data: 0
-// is today-first, positive reaches forward into the forecast, negative
-// reaches back into the past days processData keeps. Measuring from
-// today is what keeps the home model intact now that the array no longer
-// begins at today. `!dayOff` still means home, `dayHome` still tweens to
-// 0, and the ⌂ chip still shows whenever the frame is off today, with no
-// second variable for where home sits.
-//
-// How far the drawer may reach either way. Capped by the data in hand as
-// well as by the configured limits, so a short or stale cached payload
-// cannot be stepped into columns that do not exist (principle 4).
-const maxDayOff = () =>
-    Math.max(0, Math.min(DAY_OFF_MAX, state.data.length - state.todayIndex - DAY_SPAN));
-// Backward is bounded by the past days actually parsed. An entry that
+// --- How far the elastic may stretch, either way (DR-39) ----------
+// The frame holds DAY_TOTAL columns. Column 0 is PAST_DAYS before today,
+// so today sits at PAST_DAYS and the home week is the seven columns from
+// there. `dayBase` is column 0's absolute index into state.data /
+// state.days, and it goes negative when the payload holds fewer past
+// days than the frame has room for; those columns render absent.
+const dayBase = () => state.todayIndex - PAST_DAYS;
+// Both reaches are capped by the data in hand as well as by the
+// configured limits, so a short or stale cached payload can never be
+// pulled into columns that do not exist (principle 4). An entry that
 // predates past_days has todayIndex 0 and no reach behind it, so the
-// drawer behaves as it did before this shipped until the first
-// revalidation lands; staleHorizon forces that on the next load.
-const minDayOff = () => -Math.min(PAST_DAYS, state.todayIndex);
+// past end simply does not move until the first revalidation lands;
+// staleHorizon forces that on the next load.
+const maxFuture = () =>
+    Math.max(0, Math.min(FUTURE_REACH, state.data.length - state.todayIndex - DAY_SPAN));
+const maxPast = () => Math.min(PAST_DAYS, state.todayIndex);
+// Signed, so one call answers "how far can this pull go" for whichever
+// side the pull is on.
+const reachOn = side => side > 0 ? maxFuture() : maxPast();
 // Hour peek travel, in whole hours, either side of the default window.
 // Clamped so the window can never leave the real day: earliest slot
 // 00:00, latest 23:00. In 24-hour mode the window already fills the day,
@@ -69,49 +74,37 @@ const hourRange = () => {
     return { start: s, end: s + HOUR_SPAN - 1 };
 };
 
-// The window rendered: 7 columns from the current day offset, across the
-// current hour window. Kept as a function so its callers still read
-// { start, end, days } unchanged; `off` is the day the frame starts on.
-//
-// `off` stays an ABSOLUTE index into state.data/state.days, which is how
-// every caller already reads it: updateDisplay and buildCols slice with
-// it, renderTimes compares today's absolute index against it to decide
-// whether there is a "now" on screen, and buildCols stamps
-// `off + dayIndex` into data-day so a tooltip opened with the drawer out
-// reads the right day back. Only `dayOff` changed meaning, so the
-// conversion happens here and nowhere else.
+// The window rendered: every column the elastic can hold, across the
+// current hour window. `off` is column 0's ABSOLUTE index into
+// state.data / state.days, which is how every caller already reads it,
+// and `days` is the whole frame rather than the seven the screen rests
+// on. Columns whose index falls outside the parsed data are absent: they
+// hold no blocks, take no width, and the reach caps above already stop
+// the pull from asking for them.
 const visibleWindow = () => {
     const { start, end } = hourRange();
-    const rel = Math.max(minDayOff(), Math.min(maxDayOff(), dayOff));
-    return { start, end, days: DAY_SPAN, off: state.todayIndex + rel };
+    return { start, end, days: DAY_TOTAL, off: dayBase() };
 };
 
-// The drawer's ⌂ chip is the only thing either reveal ever draws, and it
-// exists only while the drawer is away from today. At rest both reveals
-// are invisible and the screen is unchanged.
+// The idle timer the day drawer used to go home on is gone with the
+// drawer (DR-39: a peek is held, and a lock is a place you leave on
+// purpose). The hour peek still springs back on release and still has to
+// wait for an open tooltip, so the timer itself stays, for that one axis.
 let revealTimer = null;
-// The go-home fn (`dayHome` or `springHours`) the last `armRevealIdle`
-// call armed, kept even while `revealTimer` itself is paused for an
-// open tooltip. See `armRevealIdle` and `showTooltip`/`hideTooltip`
-// below. Shares the single timer's "last one armed wins" model rather
-// than tracking the two axes independently, same as `revealTimer`
-// already did before this existed.
+// The go-home fn the last `armRevealIdle` call armed, kept even while
+// `revealTimer` itself is paused for an open tooltip. See
+// `armRevealIdle` and `showTooltip`/`hideTooltip` below.
 let pendingRevealFn = null;
-const renderDayHome = () => {
-    const chip = $('dayHome');
-    chip.hidden = !dayOff;
-    chip.textContent = dayOff ? '⌂' : '';
-};
-// Send both windows home without repainting, for callers that are about
-// to repaint anyway (a view or city change, which own the whole grid).
-// Neither offset is ever persisted, so the app always opens on the
-// default week and the default hours (principle 2).
+// Send both axes home without repainting, for callers that are about to
+// repaint anyway (a view or city change, which own the whole grid).
+// Neither is ever persisted, so the app always opens on the home week
+// and the default hours (principle 2).
 const resetReveal = () => {
     clearTimeout(revealTimer);
     pendingRevealFn = null;
-    dayHomeGen++; hourHomeGen++;
-    dayOff = 0; hourOff = 0;
-    renderDayHome();
+    hourHomeGen++;
+    hourOff = 0;
+    resetElastic();
 };
 const applyBand = () => {
     const w = visibleWindow();
@@ -222,7 +215,12 @@ const renderTimes = () => {
 const renderSkeleton = () => {
     const { start, end, days } = visibleWindow();
     const rows = end - start + 1;
-    $('days').innerHTML = Array(days).fill('<div class="day-label">–<span class="day-date">–</span></div>').join('');
+    // The whole frame is laid down, as the real grid is, and
+    // `applyDayWidths` then shows the home week and hides the rest: a
+    // skeleton of a different shape would have to be rebuilt the moment
+    // real data arrived, and the reveal blink runs in place.
+    $('days').innerHTML = Array(days).fill(
+        '<div class="day-label" data-wd="–" data-date="–"></div>').join('');
     renderTimes();
     // Same reason, for the same instant: a city switch with nothing cached
     // must not leave the previous city's readings sitting in the buttons.
@@ -234,6 +232,7 @@ const renderSkeleton = () => {
             `<div class="weather-block skeleton" style="animation-delay:${(d * 0.12).toFixed(2)}s"></div>`.repeat(rows)
         }</div>`
     ).join('');
+    applyDayWidths();
 };
 
 const setLoading = loading => {
@@ -604,6 +603,11 @@ const cellDelay = (anim, c, r, nCols, nRows, desc) => {
     if (anim.type === 'reveal') { const s = rankStep(nCols); return c * s + Math.random() * s; }
     if (anim.type === 'wave') {
         const idx = anim.axis === 'y' ? r : c;
+        // `nRows` is this COLUMN's own block count, not the grid's: the
+        // columns are ragged now (a far day holds three blocks where
+        // today holds sixteen), and a vertical sweep has to rank each
+        // column across the blocks it actually has or a short column
+        // would finish its sweep a third of the way down the screen.
         const n = anim.axis === 'y' ? nRows : nCols;
         const rank = anim.dir > 0 ? idx : (n - 1 - idx);
         const s = rankStep(n);
@@ -620,9 +624,20 @@ const cellDelay = (anim, c, r, nCols, nRows, desc) => {
 // it opens the hour's detail. Without it a screen reader reads a labelled
 // group and gives no sign there is anything to press. An empty cell is
 // spacing and is hidden outright rather than announced as a blank.
+// A block is as tall as the hours it stands for. One hour is the CSS
+// default and writes no inline height at all, so the common case stays
+// exactly what it was; a coarse block spans its slots' bands and the gap
+// between them. The daily bar is the one that also changes shape (DR-29:
+// inset, hairline), and says so with a class rather than more inline
+// style.
+const cellClass = desc => 'weather-block'
+    + (desc.current ? ' current' : '') + (desc.past ? ' past' : '')
+    + (desc.slots > 1 ? ' span' : '') + (desc.daily ? ' daily' : '');
+const cellHeight = desc => !(desc.slots > 1) ? ''
+    : `height:calc(var(--band) * ${desc.slots} - var(--block-gap));`;
 const buildCell = desc => desc.empty
-    ? '<div class="weather-block empty" aria-hidden="true"></div>'
-    : `<div class="weather-block${desc.current ? ' current' : ''}${desc.past ? ' past' : ''}" style="background:rgb(${desc.rgb});color:${desc.textColor}" role="button" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
+    ? `<div class="weather-block empty" aria-hidden="true" style="${cellHeight(desc)}"></div>`
+    : `<div class="${cellClass(desc)}" style="${cellHeight(desc)}background:rgb(${desc.rgb});color:${desc.textColor}" role="button" tabindex="0" aria-label="${esc(desc.info)}" data-day="${desc.dayIndex}" data-hour="${desc.hour}" data-span="${desc.slots}" data-info="${esc(desc.info)}">${desc.marks}</div>`;
 
 // A cell the sweep has not reached yet, or a destination with no data to
 // paint. Black is the page background rather than a value in any
@@ -630,9 +645,15 @@ const buildCell = desc => desc.empty
 // what lets an uncached favourite be swept to honestly (DR-32: every
 // rung is reachable, but only the ones with a cached forecast have
 // colours to arrive at; the rest land black and fill in on fetch).
-const blankDesc = { blank: true, rgb: [0, 0, 0], textColor: '#fff', marks: '', info: '', current: false, past: false, dayIndex: 0, hour: 0 };
-const blankCols = (nCols, nRows) =>
-    Array.from({ length: nCols }, () => Array.from({ length: nRows }, () => blankDesc));
+const blankDesc = { blank: true, rgb: [0, 0, 0], textColor: '#fff', marks: '', info: '', current: false, past: false, dayIndex: 0, hour: 0, slots: 1 };
+// Blanks now have to take the SHAPE of the grid they stand in for: the
+// columns are ragged, so a blank grid is built against a reference one
+// column by column rather than from two numbers.
+const blankLike = ref => ref.map(col => col.map(d => d.slots > 1
+    ? { ...blankDesc, slots: d.slots, daily: !!d.daily } : blankDesc));
+// Two grids the painter can flip between cell for cell.
+const sameShape = (a, b) => !!a && !!b && a.length === b.length
+    && a.every((col, i) => col.length === b[i].length);
 
 // Swap a cell's CONTENT (marks, labels, dataset). Called once per cell
 // per sweep, at the moment the playhead flips it from `from` to `to`,
@@ -648,8 +669,14 @@ const blankCols = (nCols, nRows) =>
 // fade until the next unanimated rebuild happened to restore it. The hover
 // therefore behaved differently depending on how the grid had last been
 // painted, which is not a thing a hover should depend on.
-const CELL_A11Y = ['role', 'tabindex', 'aria-label', 'data-day', 'data-hour', 'data-info'];
+const CELL_A11Y = ['role', 'tabindex', 'aria-label', 'data-day', 'data-hour', 'data-span', 'data-info'];
 const applyCellContent = (node, desc) => {
+    // The height is written on every flip, not only on a rebuild: the
+    // painter reuses nodes whenever the block COUNTS match, and a column
+    // that was absent when the DOM was laid down would otherwise keep an
+    // hour's height for a block that stands for six.
+    node.style.height = desc.slots > 1
+        ? `calc(var(--band) * ${desc.slots} - var(--block-gap))` : '';
     if (desc.empty) {
         node.className = 'weather-block empty';
         CELL_A11Y.forEach(a => node.removeAttribute(a));
@@ -657,7 +684,7 @@ const applyCellContent = (node, desc) => {
         node.innerHTML = '';
         return;
     }
-    node.className = 'weather-block' + (desc.current ? ' current' : '') + (desc.past ? ' past' : '');
+    node.className = cellClass(desc);
     node.removeAttribute('aria-hidden');
     node.innerHTML = desc.marks;
     node.style.color = desc.textColor;
@@ -670,6 +697,7 @@ const applyCellContent = (node, desc) => {
     node.setAttribute('aria-label', desc.info);
     node.dataset.day = desc.dayIndex;
     node.dataset.hour = desc.hour;
+    node.dataset.span = desc.slots;
     node.dataset.info = desc.info;
 };
 
@@ -750,15 +778,21 @@ let lastCols = null;  // the grid as last painted, the `from` of the next sweep
 const gridBusy = () => !!wave && wave.anim.type !== 'refresh';
 const waveSweeping = w => w.to !== w.from || w.t > 0.001;
 
-const buildDelays = (anim, from, to, nCols, nRows) => {
-    const delays = new Float64Array(nCols * nRows);
+// The delay table is indexed `c * stride + r`, where the stride is the
+// tallest column rather than every column's height: the columns are
+// ragged (DR-39) and a per-column offset table would buy a few hundred
+// bytes at the cost of every reader having to know about it.
+const strideOf = cols => cols.reduce((m, col) => Math.max(m, col.length), 0);
+const buildDelays = (anim, from, to, nCols, stride) => {
+    const delays = new Float64Array(nCols * stride);
     let total = 0;
     for (let c = 0; c < nCols; c++) {
-        for (let r = 0; r < nRows; r++) {
+        const col = to[c], n = col.length;
+        for (let r = 0; r < n; r++) {
             // A refresh only blinks cells whose value actually moved, so
             // it asks the DESTINATION desc whether this cell changed.
-            const d = cellDelay(anim, c, r, nCols, nRows, to[c][r]);
-            delays[c * nRows + r] = to[c][r].empty ? -1 : d;
+            const d = cellDelay(anim, c, r, nCols, n, col[r]);
+            delays[c * stride + r] = col[r].empty ? -1 : d;
             if (d > total) total = d;
         }
     }
@@ -771,10 +805,11 @@ const waveFrame = () => {
     for (let c = 0; c < w.nCols; c++) {
         const colNode = kids[c];
         if (!colNode) continue;
-        for (let r = 0; r < w.nRows; r++) {
+        const n = w.to[c].length;
+        for (let r = 0; r < n; r++) {
             const node = colNode.children[r];
             if (!node) continue;
-            const i = c * w.nRows + r;
+            const i = c * w.stride + r;
             const ph = cellPhase(w.t, w.delays[i]);
             const desc = ph.k ? w.to[c][r] : w.from[c][r];
             // Identity, not a flag: a retarget hands us different desc
@@ -826,7 +861,8 @@ const endWave = () => {
     lastCols = [];
     for (let c = 0; c < w.nCols; c++) {
         const col = [];
-        for (let r = 0; r < w.nRows; r++) col.push(w.shown[c * w.nRows + r] || w.from[c][r]);
+        const n = w.to[c].length;
+        for (let r = 0; r < n; r++) col.push(w.shown[c * w.stride + r] || w.from[c][r]);
         lastCols.push(col);
     }
     wave = null;
@@ -893,7 +929,7 @@ const waveTick = now => {
     if (w.pending && w.t <= 0.0001) {
         const p = w.pending; w.pending = null;
         w.dir = p.dir; w.to = p.cols;
-        const built = buildDelays({ ...w.anim, dir: p.dir }, w.from, w.to, w.nCols, w.nRows);
+        const built = buildDelays({ ...w.anim, dir: p.dir }, w.from, w.to, w.nCols, w.stride);
         w.delays = built.delays; w.total = built.total;
     }
     waveFrame();
@@ -916,7 +952,7 @@ const kickWave = () => {
 
 const paintGrid = (grid, cols, anim) => {
     const now = performance.now();
-    const nCols = cols.length, nRows = cols[0] ? cols[0].length : 0;
+    const nCols = cols.length, stride = strideOf(cols);
     const animated = !!anim && !reduceMotion();
 
     // A refresh that lands while a directional wave is still settling waits
@@ -941,6 +977,8 @@ const paintGrid = (grid, cols, anim) => {
         grid.innerHTML = cols.map(cells =>
             `<div class="day-column">${cells.map(buildCell).join('')}</div>`).join('');
         lastCols = cols;
+        invalidateSlide();
+        applyDayWidths();
         return;
     }
     setSweeping(true);
@@ -955,10 +993,16 @@ const paintGrid = (grid, cols, anim) => {
         && Array.prototype.every.call(kids, (col, i) => col.children.length === cols[i].length);
     if (!structureOk) {
         grid.innerHTML = cols.map(cells =>
-            `<div class="day-column">${cells.map(() => '<div class="weather-block" style="background:#000"></div>').join('')}</div>`).join('');
+            `<div class="day-column">${cells.map(d =>
+                `<div class="${cellClass(d)}" style="${cellHeight(d)}background:#000"></div>`).join('')}</div>`).join('');
         kids = grid.children;
         lastCols = null;
+        invalidateSlide();
     }
+    // The columns may have just been rebuilt, so whatever widths the
+    // elastic had written are gone with them. Put them back before the
+    // first frame, or a paint landing mid-pull would flash the home week.
+    applyDayWidths();
     // Skeleton cells fill via !important; freeze their grey as an inline
     // colour and drop the class so the playhead's colours take.
     Array.prototype.forEach.call(kids, colNode =>
@@ -970,17 +1014,16 @@ const paintGrid = (grid, cols, anim) => {
         }));
 
     // Nothing painted before (cold start): sweep out of black.
-    const from = lastCols && lastCols.length === nCols && lastCols[0].length === nRows
-        ? lastCols : blankCols(nCols, nRows);
-    const { delays, total } = buildDelays(anim, from, cols, nCols, nRows);
+    const from = sameShape(lastCols, cols) ? lastCols : blankLike(cols);
+    const { delays, total } = buildDelays(anim, from, cols, nCols, stride);
     wave = {
-        grid, from, to: cols, delays, total, t: 0, nCols, nRows, anim,
+        grid, from, to: cols, delays, total, t: 0, nCols, stride, anim,
         dir: anim.dir || 1, pending: null, hold: false, onSettle: null,
         // `scrub`: the finger owns `t` and the ticker stands down.
         // `rewind`: run `t` down while KEEPING the destination.
         // `rate`: a rewind speed computed at release, 0 = the constant.
         scrub: false, rewind: false, rate: 0,
-        shown: new Array(nCols * nRows).fill(null)
+        shown: new Array(nCols * stride).fill(null)
     };
     waveFrame();
     kickWave();
@@ -1006,8 +1049,7 @@ const paintGrid = (grid, cols, anim) => {
 // axis through a reversal.
 const waveTo = (grid, cols, dir, opts = {}) => {
     const axis = opts.axis || 'y';
-    if (!wave || wave.grid !== grid || wave.nCols !== cols.length
-        || wave.nRows !== (cols[0] ? cols[0].length : 0)) {
+    if (!wave || wave.grid !== grid || !sameShape(wave.to, cols)) {
         paintGrid(grid, cols, { type: 'wave', axis, dir });
         if (wave) wave.hold = !!opts.hold;
         return;
@@ -1027,7 +1069,7 @@ const waveTo = (grid, cols, dir, opts = {}) => {
     if (!retarget) {
         wave.dir = dir;
         wave.anim = { type: 'wave', axis, dir };
-        const built = buildDelays(wave.anim, wave.from, cols, wave.nCols, wave.nRows);
+        const built = buildDelays(wave.anim, wave.from, cols, wave.nCols, wave.stride);
         wave.delays = built.delays; wave.total = built.total;
     }
     kickWave();
@@ -1061,16 +1103,110 @@ const scrubWave = (grid, cols, dir, p, destView) => {
 // Let a held sweep finish and settle on its own clock.
 const waveRelease = () => { if (wave) { wave.hold = false; kickWave(); } };
 
-// The 7x16 grid as an array of columns of cell descriptors, a pure
-// function of `state` + `view` + the reveal windows. Split out of
-// updateDisplay for DR-32: a city sweep needs the OUTGOING and INCOMING
-// grids at the same time, so the painter can hold one on the cells the
-// playhead has not reached yet. `colsForPlace` below builds one for a
-// city that is not the current one.
+// --- Far days at the data's own cadence (DR-39) -------------------
+// The elastic makes days 7 to 13 reachable, and a day that far out is
+// not hourly data: past a model's native cadence the hourly series is
+// interpolated between coarser steps (DR-34), so drawing sixteen
+// separate blocks there states a resolution the forecast does not have.
+// Revealed far days therefore draw at the granularity the data actually
+// carries: fewer, taller blocks as lead time grows, down to DR-29's
+// single inset daily bar.
+//
+// Phase A (this): one fixed table, applied from lead 7 so the home week
+// is untouched. Phase B is DR-35's response-detected cadence, and every
+// boundary lives in this one function so that is a one-function change.
+const cadenceForLead = lead =>
+    lead <= 6 ? 1 : lead <= 8 ? 3 : lead <= 10 ? 6 : 24;
+
+// The hour window cut into blocks of that many hours. A stub tail (under
+// half a block) folds into the block before it rather than drawing a
+// sliver; a longer tail is honestly its own, shorter block.
+const blockSpans = (cadence, rows) => {
+    if (cadence >= rows) return [rows];
+    const out = [];
+    for (let s = 0; s < rows;) {
+        let len = Math.min(cadence, rows - s);
+        if (rows - s - len > 0 && rows - s - len < cadence / 2) len = rows - s;
+        out.push(len);
+        s += len;
+    }
+    return out;
+};
+
+// One block's worth of hours, reduced to a single hour-shaped record so
+// the cell body below reads it exactly as it reads a real hour.
+//
+// Rates stay rates: `mm` is the mean mm/h across the span, so a six-hour
+// block of drizzle looks like drizzle rather than like a downpour, and
+// the block's colour and streaks stay comparable with an hourly one. The
+// TOTAL is carried separately as `mmSpan`, because "how much rain across
+// this block" is the question a coarse block is actually asked, and the
+// tooltip answers it there.
+const meanOf = (list, key) => {
+    const vals = list.map(h => h[key]).filter(v => v != null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+};
+const maxOf = (list, key) => {
+    const vals = list.map(h => h[key]).filter(v => v != null);
+    return vals.length ? Math.max(...vals) : null;
+};
+const sumOf = (list, key) => {
+    const vals = list.map(h => h[key]).filter(v => v != null);
+    return vals.length ? +vals.reduce((a, b) => a + b, 0).toFixed(2) : null;
+};
+const spanHour = (hours, startHour) => {
+    const temp = meanOf(hours, 'temp'), feels = meanOf(hours, 'feels');
+    const cloud = meanOf(hours, 'cloud');
+    // The span's weather is its worst hour, not its average one: an
+    // average would quietly retire a thunderstorm into a cloudy
+    // afternoon. WMO codes climb with severity, so the highest code in
+    // the span is the one the block reports, and its condition and
+    // hazard glyph come from that code.
+    const code = maxOf(hours, 'code');
+    const windy = hours.reduce((a, b) => (b.wind ?? -1) > (a.wind ?? -1) ? b : a, hours[0]);
+    return {
+        // The SLOT the block starts on, not the first hour that happens
+        // to be present: a gap at the front of a span would otherwise
+        // give the block a start it does not have, and everything that
+        // rebuilds the span from `data-hour` would read past its range.
+        hour: startHour,
+        span: hours.length,
+        temp: temp == null ? null : Math.round(temp),
+        feels: feels == null ? null : Math.round(feels),
+        humidity: meanOf(hours, 'humidity'),
+        pop: maxOf(hours, 'pop'),
+        mm: meanOf(hours, 'mm'),
+        mmSpan: sumOf(hours, 'mm'),
+        liquid: meanOf(hours, 'liquid'),
+        liquidSpan: sumOf(hours, 'liquid'),
+        snow: meanOf(hours, 'snow'),
+        snowSpan: sumOf(hours, 'snow'),
+        code,
+        cloud: cloud == null ? null : Math.round(cloud),
+        uv: maxOf(hours, 'uv'),
+        wind: maxOf(hours, 'wind'),
+        windDir: windy ? windy.windDir : null,
+        gust: maxOf(hours, 'gust'),
+        ...conditionFor(code, cloud ?? 0)
+    };
+};
+
+// The whole sixteen-column frame as an array of columns of cell
+// descriptors, a pure function of `state` + `view` + the hour window.
+// Columns are ragged now: a home-week column holds one block per hour,
+// a far column holds fewer and taller ones, and a column whose day is
+// outside the parsed payload holds empties. Split out of updateDisplay
+// for DR-32: a city sweep needs the OUTGOING and INCOMING grids at the
+// same time, so the painter can hold one on the cells the playhead has
+// not reached yet. `colsForPlace` below builds one for a city that is
+// not the current one.
 const buildCols = () => {
+    // No data, no columns. The frame is not drawn empty and then
+    // explained: an empty grid IS the honest state, and the status line
+    // says why (principle 4).
+    if (!state.data.length) return [];
     const { start, end, days, off } = visibleWindow();
-    const shownDays = state.data.slice(off, off + days);
-    const dayMeta = state.days.slice(off, off + days);
+    const rows = end - start + 1;
     const currentHour = cityNow().hour;
 
 // The rain view is the sky base (skyBaseRGB, which is DR-38's radiance
@@ -1082,25 +1218,60 @@ const rainView = view === 'rain';
 // below in the same day, same hour in the day either side), on ACTUAL
 // air temp. Null when the neighbour is off the shown window or missing
 // (an honest gap), which the outline treats as the region's edge.
-const lastDay = shownDays.length - 1;
+const lastDay = days - 1;
+// A column that draws coarse has no hourly contour to join, so it
+// answers null and the region's edge is drawn against it. Reading its
+// real hourly temp would join a contour to blocks that are not there.
 const actualTemp = (di, hh) => {
-    const dd = shownDays[di];
+    if (di < 0 || di >= days) return null;
+    if (cadenceForLead(di - PAST_DAYS) > 1) return null;
+    const dd = state.data[off + di];
     const c = dd && dd.find(x => x.hour === hh);
     return c ? c.temp : null;
 };
 
-return shownDays.map((dayData, dayIndex) => {
-    const isToday = dayMeta[dayIndex].isToday;
+return Array.from({ length: days }, (_, dayIndex) => {
+    const dayData = state.data[off + dayIndex];
+    const meta = state.days[off + dayIndex];
+    // The lead day this column stands on, which is what picks its
+    // cadence. Column PAST_DAYS is today, so lead is the column's
+    // distance from it.
+    const lead = dayIndex - PAST_DAYS;
+    const cadence = cadenceForLead(lead);
+    const spans = blockSpans(cadence, rows);
+    // A column the payload does not reach. It keeps its shape — the
+    // painter and the city sweep both compare grids cell by cell — but
+    // holds nothing, takes no width, and the reach caps never let the
+    // pull ask for it.
+    // The span rides along even here: the block's HEIGHT comes from it,
+    // and a paint that reuses these nodes once the data arrives would
+    // otherwise leave a three-hour block one hour tall.
+    if (!dayData || !meta) return spans.map(slots => ({ empty: true, slots }));
+    const isToday = meta.isToday;
     // A day behind today. Carried onto every cell so the painter can
     // recede the column. A dimmed past column is the affordance for
     // the axis running backward, so no control has to announce it.
-    const isPast = !!dayMeta[dayIndex].past;
-    const sun = state.sun[dayMeta[dayIndex].date] || {}; // per-day, for tooltip/aria
+    const isPast = !!meta.past;
+    const sun = state.sun[meta.date] || {}; // per-day, for tooltip/aria
     const cells = [];
-    for (let hour = start; hour <= end; hour++) {
-        const h = dayData.find(x => x.hour === hour);
-        if (!h) { cells.push({ empty: true }); continue; } // honest gap
-        const isCurrent = isToday && hour === currentHour;
+    let slot = start;
+    for (const slots of spans) {
+        const hours = [];
+        for (let k = 0; k < slots; k++) {
+            const found = dayData.find(x => x.hour === slot + k);
+            if (found) hours.push(found);
+        }
+        const hour = slot;
+        slot += slots;
+        if (!hours.length) { cells.push({ empty: true, slots }); continue; } // honest gap
+        // One hour is itself; a span is reduced to one hour-shaped
+        // record, so everything below is written once and reads both.
+        const h = slots === 1 ? hours[0] : spanHour(hours, hour);
+        // A block that stands for several hours cannot be the current
+        // one: the marker names an hour, and a three-hour block is not
+        // one. Nor can it pulse on a model change, which is recorded
+        // per hour and would be claiming the whole span moved.
+        const isCurrent = isToday && slots === 1 && hour === currentHour;
         // Temperature view (DR-17): comfort-band colour on feels-like
         // (raw temp only if apparent is missing). Wind view: wind
         // scale. Rain view: the WMO sky colour (tinted for rain,
@@ -1147,8 +1318,13 @@ return shownDays.map((dayData, dayIndex) => {
         // window banners, so an all-frozen column never loses it.
         // Solid on the frozen cells (< 0), dashed on the near-freezing
         // ones (0 up to +3); a cell is only ever one or the other.
+        // Hourly blocks only. The contour is a shape traced across
+        // neighbouring hours, and a block standing for six of them has
+        // no inside edge to trace; the coarse column reads as the
+        // region's edge instead, which is what `actualTemp` returning
+        // the neighbouring day's real hour already makes it.
         let frost = '';
-        if (view === 'temp' && h.temp != null) {
+        if (view === 'temp' && slots === 1 && h.temp != null) {
             const t = h.temp, buf = FROST_POSSIBLE;
             const solid = t < 0, dashed = !solid && t < buf;
             if (solid || dashed) {
@@ -1199,8 +1375,10 @@ return shownDays.map((dayData, dayIndex) => {
             }
         }
         // Sky event (moon phase / lunar eclipse): a night fact, so
-        // it rides the day's 21:00 block, bottom-left, in all views.
-        const sky = h.hour === 21 ? skyEventFor(dayMeta[dayIndex].date) : null;
+        // it rides the day's 21:00 block, bottom-left, in all views —
+        // whichever block covers 21:00 once the blocks are hours wide.
+        const covers = hh => hh >= hour && hh < hour + slots;
+        const sky = covers(21) ? skyEventFor(meta.date) : null;
         // Chance of rain is a forecast statement, so it is dropped on a
         // past hour: the outcome is known, and Open-Meteo keeps
         // returning the probability that was forecast rather than
@@ -1209,19 +1387,23 @@ return shownDays.map((dayData, dayIndex) => {
         // only rain figure a past hour reports.
         const popText = (!isPast && h.pop != null) ? ` · ${h.pop}% rain` : '';
         // Rain view: the exact amount lives in the tooltip, never
-        // printed in the cell, so the grid stays glanceable.
-        const mmText = rainView && h.mm != null && h.mm >= 0.1
-            ? ` · ${h.mm} mm/h` : '';
-        const snowText = rainView && h.snow != null && h.snow > 0
-            ? ` · ${h.snow} cm/h snow` : '';
+        // printed in the cell, so the grid stays glanceable. A block
+        // that stands for several hours reports the total across them,
+        // because that is the question a coarse block is asked.
+        const mmVal = slots === 1 ? h.mm : h.mmSpan;
+        const mmText = rainView && mmVal != null && mmVal >= 0.1
+            ? ` · ${+mmVal.toFixed(1)} mm${slots === 1 ? '/h' : ''}` : '';
+        const snowVal = slots === 1 ? h.snow : h.snowSpan;
+        const snowText = rainView && snowVal != null && snowVal > 0
+            ? ` · ${+snowVal.toFixed(1)} cm${slots === 1 ? '/h' : ''} snow` : '';
         const windText = h.wind != null
             ? ` · ${displayWind(h.wind)} ${windUnitLabel()}${h.windDir != null ? ' ' + COMPASS[windOctant(h.windDir)] : ''}`
             : '';
         const hazText = (hot ? ' · extreme heat' : '')
             + (uvHigh ? ` · very high UV (${Math.round(h.uv)})` : '')
             + (dangerCold ? ' · dangerous cold' : '') + (dangerHot ? ' · dangerous heat' : '');
-        const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
-            + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
+        const sunText = (sun.rise && covers(sun.rise.h) ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
+            + (sun.set && covers(sun.set.h) ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
         const skyText = sky ? ` · ${sky.label}` : '';
         // DR-6: a cell whose forecast meaningfully moved since the
         // previous model run. The pulse is view-gated (a temp move
@@ -1232,7 +1414,7 @@ return shownDays.map((dayData, dayIndex) => {
         // previous model run drives the one-shot blink on a refresh
         // (view-gated: a temp move only blinks in temp view). The
         // was/now detail rides the tooltip either way.
-        let ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
+        let ch = slots === 1 ? state.changed?.[`${meta.date}|${h.hour}`] : null;
         // A past hour does not report its probability (see popText), so
         // a change to it must not pulse the cell or print a was/now line
         // for a number that is not on screen. Dropped from a copy, since
@@ -1245,7 +1427,20 @@ return shownDays.map((dayData, dayIndex) => {
         const feelsVal = h.feels != null ? h.feels : h.temp;
         const comfortText = view === 'temp' && feelsVal != null
             ? ` · ${TEMP_BANDS[bandIndex(feelsVal)].name.toLowerCase()}` : '';
-        const info = `${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`;
+        // What a block is FOR, said before what it says: an hourly
+        // block names its hour, a coarse one names the hours it covers,
+        // how wide it is, and that the data behind it is no longer
+        // hourly. A reading with no span on it would be read as an
+        // hour's reading, which past lead 7 it is not (DR-34).
+        // End-exclusive, the same way the tooltip's header states it: a
+        // three-hour block from 18:00 covers up to 21:00, not through it.
+        const spanLabel = slots === 1 ? hourLabel(h.hour)
+            : slots >= rows ? 'all day'
+                : `${hourLabel(hour)}–${hourLabel((hour + slots) % 24)}`;
+        const cadText = slots === 1 ? ''
+            : slots >= rows ? ' · daily value' : ` · ${slots}-hour block`;
+        const provText = slots === 1 ? '' : ' · beyond native hourly';
+        const info = `${meta.date ? dateLabel(meta.date) + ', ' : ''}${spanLabel} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${cadText}${provText}${chText}`;
         // Marks: precipitation overlays first (under the glyphs;
         // rain lines + snow lattice + hail rings, any subset;
         // lines + lattice together IS sleet) + the frost contour
@@ -1259,9 +1454,15 @@ return shownDays.map((dayData, dayIndex) => {
             + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
             + (sky ? `<span class="block-mark sky">${mrIcon(sky.glyph)}</span>` : '');
         // dataset.day is absolute (an index into state.days), not the
-        // column position, so a tooltip opened while the drawer is
-        // open still reads the right day back out.
-        cells.push({ rgb, textColor: textOn(rgb), marks, info, current: isCurrent, past: isPast, dayIndex: off + dayIndex, hour: h.hour, moved: !!movedInView });
+        // column position, so a tooltip opened on a revealed day still
+        // reads the right day back out. `slots` rides with it so the
+        // tooltip can rebuild the same span the block stands for.
+        cells.push({
+            rgb, textColor: textOn(rgb), marks, info,
+            current: isCurrent, past: isPast,
+            dayIndex: off + dayIndex, hour: h.hour, slots,
+            daily: slots >= rows, moved: !!movedInView
+        });
     }
     return cells;
 });
@@ -1316,23 +1517,154 @@ const withPlaceState = (place, fn) => {
 };
 const colsForPlace = place => withPlaceState(place, buildCols);
 
-// The sweep needs both grids to be the same shape, and a city with a
-// shorter cached payload can yield fewer than DAY_SPAN columns. Pad
-// rather than reject: the missing columns sweep to black, which is the
-// same honest "no data here" the cold-city case above uses.
-const fitCols = (cols, nCols, nRows) => {
-    const out = [];
-    for (let c = 0; c < nCols; c++) {
-        const col = cols && cols[c];
-        out.push(col && col.length === nRows ? col : Array.from({ length: nRows }, () => blankDesc));
+// The sweep needs both grids to be the same shape, and a city whose
+// cached payload sits a day either side of this one's puts its coarse
+// columns in different places. Fit to the reference grid column by
+// column rather than reject: a column that does not match sweeps to
+// black, which is the same honest "no data here" the cold-city case
+// above uses.
+const fitCols = (cols, ref) => ref.map((refCol, c) => {
+    const col = cols && cols[c];
+    return col && col.length === refCol.length
+        ? col : refCol.map(d => d.slots > 1
+            ? { ...blankDesc, slots: d.slots, daily: !!d.daily } : blankDesc);
+});
+// The grid the fitting is measured against: whatever is on screen, or
+// what the app would draw if nothing is yet.
+const refCols = () => (wave ? wave.to : lastCols) || buildCols();
+
+// --- The elastic, as geometry (DR-39) ------------------------------
+// One signed number says where the day axis is. `dayN` is how many days
+// have been pulled in, continuous and signed: positive reaches forward,
+// negative reaches back, zero is the home week. `dayOv` is how far the
+// pull has gone PAST the end it is heading for, in raw pixels, signed
+// the same way. Between them they describe all three states, and there
+// is no fourth.
+//
+// Nothing here rebuilds the grid. Every column already exists; what
+// moves is their widths, so a frame of the pull costs sixteen style
+// writes rather than a repaint of the whole field. That is the only
+// reason this can track a finger at all: the DR-12 rain patterns make
+// the BUILD expensive, so the build happens on a view or city change
+// and never inside a gesture.
+let dayN = 0;
+let dayOv = 0;
+let dayMode = 'home';   // home | stretch | locked
+const HOME_COL = PAST_DAYS;   // today's column, and the home week's first
+
+// The gap between columns is a CSS variable and the layout is
+// responsive, so it is measured rather than assumed — but once, not on
+// every frame of a pull: reading a computed style inside the gesture is
+// a forced style recalculation sixty times a second for a number that
+// only changes when the stylesheet does.
+let GAP_PX = 2;
+const measureGap = () => {
+    const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gap'));
+    if (v > 0) GAP_PX = v;
+};
+
+// Past the end the columns freeze and the whole grid slides toward the
+// pull instead, damped onto an asymptote: the finger keeps moving, the
+// grid keeps answering, and it never runs away.
+const SLIDE_MAX = 64;
+const slideOf = px => SLIDE_MAX * (1 - Math.exp(-px / SLIDE_MAX));
+
+// Every visible column shares one width — (frame − gaps) / (7 + n) —
+// and the entering outermost column carries the fraction, which is what
+// makes the reveal continuous instead of a series of steps. The home
+// week squishes to pay for whatever is coming in, and today never
+// leaves the screen because it is inside the home week.
+//
+// `n` is clamped to the reach here as well as at the source: past the
+// end the columns FREEZE, and the opposite end must not go on squishing
+// to pay for a pull that is revealing nothing.
+const dayWidths = (n, W) => {
+    const w = new Array(DAY_TOTAL).fill(0);
+    const side = Math.sign(n) || 1;
+    const a = Math.min(Math.abs(n), reachOn(side));
+    const cw = (W - Math.ceil(DAY_SPAN - 1 + a) * GAP_PX) / (DAY_SPAN + a);
+    for (let k = 0; k < DAY_SPAN; k++) w[HOME_COL + k] = cw;
+    const whole = Math.floor(a), frac = a - whole;
+    for (let k = 0; k < whole; k++) {
+        const i = side > 0 ? HOME_COL + DAY_SPAN + k : HOME_COL - 1 - k;
+        if (i >= 0 && i < DAY_TOTAL) w[i] = cw;
     }
-    return out;
+    if (frac > 0) {
+        const i = side > 0 ? HOME_COL + DAY_SPAN + whole : HOME_COL - 1 - whole;
+        if (i >= 0 && i < DAY_TOTAL) w[i] = cw * frac;
+    }
+    return w;
+};
+
+// The label row mirrors the columns exactly, so the dates stay over the
+// days they name at every width. What a label can SAY changes as it
+// narrows: weekday over date while there is room, the date alone when
+// there is less, nothing at all when there is not enough for a number
+// to be read. Stepped by bucket rather than continuously, so a pull
+// rewrites a label once instead of on every frame.
+const labelBucket = px => px >= 34 ? 2 : px >= 16 ? 1 : 0;
+// The slide is written only when it changes, so a rebuild of the columns
+// has to say that the fresh nodes carry nothing yet. `null` is a value
+// no transform string can equal, which is the whole point of it.
+let slideTf = null;
+const invalidateSlide = () => { slideTf = null; };
+const applyDayWidths = () => {
+    const grid = $('grid'), row = $('days');
+    const cols = grid.children, labels = row.children;
+    if (!cols.length) return;
+    // A paint can land before the frame is measurable (first paint, a
+    // hidden tab). The widths are still worked out, against a nominal
+    // frame, and written as flex-grow RATIOS rather than pixels: the
+    // proportions are what the elastic is saying, and a ratio says them
+    // correctly at whatever width the box turns out to be.
+    const W = grid.clientWidth;
+    const measurable = W > 0;
+    const w = dayWidths(dayN, measurable ? W : 700);
+    let first = -1;
+    for (let i = 0; i < DAY_TOTAL; i++) if (w[i] > 0.5) { first = i; break; }
+    const tx = dayOv ? -Math.sign(dayOv) * slideOf(Math.abs(dayOv)) : 0;
+    const tf = tx ? `translate3d(${tx.toFixed(1)}px,0,0)` : '';
+    // The slide has to move the columns INSIDE the frame, not the frame
+    // itself: a transform on the clipping box would carry the clip with
+    // it and nothing would ever clip into black.
+    const moveTf = tf !== slideTf;
+    for (let i = 0; i < DAY_TOTAL; i++) {
+        const width = w[i], vis = width > 0.5;
+        const col = cols[i], lab = labels[i];
+        for (const el of [col, lab]) {
+            if (!el) continue;
+            el.style.display = vis ? '' : 'none';
+            if (measurable) { el.style.flex = '0 0 auto'; el.style.width = vis ? width.toFixed(2) + 'px' : '0px'; }
+            else { el.style.flex = vis ? `${width.toFixed(3)} 0 0` : '0 0 0'; el.style.width = ''; }
+            el.style.marginLeft = vis && i > first ? GAP_PX + 'px' : '0px';
+            if (moveTf) el.style.transform = tf;
+        }
+        if (!lab || lab.classList.contains('absent')) continue;
+        const bucket = labelBucket(width);
+        if (+lab.dataset.b === bucket) continue;
+        lab.dataset.b = bucket;
+        lab.innerHTML = bucket === 2
+            ? `${lab.dataset.wd}<span class="day-date">${lab.dataset.date}</span>`
+            : bucket === 1 ? `<span class="day-date">${lab.dataset.date}</span>` : '';
+    }
+    if (moveTf) {
+        slideTf = tf;
+        // Clipping costs nothing at rest and is only ever needed while
+        // the grid is sliding, so it is switched on for exactly that.
+        // At home the current-hour marker deliberately overhangs the
+        // field's left edge, and a clip that was always on would eat it.
+        grid.classList.toggle('sliding', !!tf);
+        row.classList.toggle('sliding', !!tf);
+    }
+    $('dayHome').hidden = dayMode !== 'locked';
+    $('dayHome').textContent = dayMode === 'locked' ? '⌂' : '';
+    paintLockMark();
 };
 
 // The row that labels the window. Split out of updateDisplay because a
-// page drag moves the window on every frame while the grid itself is
-// painted by the wave, and a strip that says a date the grid is no
-// longer showing is worse than no strip at all.
+// pull moves the widths on every frame while the grid itself is painted
+// by the wave, and a strip that says a date the grid is no longer
+// showing is worse than no strip at all.
 //
 // The per-day min/max row that used to sit under this is gone. Every
 // temperature it carried is already in the grid it labelled, and the
@@ -1340,31 +1672,42 @@ const fitCols = (cols, nCols, nRows) => {
 // the thing directly beneath it.
 const renderDayStrip = () => {
     const { days, off } = visibleWindow();
-    const dayMeta = state.days.slice(off, off + days);
+    // Once per repaint, never inside a pull: a computed-style read is a
+    // forced layout, and the gesture path must not pay for one.
+    measureGap();
+    if (!state.data.length) { $('days').innerHTML = ''; return; }
 
-    // Weekday over the real date. The grid can be paged to any day now,
-    // so a weekday letter alone would stop being an answer to "which day
-    // is this". Today stays gold, the marker it already had; it is not
-    // restated as a dot as well.
+    // Weekday over the real date. The elastic can bring any day on
+    // screen, so a weekday letter alone would stop being an answer to
+    // "which day is this". Today stays gold, the marker it already had;
+    // it is not restated as a dot as well.
     //
     // The past class rides the same row as the blocks, so a receded column
     // reads as one whole column sitting behind today. It used to go on the
     // min/max row as well; that row is gone, and its share of the recession
     // went with it.
-    $('days').innerHTML = dayMeta.map(day =>
-        `<div class="day-label ${day.isToday ? 'today' : ''}${day.past ? ' past' : ''}">${day.text}<span class="day-date">${+day.date.slice(8, 10)}</span></div>`
-    ).join('');
+    //
+    // One label per column, all sixteen, built once and then only ever
+    // resized: the labels ARE the columns' widths, and rewriting the row
+    // on every frame of a pull is the jitter the elastic exists to
+    // avoid. The text they can hold is what changes as they narrow, and
+    // `applyDayWidths` swaps that by width bucket.
+    $('days').innerHTML = Array.from({ length: days }, (_, i) => {
+        const day = state.days[off + i];
+        if (!day) return '<div class="day-label absent" aria-hidden="true"></div>';
+        return `<div class="day-label${day.isToday ? ' today' : ''}${day.past ? ' past' : ''}"`
+            + ` data-wd="${esc(day.text)}" data-date="${+day.date.slice(8, 10)}"></div>`;
+    }).join('');
+    applyDayWidths();
 };
 
-// Everything outside the grid whose position depends on `dayOff`/`hourOff`:
-// the day strip, the hour axis, and the sun hairlines. Split out of
-// `updateDisplay` because a slide changes exactly these and nothing else,
-// so the home tweens can keep them in step with the blend underneath
-// without paying for a whole repaint per notch.
+// Everything outside the grid whose position depends on the hour
+// window: the day strip, the hour axis, and the sun hairlines. Split
+// out of `updateDisplay` because an hour slide changes exactly these and
+// nothing else, so the home tween can keep them in step with the blend
+// underneath without paying for a whole repaint per notch.
 const sunForToday = () => {
-    const { days, off } = visibleWindow();
-    const dayMeta = state.days.slice(off, off + days);
-    const meta = dayMeta.find(d => d.isToday) || dayMeta[0];
+    const meta = state.days[state.todayIndex] || state.days[0];
     return (meta && state.sun[meta.date]) || {};
 };
 const renderOffsetChrome = (sun = sunForToday()) => {
@@ -1383,9 +1726,8 @@ const renderOffsetChrome = (sun = sunForToday()) => {
         if (f < start || f > end + 1) return ''; // outside the hour window
         return `<div class="sun-line" style="top:${((f - start) / rows * 100).toFixed(2)}%"></div>`;
     }).join('');
-    // The window moved, so what it can still reach has moved with it: a
-    // drag that has just hit the forward cap loses its forward arrow
-    // rather than keeping it until the finger lifts.
+    // The hour peek's own carets. The day arrows went with the paging:
+    // the elastic shows its extent itself, in the widths.
     showReachMarks(legendHeld);
 };
 
@@ -1522,33 +1864,29 @@ const holdLegend = on => {
     showReachMarks(on);
 };
 
-// --- The reach marks -----------------------------------------------
-// The two gestures that move the window are drawn as nothing at rest, and
-// a hit box nobody can see is a feature nobody finds. These are the marks
-// that say where the window can still go: a caret above and below the hour
-// axis, and an arrow at each side of the grid.
+// --- The reach carets ----------------------------------------------
+// The hour peek is drawn as nothing at rest, and a hit box nobody can
+// see is a feature nobody finds. These are the marks that say where its
+// window can still go: a caret above and below the hour axis.
 //
 // They follow the key's own rule, which is the rule that made the key work:
 // they exist for the moment a hand is on the surface, and the screen at
 // rest is exactly what it was. So the glance costs nothing, and the answer
 // is there the first time anyone touches the thing.
 //
-// Only the directions that lead somewhere are drawn. At the forward cap
-// there is no forward arrow, at the start of the past days no backward
-// one, and in 24-hour mode no carets at all, so a mark never promises a
-// move the app will refuse.
+// Only the directions that lead somewhere are drawn, so a mark never
+// promises a move the app will refuse.
+//
+// The day axis had a pair of gold arrows here too. They are gone with
+// the paging: the elastic shows its own extent, in the widths of the
+// columns, for as long as the pull lasts. A mark that says "there is
+// more that way" is redundant beside a grid that is visibly making room.
 const showReachMarks = on => {
     const live = on && !!state.data.length;
     const hours = live && hourPeekLive();
     const { min, max } = hours ? hourPeekRange() : { min: 0, max: 0 };
     $('reachUp').hidden = !(hours && hourOff > min);
     $('reachDown').hidden = !(hours && hourOff < max);
-    const days = live && pagingLive();
-    // Dragging the grid to the RIGHT reaches back in time, so the arrow on
-    // the left points the way the content comes from, not the way the
-    // finger goes. It is the column that would arrive that is being named.
-    $('reachPrev').hidden = !(days && dayOff > minDayOff());
-    $('reachNext').hidden = !(days && dayOff < maxDayOff());
 };
 
 const renderLegend = () => {
@@ -1629,8 +1967,8 @@ const setView = (v, anim) => {
     const prev = view;
     view = v;
     // A view change owns the whole grid, so both reveals go home with it
-    // rather than carrying a peeked or drawered window into the new view
-    // (DR-29: a view or city change is one of the drawer's ways home).
+    // rather than carrying a stretch into the new view (DR-29: a view or
+    // city change is one of the ways home, and DR-39 keeps it).
     resetReveal();
     saveJSON(LS_VIEW, v);
     renderViewToggle();
@@ -1680,9 +2018,10 @@ const applyPrefs = () => {
 // The re-slice is also what re-anchors state.todayIndex: processData
 // recomputes it against the new local date, so yesterday becomes two
 // days back and the day before it falls off the front under the
-// PAST_DAYS trim. dayOff is measured from today, so a drawer left open
-// across midnight keeps pointing at the same distance from today rather
-// than at the same calendar day, which is what the ⌂ chip promises.
+// PAST_DAYS trim. The elastic is measured in days from today, so a
+// stretch left locked open across midnight keeps holding the same
+// distance from today rather than the same calendar day, which is what
+// the ⌂ chip promises.
 let dayRolloverTimer = null;
 const msUntilCityMidnight = () => {
     // Shift "now" into city-local time, then read how far it is past
@@ -1840,18 +2179,33 @@ const showTooltip = el => {
     } else { // grid block: view-ordered main lines, one detail line, hazard chips
         const di = +el.dataset.day;
         const day = state.days[di];
-        const h = state.data[di]?.find(x => x.hour === +el.dataset.hour);
-        if (!day || !h) return;
+        // A far-day block stands for several hours (DR-39), and the
+        // tooltip is where the block says so. It is rebuilt from the
+        // same hours the block was built from, through the same
+        // reduction, so what the tooltip reports and what the block is
+        // coloured by can never drift.
+        const span = Math.max(1, +el.dataset.span || 1);
+        const h0 = +el.dataset.hour;
+        const hours = [];
+        for (let k = 0; k < span; k++) {
+            const found = state.data[di]?.find(x => x.hour === h0 + k);
+            if (found) hours.push(found);
+        }
+        if (!day || !hours.length) return;
+        const h = span === 1 ? hours[0] : spanHour(hours, h0);
+        const rows = hourRange().end - hourRange().start + 1;
+        const wholeDay = span >= rows;
         // Remember this cell by grid position (column + hour), which is
         // stable across a city swap, so refreshActiveTooltip can re-render.
-        activeBlock = { day: di, hour: h.hour };
+        activeBlock = { day: di, hour: h0 };
         const sun = state.sun[day.date] || {};
 
         // Header: day + date left, the hour range right (kept whole so
         // it never wraps onto a second line). The hairline under it
         // (--divider, .tip-when's border-bottom) separates it from the
         // stats block below.
-        const range = `${hourLabel(h.hour)}–${hourLabel((h.hour + 1) % 24)}`;
+        const range = wholeDay ? 'all day'
+            : `${hourLabel(h0)}–${hourLabel((h0 + span) % 24)}`;
         // "Yesterday" is named outright, the way "Today" already is. It
         // is the past day the drawer is opened for most of the time, and
         // reading a weekday letter back as a date is the step the header
@@ -1881,14 +2235,22 @@ const showTooltip = el => {
         // On a past day the chance is dropped and the line is the amount
         // alone: the hour has happened, so what fell is the answer and a
         // probability beside it is a prediction about a known outcome.
+        // Across a span the figure is the TOTAL, not the rate: "how much
+        // rain in this block" is the question a three-hour block is
+        // asked, and a mm/h that is the mean of three hours answers a
+        // question nobody asked.
         const rainBits = [];
         let snowBit = '';
+        const per = span === 1 ? '/h' : '';
+        const mmVal = span === 1 ? h.mm : h.mmSpan;
+        const snowVal = span === 1 ? h.snow : h.snowSpan;
+        const liquidVal = span === 1 ? h.liquid : h.liquidSpan;
         if (!day.past && h.pop != null) rainBits.push(`${h.pop}%`);
-        if (h.snow != null && h.snow > 0) {
-            if (h.liquid != null && h.liquid >= 0.1) rainBits.push(`${h.liquid} mm/h`);
-            snowBit = `${h.snow} cm/h snow`;
-        } else if (h.mm != null) {
-            rainBits.push(`${h.mm} mm/h`);
+        if (snowVal != null && snowVal > 0) {
+            if (liquidVal != null && liquidVal >= 0.1) rainBits.push(`${liquidVal} mm${per}`);
+            snowBit = `${snowVal} cm${per} snow`;
+        } else if (mmVal != null) {
+            rainBits.push(`${+mmVal.toFixed(1)} mm${per}`);
         }
         const rainDim = dimClass('rain');
         const rain = (rainBits.length || snowBit)
@@ -1928,17 +2290,28 @@ const showTooltip = el => {
         }
         const shared = [];
         if (!claimedCondition) shared.push(esc(h.description));
-        if (h.humidity != null && !claimedHumidity) shared.push(`humidity ${h.humidity}%`);
-        if (sun.rise && sun.set) shared.push(h.hour < sun.rise.h + sun.rise.m / 60
+        if (h.humidity != null && !claimedHumidity) shared.push(`humidity ${Math.round(h.humidity)}%`);
+        if (sun.rise && sun.set) shared.push(h0 < sun.rise.h + sun.rise.m / 60
             ? `sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`
             : `sunset ${timeLabel(sun.set.h, sun.set.m)}`);
-        if (h.hour === 21) { const sky = skyEventFor(day.date); if (sky) shared.push(esc(sky.label)); }
+        if (21 >= h0 && 21 < h0 + span) { const sky = skyEventFor(day.date); if (sky) shared.push(esc(sky.label)); }
         const detailText = [activeDetail, ...shared].filter(Boolean).join(' · ');
         const detailLine = detailText ? `<div class="tip-ctx tip-detail">${detailText}</div>` : '';
 
-        // DR-6: was/now detail, as small muted lines under the detail line.
-        const chg = changeLines(state.changed?.[`${day.date}|${h.hour}`])
-            .map(l => `<div class="tip-ctx">${l}</div>`).join('');
+        // What the block IS, said in its own line rather than folded in
+        // with the weather: past the model's native hourly horizon the
+        // series is interpolated (DR-34), so a block covering six hours
+        // has to say that it does and that the data behind it is no
+        // longer hourly. Silence there would let a coarse reading be
+        // read as an hour's reading.
+        const provenance = span === 1 ? ''
+            : `<div class="tip-ctx">${wholeDay ? 'daily value' : `${span}-hour block`} · beyond native hourly</div>`;
+
+        // DR-6: was/now detail, as small muted lines under the detail
+        // line. Recorded per hour, so a span has nothing to report.
+        const chg = span > 1 ? ''
+            : changeLines(state.changed?.[`${day.date}|${h.hour}`])
+                .map(l => `<div class="tip-ctx">${l}</div>`).join('');
 
         // Hazard chips: one per corner glyph currently shown on the
         // block (none in wind view, where the arrow replaces them),
@@ -1948,7 +2321,7 @@ const showTooltip = el => {
             if (h.glyph === 'storm') chips.push(h.code === 96 || h.code === 99 ? 'thunderstorm, hail' : 'thunderstorm');
             else if (h.glyph === 'fog') chips.push('fog');
             else if (h.glyph === 'freeze') chips.push('freezing rain');
-            if (view === 'rain' && h.mm != null && h.mm > LN.warn) chips.push('heavy rain');
+            if (view === 'rain' && h.mm != null && h.mm > LN.warn) chips.push(span === 1 ? 'heavy rain' : 'heavy rain in this block');
             if (h.temp >= settings.heatWarn) chips.push('extreme heat');
             if (h.uv != null && h.uv >= settings.uvWarn) chips.push(`very high UV (${Math.round(h.uv)})`);
             // DR-17 danger glyph, temperature view only, on feels-like.
@@ -1964,8 +2337,12 @@ const showTooltip = el => {
         // The comparison sits directly under the detail line and above the
         // hazard chips: it is a reading, not a warning, and a chip row
         // between the two numbers being compared would break the pair.
-        const compare = sheetCompareLine(day.date, h);
-        tooltip.innerHTML = when + temp + rain + wind + divider + detailLine + chg + compare + chipHtml;
+        // The city comparison reads the same hour in the other city, so
+        // it has an hour to read. A span does not, and one hour of it
+        // set against a whole block would be a comparison of two
+        // different things.
+        const compare = span === 1 ? sheetCompareLine(day.date, h) : '';
+        tooltip.innerHTML = when + temp + rain + wind + divider + detailLine + provenance + chg + compare + chipHtml;
     }
     // The travel transition is armed BEFORE the position is written, and
     // only for a move. Placed after the innerHTML write so the box is
@@ -1994,10 +2371,10 @@ const hideTooltip = () => {
     tappedBlock = null;
     activeBlock = null;
     // The tooltip that was pausing the reveal-idle countdown (see
-    // `showTooltip`) just closed: resume it. `dayHome`/`springHours`
-    // are no-ops once their offset is already back at rest, so
-    // re-arming here even when there is nothing left to do is
-    // harmless rather than something this needs to check first.
+    // `showTooltip`) just closed: resume it. `springHours` is a no-op
+    // once the offset is already back at rest, so re-arming here even
+    // when there is nothing left to do is harmless rather than
+    // something this needs to check first.
     if (pendingRevealFn) {
         clearTimeout(revealTimer);
         revealTimer = setTimeout(pendingRevealFn, REVEAL_IDLE_MS);
@@ -2092,10 +2469,10 @@ const paintCachedForecast = (anim = null) => {
 // steps through the whole list instead of toggling the top two.
 const changeCity = (place, remember = true, anim = null) => {
     state.place = place;
-    // A new city arrives on the default week and the default hours, the
-    // same way the app opens (DR-29 "Entry and exit"): a drawer left open
-    // over the old city's day 9 has no meaning against the new one's data,
-    // which may not even reach that far.
+    // A new city arrives on the home week and the default hours, the
+    // same way the app opens (DR-29 "Entry and exit"): a stretch left
+    // locked open over the old city's day 9 has no meaning against the
+    // new one's data, which may not even reach that far.
     resetReveal();
     saveJSON(LS_PLACE, place);
     if (remember) rememberCity(place);
@@ -2267,11 +2644,30 @@ document.addEventListener('focusin', e => {
 document.addEventListener('focusout', e => {
     if (e.target.closest(TIP_SEL)) hideTooltip();
 });
+// A claimed day pull is not a tap, and its trailing click must not reach
+// the tooltip. The old day handler got that from `preventDefault` on a
+// non-passive touchmove; a pointer gesture does not, and on a mouse the
+// click is guaranteed — so a pull whose press and release land on the
+// same block would open a tooltip on release, which is exactly the
+// DR-24 collision the slop exists to prevent.
+//
+// One flag, and it lives only in the gap between a claimed release and
+// the very next input of any kind: this handler consumes it, and any
+// press or key press clears it. No window, no timer, and no way for it
+// to still be set when a later tap or an Enter on a focused block comes
+// along. The guard sits here rather than on the click itself, because
+// the tooltip is the only thing a stray click on the grid does.
+let swallowClick = false;
+const clearSwallow = () => { swallowClick = false; };
+document.addEventListener('pointerdown', clearSwallow, true);
+document.addEventListener('keydown', clearSwallow, true);
+
 // Tap/click toggles the tooltip; the same block or anywhere else
 // dismisses. Shared by mouse and touch (DR-24: touch no longer
 // swallows its trailing synthetic click, reverting DR-18/19's
 // hold gesture, so this single handler is back to covering both).
 document.addEventListener('click', e => {
+    if (swallowClick) { swallowClick = false; return; }
     const el = e.target.closest(TIP_SEL);
     if (el) {
         if (tappedBlock === el) return hideTooltip();
@@ -2557,32 +2953,41 @@ const closeHourly = () => {
 };
 registerModal('hourly', closeHourly);
 
-// --- Grid gestures: date paging ----------------------------------
+// --- Grid gestures: the elastic day axis (DR-39) ------------------
 // One axis, one meaning. The grid field is the calendar surface, so a
-// horizontal drag on it pages the dates, the convention every calendar
-// on the phone already teaches. Both gestures that used to live here
-// are gone. The view swipe, because the control row's three buttons are
-// the answer now and a gesture that only duplicates a visible button
-// earns nothing. The city swipe, because the city name is the switcher
-// now and a sheet you release onto is a better aim than a rail you
-// balance on.
+// horizontal drag on it moves the dates, the convention every calendar
+// on the phone already teaches. What that drag DOES is what changed.
 //
-// What is left is one drag with one outcome, and nothing to arbitrate
-// against: a vertical drag on the grid claims nothing and falls through
-// to the page.
+// It used to page: a seven-column window that stepped over sixteen days
+// one notch at a time, latched where it was left, and drifted back on a
+// four-second timer. Three things were wrong with it and none of them
+// were fixable by tuning. A notch is a decision you cannot take back
+// half-way. A latched window has a scroll position, so there is
+// somewhere to be lost. And a timer takes the screen back while you are
+// still reading it.
 //
-// THE FRAME STILL DOES NOT MOVE. Paging slides the seven-column window
-// over more days and repaints the blocks; the grid is never translated
-// off-screen. The carousel this resembles from the outside was ruled
-// out on exactly that ground and the reason survives the redesign: with
-// the frame pinned, a transition can only change how a block is
-// coloured, never where it is, so the week reads as the same grid
-// holding new information rather than as a new screen arriving.
+// The elastic has none of them. Pull sideways and the days accordion in
+// from the side they sit on, continuously, one-to-one under the finger,
+// while the home week squishes to pay for them; today never leaves the
+// screen. Let go anywhere short of the end and it was a peek: the grid
+// bounces home, and there was never a position to lose. At full
+// extension the columns freeze and the whole grid slides toward the
+// pull instead, its trailing edge clipping into black — and 32px into
+// THAT slide, a hairline beside the grid arms. Release while armed and
+// the stretch locks open. Release below it and it was still a peek.
 //
-// The mechanism is the day drawer's, moved from its rail onto the grid.
-// Same notch math (mapRailNotches, with its dwell), same sensitivity,
-// same crossfade between notches, same ways home. Only the origin
-// changed, and the origin gate it used to need went with it.
+// Three states, and no fourth: home, stretch, locked. The ⌂ chip exists
+// only while locked, because only then is there somewhere to come back
+// from.
+//
+// THE FRAME STILL DOES NOT MOVE, in the sense that mattered: the grid is
+// never translated off-screen as a new screen arriving. The carousel
+// this resembles from the outside was ruled out on that ground and the
+// reason survives — the columns stay in their frame and change width, so
+// the week reads as the same grid making room rather than as a page
+// turning. The overtravel slide is the one exception, and it is a
+// bounded 64px of feedback on a gesture that has run out of days, not a
+// way of getting anywhere.
 const chart = document.querySelector('.chart');
 
 const viewStepTo = dir => {
@@ -2600,7 +3005,7 @@ const stepView = dir => {
 };
 
 // The grid as some OTHER view would draw it, without disturbing the live
-// one. Same swap-call-restore `dayColsFor` and `sheetColsFor` use, and
+// one. Same swap-call-restore `hourColsFor` and `sheetColsFor` use, and
 // cached per gesture, since a drag that crosses the origin asks for the
 // same two views over and over.
 // The offsets go home with it, because a view change is one of the
@@ -2611,110 +3016,285 @@ const stepView = dir => {
 // having one.
 const viewColsFor = (v, cache) => {
     if (cache.has(v)) return cache.get(v);
-    const keepView = view, keepDay = dayOff, keepHour = hourOff;
+    const keepView = view, keepHour = hourOff;
     let built;
-    try { view = v; dayOff = 0; hourOff = 0; built = buildCols(); }
-    finally { view = keepView; dayOff = keepDay; hourOff = keepHour; }
+    try { view = v; hourOff = 0; built = buildCols(); }
+    finally { view = keepView; hourOff = keepHour; }
     cache.set(v, built);
     return built;
 };
 
+// --- The elastic's constants (owner-tuned, 2026-08-15) ------------
 // A touch is a TAP until it has moved this far. Below it nothing renders
 // and nothing is preventDefault-ed, so the touch falls through to the
 // browser's trailing synthetic click and tap-to-open-tooltip runs
 // untouched. The two paths stay mutually exclusive by construction
 // rather than by a race, which is the sharpest constraint on this
-// handler and the one thing that must not regress.
-const PAGE_SLOP = 10;
-// One notch is one day, at the same travel the day rail already charged:
-// a column's width stretched by REVEAL_SENS, so the window can be aimed
-// rather than thrown. Floored, so a narrow phone's thin columns cannot
-// make a whole day cost twenty pixels.
-const PAGE_UNIT_MIN = 44;
-const pageUnit = () => Math.max(PAGE_UNIT_MIN, ($('grid').clientWidth / DAY_SPAN) * REVEAL_SENS);
-// Honesty guard: with nowhere to go on either end there is nothing to page
-// to, so the gesture is suppressed outright rather than arming and then
-// doing nothing. `drawerLive` asks both ends, so dragging right into the
-// two past days works without this handler knowing the past exists.
-const pagingLive = () => drawerLive();
+// handler and the one thing that must not regress (DR-24).
+const PULL_SLOP = 10;
+// Travel per revealed day, in pixels. The past side charges more,
+// because the two ends are different lengths: seven days forward, two
+// days back. At one price the past end locks by accident on a flick and
+// the future end is a haul, so the past's days cost 2.5x and the two
+// ends meet at comparable total travel — 284px forward, 212px back.
+const PULL_COST = 36;
+const PAST_FACTOR = 2.5;
+const dayCost = side => side > 0 ? PULL_COST : PULL_COST * PAST_FACTOR;
+// The margin past full extension that turns a release from a peek into
+// a lock. The same raw PIXELS on both sides: the last inch of intent
+// costs the same wherever it is spent. 60 was compared and read as the
+// last stretch dragging.
+const LOCK_GAP = 32;
+// Arming is one threshold and disarming a lower one, so riding the line
+// cannot rattle the haptic or the mark.
+const LOCK_HYST = 0.6;
+const BOUNCE_MS = 260;        // spring home, with an ease-out-back overshoot
+const LOCK_SETTLE_MS = 160;   // an armed release settling onto whole days
+// Travel is accumulated in PIXELS and converted per side, so a drag that
+// crosses the origin prices each side correctly rather than carrying one
+// side's exchange rate into the other.
+const rawFromPx = px => px / dayCost(Math.sign(px) || 1);
+const pxFromRaw = rw => rw * dayCost(Math.sign(rw) || 1);
+// Honesty guard: with nowhere to go on either end there is nothing to
+// reveal, so the gesture is suppressed outright rather than arming and
+// then doing nothing.
+const elasticLive = () => maxFuture() > 0 || maxPast() > 0;
 
-let touchNav = null;   // { x, y, axis, claimed, base, cache, lastK, lastP }
+// --- The lock mark ------------------------------------------------
+// A hairline BESIDE the grid, never on it: the grid surface is data and
+// stays data. It grows and brightens with the overpull, goes solid when
+// armed, and stays small and dim while locked — the persistent reminder
+// of which edge is being held, and where to pull to let go.
+let lockArmed = false;
+const paintLockMark = () => {
+    const mark = $('lockMark');
+    if (!mark) return;
+    const side = Math.sign(dayOv || dayN) || 1;
+    const held = dayMode === 'locked' && !pull && dayOv === 0;
+    mark.className = 'lock-mark' + (side > 0 ? ' right' : ' left')
+        + (lockArmed ? ' armed' : '') + (held ? ' held' : '');
+    if (held) { mark.style.opacity = ''; mark.style.height = ''; return; }
+    const p = Math.min(1, Math.abs(dayOv) / LOCK_GAP);
+    mark.style.opacity = p <= 0 ? '0' : (0.3 + 0.7 * p).toFixed(2);
+    mark.style.height = (12 + 56 * p).toFixed(1) + '%';
+};
+const setArmed = on => {
+    if (on === lockArmed) return;
+    lockArmed = on;
+    // One tick, on arming only. The mark is the sight and this is the
+    // touch of the same threshold; disarming is silent, because taking
+    // something back should not feel like doing something.
+    if (on) navigator.vibrate?.(8);
+    paintLockMark();
+};
+const updateArmed = () => {
+    const a = Math.abs(dayOv);
+    if (!lockArmed && a >= LOCK_GAP) setArmed(true);
+    else if (lockArmed && a < LOCK_GAP * LOCK_HYST) setArmed(false);
+};
 
-chart.addEventListener('touchstart', e => {
-    // Origin gate: a drag that starts on the hour rail belongs to the
-    // hour peek. The rail sits inside .chart, so its touches bubble here.
-    if (e.target.closest?.('.rail')) { touchNav = null; return; }
-    if (e.touches.length !== 1) { touchNav = null; return; }
-    const t = e.touches[0];
-    touchNav = {
-        x: t.clientX, y: t.clientY, axis: null, claimed: false,
-        base: dayOff, cache: new Map(), lastK: 0, lastP: 0
-    };
-}, { passive: true });
-
-chart.addEventListener('touchmove', e => {
-    if (!touchNav || e.touches.length !== 1) return;
-    const t = e.touches[0];
-    const dx = t.clientX - touchNav.x, dy = t.clientY - touchNav.y;
-    if (!touchNav.axis) {
-        if (Math.hypot(dx, dy) < PAGE_SLOP) return;
-        touchNav.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-        // Vertical belongs to nobody here now. Let go of the touch
-        // rather than claim it, so the page behaves as any page would.
-        if (touchNav.axis !== 'x' || !pagingLive()) { touchNav = null; return; }
-        // Deliberately NOT closing an open tooltip: it survives a page
-        // and re-targets the same grid position, which is what makes it
-        // the comparison tool. preventDefault from here on means no
-        // trailing synthetic click arrives, so this touch cannot
-        // retroactively become a tap.
-        touchNav.claimed = true;
-    }
-    e.preventDefault();
-    const per = pageUnit();
-    if (!(per > 0)) return;
-    // The slop is subtracted rather than ignored, so the grid does not
-    // jump by the threshold at the moment the drag is claimed.
-    const traveled = dx - Math.sign(dx) * PAGE_SLOP;
-    const { sgn, k, p } = mapRailNotches(traveled, per);
-    // Drag left and later days arrive from the right: the window follows
-    // the hand rather than opposing it.
-    if (railScrubLive()) {
-        touchNav.lastP = p;
-        setDayOffState(touchNav.base - Math.round(sgn * (k + p)));
-        // A fresh notch crossed: promote what the wave was blending
-        // toward into its new starting point before aiming at the notch
-        // beyond. The timed wave would do this on completion, but that
-        // clock is off for a scrub's whole lifetime.
-        if (wave && wave.scrub && k !== touchNav.lastK) { wave.from = wave.to; wave.t = 0; }
-        touchNav.lastK = k;
-        scrubReveal(dayColsFor(touchNav.base - sgn * (k + 1), touchNav.cache), sgn, p, 'x');
-        // The strip is dates now, not weekday letters, so it cannot be
-        // allowed to lag the grid it labels: redraw the two text rows on
-        // every move. They are fourteen short nodes; the grid, which is
-        // the expensive part, is still painted by the wave alone.
-        renderDayStrip();
-        // And the marks, for the same reason: a drag that has just
-        // reached the cap must stop advertising a direction it can no
-        // longer go. This path never reaches `renderOffsetChrome`.
-        showReachMarks(legendHeld);
+// --- The springs --------------------------------------------------
+// Two, and they mean different things. The bounce home overshoots
+// slightly (ease-out-back) because the grid is elastic and an elastic
+// thing that stops dead was never under tension. The lock settle is
+// plain ease-in-out onto the whole-day extent: it is arriving somewhere,
+// not springing back.
+let elasticAnim = null;
+// The wheel's own hold, declared up here because `stopElastic` below has
+// to be able to cancel it and is reachable before the wheel handler is
+// installed.
+let wheelBack = null;
+const easeOutBack = t => { const c1 = 1.2, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const springTo = (tn, tov, ms, ease, done) => {
+    if (elasticAnim) cancelFrame(elasticAnim);
+    const fromN = dayN, fromOv = dayOv, t0 = performance.now();
+    // Reduced motion takes the destination directly. There is nothing
+    // here to slow down: the movement IS the feedback, and a user who
+    // has asked for none wants the answer, not a shorter animation.
+    if (reduceMotion()) {
+        elasticAnim = null;
+        dayN = tn; dayOv = tov; applyDayWidths();
+        if (done) done();
         return;
     }
-    setDayOff(touchNav.base - Math.round(sgn * (k + p)));
-    renderDayStrip();
-}, { passive: false });
-
-// Home again on the drawer's own terms: the paged window latches, and
-// the same idle timer, ⌂ chip, outside tap and Escape send it back.
-const endTouchNav = () => {
-    const nav = touchNav;
-    touchNav = null;
-    if (!nav || !nav.claimed) return;   // a tap: the trailing click opens the tooltip
-    const home = () => { armRevealIdle(dayHome); renderDayStrip(); };
-    if (railScrubLive() && wave && wave.scrub) endRailScrub(nav.lastP, home);
-    else home();
+    const step = now => {
+        const t = Math.min(1, (now - t0) / ms);
+        dayN = fromN + (tn - fromN) * ease(t);
+        dayOv = fromOv + (tov - fromOv) * ease(t);
+        applyDayWidths();
+        if (t < 1) { elasticAnim = scheduleFrame(step); return; }
+        elasticAnim = null;
+        dayN = tn; dayOv = tov;
+        applyDayWidths();
+        if (done) done();
+    };
+    elasticAnim = scheduleFrame(step);
 };
-chart.addEventListener('touchend', endTouchNav);
-chart.addEventListener('touchcancel', endTouchNav);
+
+// Whatever is in flight, stopped where it is. Anything that takes the
+// axis calls this first, so two things are never writing `dayN` at
+// once — the failure that reads as the grid moving under a finger that
+// is holding still.
+const stopElastic = () => {
+    if (elasticAnim) { cancelFrame(elasticAnim); elasticAnim = null; }
+    clearTimeout(wheelBack);
+};
+
+// Home is home whichever of the three states it is leaving, and it is
+// the only destination any way out has.
+const elasticHome = () => {
+    stopElastic();
+    dayMode = 'home';
+    setArmed(false);
+    springTo(0, 0, BOUNCE_MS, easeOutBack);
+};
+// For callers that own the whole grid anyway (a view or city change):
+// no spring, no repaint, just back to rest.
+const resetElastic = () => {
+    stopElastic();
+    dayN = 0; dayOv = 0; dayMode = 'home';
+    lockArmed = false;
+    applyDayWidths();
+};
+
+// One whole day either way, for the keyboard. It holds where it is put
+// rather than springing: there is no hand to take away, so there is no
+// release to read as "that was a peek".
+const nudgeElastic = dir => {
+    stopElastic();
+    const next = Math.max(-maxPast(), Math.min(maxFuture(), Math.round(dayN) + dir));
+    if (next === dayN && !dayOv) return;
+    dayN = next; dayOv = 0;
+    dayMode = next ? (dayMode === 'locked' ? 'locked' : 'stretch') : 'home';
+    if (next) retireHint('days');
+    applyDayWidths();
+};
+
+// --- The gesture ---------------------------------------------------
+// Pointer events, so one path covers finger, mouse and stylus, and
+// pointer capture routes every move and the release back here whatever
+// a repaint did to the DOM underneath.
+let pull = null;   // { x, y, id, axis, basePx, wasLocked }
+
+chart.addEventListener('pointerdown', e => {
+    if (pull || !e.isPrimary) return;
+    // Origin gate: a drag that starts on the hour rail belongs to the
+    // hour peek. The rail sits inside .chart, so its events bubble here.
+    if (e.target.closest?.('.rail')) return;
+    swallowClick = false;
+    pull = {
+        x: e.clientX, y: e.clientY, id: e.pointerId, axis: null,
+        // A pull that starts from a locked stretch continues from where
+        // that stretch already stands, so "the same pull again" is the
+        // same travel from here as it was from home.
+        basePx: dayMode === 'locked' ? pxFromRaw(dayN) : 0,
+        wasLocked: dayMode === 'locked',
+        // What the press interrupted, so a press that turns out not to
+        // be a pull can put it back rather than leave the axis parked
+        // wherever the finger happened to land on it.
+        wasAnimating: !!elasticAnim,
+        heldWheel: !!wheelBack
+    };
+    // The hand takes the axis: whatever spring or wheel hold was still
+    // running stops where it is, and the pull is anchored to what is
+    // actually on screen rather than to where it was heading.
+    stopElastic();
+});
+// A press that turns out not to be a pull — a tap, or a vertical drag
+// the page takes — hands the axis back exactly as it found it.
+const restPull = p => {
+    if (p.heldWheel) { wheelBack = setTimeout(elasticHome, WHEEL_HOLD_MS); return; }
+    if (!p.wasAnimating) return;   // nothing was in flight; nothing to resume
+    if (dayMode === 'locked') {
+        const side = Math.sign(dayN) || 1, cap = reachOn(side);
+        if (Math.abs(dayN) !== cap || dayOv) springTo(side * cap, 0, LOCK_SETTLE_MS, easeInOut);
+    } else if (dayN || dayOv) elasticHome();
+};
+
+chart.addEventListener('pointermove', e => {
+    if (!pull || e.pointerId !== pull.id) return;
+    const dx = e.clientX - pull.x, dy = e.clientY - pull.y;
+    if (!pull.axis) {
+        if (Math.hypot(dx, dy) < PULL_SLOP) return;
+        pull.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+        // Vertical belongs to nobody here. Let go of the pointer rather
+        // than claim it, so the page behaves as any page would — and
+        // give the axis back the movement the press interrupted, or a
+        // finger that lands mid-bounce and then scrolls the page would
+        // leave the days parked where it caught them, with no ⌂ and no
+        // way back.
+        if (pull.axis !== 'x' || !elasticLive()) { restPull(pull); pull = null; return; }
+        chart.setPointerCapture?.(e.pointerId);
+        if (dayMode !== 'locked') dayMode = 'stretch';
+        // Deliberately NOT closing an open tooltip: it survives the pull
+        // and keeps reading the same block, which is what makes it the
+        // comparison tool.
+    }
+    e.preventDefault();
+    // Pull left and future days accordion in from the right: the motion
+    // and the meaning share a side, which is the whole logic of it. The
+    // slop is subtracted rather than ignored, so the grid does not jump
+    // by the threshold at the moment the pull is claimed.
+    const travel = -(dx - Math.sign(dx) * PULL_SLOP);
+    const raw = rawFromPx(pull.basePx + travel);
+    const side = Math.sign(raw) || 1, cap = reachOn(side);
+    // An end with no days behind it does not stretch and does not arm.
+    // A rubber band there would offer a lock on nothing: the release
+    // would latch a stretch of zero days, ⌂ and all, over a grid
+    // identical to home.
+    if (!cap) { dayN = 0; dayOv = 0; }
+    else if (Math.abs(raw) <= cap) { dayN = raw; dayOv = 0; }
+    else { dayN = side * cap; dayOv = side * (Math.abs(raw) - cap) * dayCost(side); }
+    applyDayWidths();
+    updateArmed();
+    // The gesture has been used, so its hint has done its job. Only a
+    // pull away from rest counts: the way home is not a discovery.
+    if (dayN) retireHint('days');
+});
+
+// The release is the decision, and there are only two of them: this was
+// a peek, or this was a lock.
+const endPull = e => {
+    if (!pull || (e && e.pointerId !== pull.id)) return;
+    const p = pull;
+    pull = null;
+    if (chart.hasPointerCapture?.(e?.pointerId)) chart.releasePointerCapture(e.pointerId);
+    // A tap. The trailing click opens the tooltip, and nothing here
+    // navigates — but the press stopped whatever was in flight when the
+    // finger landed, so it is set going again toward where it was headed.
+    if (p.axis !== 'x') { restPull(p); return; }
+    // A claimed pull is not a tap, whatever it lands on.
+    swallowClick = true;
+    const side = Math.sign(dayOv || dayN) || 1;
+    const cap = reachOn(side);
+    if (p.wasLocked) {
+        // Three ways out of locked, all of them home. The same pull
+        // again to the same threshold — same mark, same single buzz.
+        if (lockArmed) { elasticHome(); return; }
+        // A clear pull back toward home is the second.
+        if (Math.abs(dayN) < cap - 0.5) { elasticHome(); return; }
+        // Anything less is a wiggle, and the lock holds.
+        setArmed(false);
+        springTo(side * cap, 0, LOCK_SETTLE_MS, easeInOut);
+        return;
+    }
+    if (lockArmed) {
+        dayMode = 'locked';
+        setArmed(false);
+        springTo(side * cap, 0, LOCK_SETTLE_MS, easeInOut);
+        return;
+    }
+    setArmed(false);
+    elasticHome();
+};
+// On the window, not the chart. Capture is only taken once the axis is
+// claimed, so a press that never travels far enough releases wherever
+// the finger happens to be — and if that is off the chart, a listener
+// bound to the chart never hears it and `pull` is left set for the rest
+// of the session, with every later pull refused.
+addEventListener('pointerup', endPull);
+addEventListener('pointercancel', endPull);
 
 // The key follows the hand. A finger on the grid is the moment the question
 // "what does this colour mean" is actually being asked, so that is when the
@@ -2726,26 +3306,36 @@ chart.addEventListener('touchcancel', () => holdLegend(false));
 chart.addEventListener('pointerenter', e => { if (e.pointerType !== 'touch') holdLegend(true); });
 chart.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') holdLegend(false); });
 
-// Desktop paging: a horizontal wheel over the grid, claimed only when
-// the horizontal component dominates, so an ordinary vertical scroll
-// over the grid is left to the page.
-let pageAcc = 0, pageWheelAt = 0;
+// A horizontal wheel over the grid holds a peek open. It is the one
+// input with no release to decide on, so it cannot lock and it cannot
+// latch: the stretch it opens settles back a beat after the wheel stops,
+// which is the same "let go and it bounces" the finger gets, driven by
+// the only thing a wheel has that resembles letting go.
+//
+// Claimed only when the horizontal component dominates, so an ordinary
+// vertical scroll over the grid is left to the page.
+let wheelAcc = 0, wheelAt = 0;
 chart.addEventListener('wheel', e => {
-    if (!pagingLive()) return;
+    if (!elasticLive() || dayMode === 'locked') return;
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
     e.preventDefault();
     const now = performance.now();
-    if (now - pageWheelAt > WHEEL_GAP_MS) pageAcc = 0;
-    pageWheelAt = now;
-    pageAcc += e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
-    if (Math.abs(pageAcc) < WHEEL_STEP) return;
-    const dir = Math.sign(pageAcc);
-    pageAcc = 0;
+    if (now - wheelAt > WHEEL_GAP_MS) wheelAcc = 0;
+    wheelAt = now;
+    wheelAcc += e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    if (Math.abs(wheelAcc) < WHEEL_STEP) return;
     // A wheel is scrolling, not direct manipulation, so the viewport
     // follows the wheel rather than the content following the hand.
-    setDayOff(dayOff + dir);
-    renderDayStrip();
-    armRevealIdle(dayHome);
+    const dir = Math.sign(wheelAcc);
+    wheelAcc = 0;
+    stopElastic();
+    dayMode = 'stretch';
+    dayN = Math.max(-maxPast(), Math.min(maxFuture(), dayN + dir));
+    dayOv = 0;
+    if (dayN) retireHint('days');
+    applyDayWidths();
+    clearTimeout(wheelBack);
+    wheelBack = setTimeout(elasticHome, WHEEL_HOLD_MS);
 }, { passive: false });
 
 // --- The city sheet ----------------------------------------------
@@ -2947,9 +3537,7 @@ const previewCols = (pl, sh = sheet) => {
     // rather than as the data not being here yet. The commit still
     // fetches, and the status line says so.
     if (!raw) { sh.cache.set(key, null); return null; }
-    const ref = (wave ? wave.to : lastCols) || buildCols();
-    const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
-    const built = fitCols(raw, nCols, nRows);
+    const built = fitCols(raw, refCols());
     sh.cache.set(key, built);
     return built;
 };
@@ -3714,7 +4302,7 @@ $('sheetScrim').addEventListener('click', () => closeSheet(false));
 const LS_HINTS = 'mr-hints-seen';
 const HINTS = [
     { key: 'sheet', text: 'swipe up for cities', live: () => sheetLive() },
-    { key: 'days', text: 'drag the grid sideways for other days', live: () => pagingLive() },
+    { key: 'days', text: 'pull the grid sideways for more days', live: () => elasticLive() },
     { key: 'hours', text: 'pull the hours for more of the day', live: () => hourPeekLive() },
     // The switch is also the app's comparison tool and nothing ever said
     // so. Holding the name previews each city on the grid at its true
@@ -3725,8 +4313,9 @@ const HINTS = [
     // around the forecast at all and this is what you do once you can.
     { key: 'peek', text: 'hold the city name to peek, release to stay', live: () => sheetLive() }
 ];
-// Read once and kept. `retireHint` runs from `setDayOffState` and
-// `setHourOffState`, which fire once per notch inside a move handler, and
+// Read once and kept. `retireHint` runs from the day elastic's own
+// move handler and from `setHourOffState`, both once per frame or notch
+// inside a move handler, and
 // a synchronous localStorage read plus a JSON.parse per notch is not
 // something a drag should be paying for. The Set is the truth from here
 // on; storage is only written to.
@@ -3809,7 +4398,8 @@ const DWELL = 0.5;
 // abandoned at 15px would otherwise snap back inside a single frame.
 const REWIND_MIN_MS = 120;
 const REVEAL_SLOP = 10;   // px before a rail drag is a reveal at all
-const REVEAL_IDLE_MS = 4000; // latched drawer's own way home
+const REVEAL_IDLE_MS = 4000; // the hour peek's own way home, for the
+                             // inputs that have no release to read
 const REVEAL_HOME_MS = 220;  // the going-home tween's own duration
 // A straight 1:1 track (one row/column per `per` px) read as too fast to
 // aim: the reveal was past the notch you meant to land on before the
@@ -3845,10 +4435,10 @@ const mapRailNotches = (raw, unit) => {
 // `stateSetter` lines in each `railDrag(...)` call below, the
 // `railScrubLive` branch inside `railDrag`, `mapRailNotches`'
 // return shape (an object now, read by that branch), and the
-// `setDayOffState`/`setHourOffState` split above (`setDayOff`/
-// `setHourOff` still do exactly what they always did, just built
-// from that split). Reverting means undoing all of those, not only
-// this block.
+// `setHourOffState` split above (`setHourOff` still does exactly
+// what it always did, just built from that split). Reverting means
+// undoing all of those, not only this block. The day axis left this
+// scheme entirely with DR-39.
 // Known limitation: the day-label row and hour-rail times do not
 // themselves animate mid-drag (only the coloured grid does), so
 // they can lag a frame or two behind the blend until it settles.
@@ -3856,31 +4446,22 @@ const mapRailNotches = (raw, unit) => {
 // blend and the shipped instant behaviour already degrades cleanly.
 const railScrubLive = () => !reduceMotion();
 
-// Builds the grid for a given day/hour offset without touching the
-// live dayOff/hourOff, the same trick `sheetColsFor` uses: swap the
-// state just long enough to call buildCols(), then restore
-// it. Cached per drag, since a single drag can cross many notches.
-const dayColsFor = (offset, cache) => {
-    const key = Math.max(minDayOff(), Math.min(maxDayOff(), offset));
-    if (cache.has(key)) return cache.get(key);
-    const ref = (wave ? wave.to : lastCols) || buildCols();
-    const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
-    const keep = dayOff;
-    let built;
-    try { dayOff = key; built = fitCols(buildCols(), nCols, nRows); }
-    finally { dayOff = keep; }
-    cache.set(key, built);
-    return built;
-};
+// Builds the grid for a given hour offset without touching the live
+// `hourOff`, the same trick `sheetColsFor` uses: swap the state just
+// long enough to call buildCols(), then restore it. Cached per drag,
+// since a single drag can cross many notches.
+//
+// The day axis had one of these too. It is gone: the elastic does not
+// swap one grid for another as it moves, it changes the width of the
+// columns already on screen, so there is no second grid to blend toward.
 const hourColsFor = (offset, cache) => {
     const { min, max } = hourPeekRange();
     const key = Math.max(min, Math.min(max, offset));
     if (cache.has(key)) return cache.get(key);
-    const ref = (wave ? wave.to : lastCols) || buildCols();
-    const nCols = ref.length, nRows = ref[0] ? ref[0].length : 0;
+    const ref = refCols();
     const keep = hourOff;
     let built;
-    try { hourOff = key; built = fitCols(buildCols(), nCols, nRows); }
+    try { hourOff = key; built = fitCols(buildCols(), ref); }
     finally { hourOff = keep; }
     cache.set(key, built);
     return built;
@@ -4053,71 +4634,16 @@ const springHours = () => {
     });
 };
 
-// --- Days: a latched drawer ---------------------------------------
-// Extra days cost payload and are steeply less certain: they are new
-// information you have to read, not a glance, so they latch and stay
-// tappable. The frame stays 7 columns wide and slides; it never grows.
-//
-// A step repaints instantly, with no wave, exactly as the hour peek
-// does. The two reveals move the same way for the same reason: a step is
-// the window sliding one notch, so each block simply takes the next day's
-// value and the movement reads as the frame rolling sideways. The
-// black-to-colour wave is the app's language for the grid becoming a
-// *different* grid (a new view, a new city), and firing it on every notch
-// of a slide said "everything changed" seven columns at a time when only
-// one column of content had entered. It also outran the gesture: a wave
-// is ~380ms and a drag can cross three days inside that, so the sweep
-// spent the whole drag chasing the hand instead of following it.
-//
-// One rule, both axes: stepping is instant, going home is the same slide
-// played back on its own clock instead of the grid's shared wave. See
-// `springHours` above for why the wave was dropped for the reveals'
-// own return trip.
-// Just the state half, no repaint. See `setHourOffState` above for
-// why EXPERIMENTAL's rail crossfade needs this split.
-const setDayOffState = n => {
-    dayHomeGen++;                          // a live drag/step owns it now
-    const v = Math.max(minDayOff(), Math.min(maxDayOff(), n));
-    if (v === dayOff) return false;
-    dayOff = v;
-    if (v) retireHint('days');
-    renderDayHome();
-    return true;
-};
-const setDayOff = n => {
-    const changed = setDayOffState(n);
-    if (changed) repaint();  // instant: a step follows the finger, it doesn't chase it
-    return changed;
-};
-// Home again, the same eased tween `springHours` plays: no `anim`, so
-// every tick is the instant, no-wave repaint a drag step already uses,
-// and the drawer just slides itself the rest of the way shut.
-//
-// The tween is signed and needed no change for negative offsets: `from`
-// is negative coming back from last night, and `from - round(from *
-// ease)` walks -2 up to 0 the same way it walks 7 down to 0. `!dayOff`
-// is still the right "already home" test, since 0 is the only offset
-// that is falsy.
-const dayHome = () => {
-    clearTimeout(revealTimer);
-    pendingRevealFn = null;
-    if (!dayOff) return;
-    const from = dayOff, gen = ++dayHomeGen;
-    if (reduceMotion()) { dayOff = 0; repaint(); renderDayHome(); return; }
-    homeTween({
-        from,
-        axis: 'x',
-        gen,
-        genOf: () => dayHomeGen,
-        // The ⌂ chip belongs to this axis: it is drawn whenever the frame
-        // is off today, so it has to keep up with the offset rather than
-        // wait for the repaint at the end.
-        setOffset: n => { dayOff = n; renderDayHome(); },
-        colsFor: (offset, cache) => dayColsFor(offset, cache)
-    });
-};
+// The day axis had a latched drawer here: a paged window, a ⌂ chip that
+// meant "off today", and a four-second idle timer that took the screen
+// back on its own. All three are gone, and gone rather than disabled —
+// the elastic (DR-39) replaces the model, not the tuning. The chip
+// survives only as the locked state's way out, and it is drawn by
+// `applyDayWidths` because the state it reports is the elastic's.
 
-// --- Rail drag, shared by both axes -------------------------------
+// --- Rail drag ----------------------------------------------------
+// The hour rail's own drag. It was shared by both axes; the day axis is
+// the elastic now and has its own handler, so this has one caller.
 // Pointer events rather than touch events, so one path covers finger,
 // mouse and stylus; setPointerCapture then routes every move and the
 // release back to the rail no matter what the repaint did to the DOM
@@ -4159,7 +4685,7 @@ const railDrag = (el, opts) => {
         const traveled = d - Math.sign(d) * REVEAL_SLOP;
         const { sgn, k, p } = mapRailNotches(traveled, per);
         // EXPERIMENTAL (2026-07-29): continuous crossfade. See the
-        // block above `setHourOffState`/`setDayOffState` for what
+        // block above `setHourOffState` for what
         // this replaces and how to remove it. The committed offset
         // still flips at the exact point the shipped Math.round
         // always did, so labels/chip/hourPeekRange are unaffected;
@@ -4178,9 +4704,8 @@ const railDrag = (el, opts) => {
             drag.lastK = k;
             const nextCols = opts.colsFor(drag.base - sgn * (k + 1), drag.cache);
             scrubReveal(nextCols, sgn, p, opts.axis);
-            // Same as the day drag above: this path bypasses
-            // `renderOffsetChrome`, so the marks are refreshed here or
-            // they keep pointing past the clamp.
+            // This path bypasses `renderOffsetChrome`, so the carets
+            // are refreshed here or they keep pointing past the clamp.
             showReachMarks(legendHeld);
             return;
         }
@@ -4194,8 +4719,8 @@ const railDrag = (el, opts) => {
         if (!d.moved) return;
         // EXPERIMENTAL: let the last notch's blend finish or rewind
         // (`endRailScrub`) before `opts.end()`, the shipped
-        // springHours/armRevealIdle(dayHome), runs, rather than
-        // calling it against a grid still mid-blend.
+        // `springHours`, runs, rather than calling it against a grid
+        // still mid-blend.
         if (railScrubLive() && opts.colsFor && wave && wave.scrub) endRailScrub(d.lastP, opts.end);
         else opts.end();
     };
@@ -4216,6 +4741,10 @@ const railDrag = (el, opts) => {
 // backwards, since nothing is being held.
 const WHEEL_STEP = 50;   // accumulated px before the wheel is one step
 const WHEEL_GAP_MS = 400; // longer than this and it is a new gesture
+// A wheel has no release, so the day elastic's peek is held for this
+// long after the last notch and then bounces, which is the nearest a
+// wheel has to letting go. Short enough that it is plainly a peek.
+const WHEEL_HOLD_MS = 1000;
 const railWheel = (el, opts) => {
     let acc = 0, last = 0;
     el.addEventListener('wheel', e => {
@@ -4242,15 +4771,6 @@ const railWheel = (el, opts) => {
 };
 
 const hourPeekLive = () => { const r = hourPeekRange(); return r.min !== r.max; };
-// Live if there is anywhere to go on either end. An entry that predates
-// past_days has forward reach and no backward reach, and a payload
-// short enough to have no forward reach left can still be dragged back
-// into last night, so neither end decides this alone.
-//
-// The day RAIL is gone: paging is a horizontal drag on the grid field now.
-// This is what that drag asks before it arms, so the past-day reach carries
-// over to it without the paging code knowing the past exists.
-const drawerLive = () => maxDayOff() > 0 || minDayOff() < 0;
 
 railDrag($('hourRail'), {
     axis: 'y',
@@ -4266,14 +4786,9 @@ railDrag($('hourRail'), {
     colsFor: hourColsFor,
     stateSetter: setHourOffState
 });
-// The day axis was a railDrag bound to #dayRail. Both are gone: the H body
-// swipe that note anticipated is built, and it took the axis with it. The
-// origin conflict it flagged, an H swipe on the grid meaning "previous day"
-// while an H swipe on the bar below means something else, is settled by the
-// bar's H meaning VIEW rather than city: two origins, two axes, no overlap.
-// The paging handler up by `chart` carries the same clamps, so the reach
-// behind today survived the move.
-
+// The day axis was a railDrag bound to #dayRail, then a paging handler
+// on the grid. It is the elastic now, and it lives with the gesture that
+// owns it, up by `chart`.
 
 railWheel($('hourRail'), {
     axis: 'y',
@@ -4283,16 +4798,17 @@ railWheel($('hourRail'), {
     // latch: there is no input that leaves it open.
     step: dir => { setHourOff(hourOff + dir); armRevealIdle(springHours); }
 });
-$('dayHome').addEventListener('click', dayHome);
+// ⌂ exists only while the stretch is locked, and it means home.
+$('dayHome').addEventListener('click', () => elasticHome());
 
-// A tap anywhere off the grid and off the day row sends the drawer home,
-// per DR-29. The grid itself is deliberately excluded: revealed days stay
+// A tap anywhere off the grid and off the day row releases a locked
+// stretch. The grid itself is deliberately excluded: revealed days stay
 // tappable, and a tap that closed the thing you were reading would make
 // the reveal useless for the question it exists to answer.
 document.addEventListener('pointerdown', e => {
-    if (!dayOff) return;
+    if (dayMode !== 'locked') return;
     if (e.target?.closest?.('.day-row, .chart')) return;
-    dayHome();
+    elasticHome();
 }, true);
 
 // Leaving the app (tab hidden, screen locked) shouldn't leave a
@@ -4400,7 +4916,7 @@ document.addEventListener('keydown', e => {
         }
         closeSearch();
         hideTooltip();
-        if (dayOff) dayHome();
+        if (dayN || dayMode !== 'home') elasticHome();
         if (hourOff) springHours();
         return;
     }
@@ -4408,24 +4924,43 @@ document.addEventListener('keydown', e => {
     // An open sheet owns the arrows: it is the thing being aimed.
     if (sheetKey(e)) return;
     // Shift+arrows are the keyboard route into the two reveals, so a
-    // keyboard user reaches the same data the rails reveal (the rails are
-    // drags, and a drag has no keyboard equivalent). Shift+←/→ steps the
-    // day drawer, Shift+↑/↓ peeks hours. Both are transient here too: the
-    // drawer keeps its 4s idle timer and the peek springs home on the same
-    // timer, since a key press has no release to spring back from.
+    // keyboard user reaches the same data a drag does (and a drag has no
+    // keyboard equivalent). Shift+↑/↓ peeks hours, and springs home on
+    // the idle timer, since a key press has no release to spring back
+    // from.
+    //
+    // Shift+←/→ nudges the day elastic by a whole day, held rather than
+    // sprung: a keyboard has no hand to take away, so the peek stays
+    // where it was put. Shift+End / Shift+Home lock it open and let it
+    // go — the keyboard's version of the overpull, which is a threshold
+    // and therefore has nothing a key can mean. Escape and ⌂ are home
+    // from anywhere.
     if (e.shiftKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         const horiz = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
-        // Same both-ends test the rails use: Shift+← now reaches last
-        // night as well as Shift+→ reaching next week.
-        if (horiz && !drawerLive()) return;
+        if (horiz && !elasticLive()) return;
         const r = hourPeekRange();
         if (!horiz && r.min === r.max) return;
         e.preventDefault();
-        if (horiz) { setDayOff(dayOff + (e.key === 'ArrowRight' ? 1 : -1)); armRevealIdle(dayHome); }
+        if (horiz) nudgeElastic(e.key === 'ArrowRight' ? 1 : -1);
         else {
             setHourOff(hourOff + (e.key === 'ArrowDown' ? 1 : -1));
             armRevealIdle(springHours);
         }
+        return;
+    }
+    if (e.shiftKey && (e.key === 'End' || e.key === 'Home')) {
+        if (!elasticLive()) return;
+        e.preventDefault();
+        if (e.key === 'Home') { elasticHome(); return; }
+        // Shift+End takes the end it is already leaning toward, and
+        // forward when it is leaning nowhere.
+        const side = Math.sign(dayN) || 1;
+        const cap = reachOn(side);
+        if (!cap) return;
+        if (dayMode === 'locked' && Math.abs(dayN) >= cap - 0.5) { elasticHome(); return; }
+        dayMode = 'locked';
+        retireHint('days');
+        springTo(side * cap, 0, LOCK_SETTLE_MS, easeInOut);
         return;
     }
     // ↑/↓ step the location through ★ favorites (see keyStepCity above);
@@ -4645,6 +5180,10 @@ addEventListener('pageshow', resyncStandalone);
 addEventListener('resize', () => renderViewBar());
 addEventListener('orientationchange', () => renderViewBar());
 document.fonts?.ready?.then(() => renderViewBar());
+// The columns' widths are measured from the frame (DR-39), so they have
+// to be re-measured for the same reasons.
+addEventListener('resize', () => { measureGap(); applyDayWidths(); });
+addEventListener('orientationchange', () => { measureGap(); applyDayWidths(); });
 if (window.visualViewport) visualViewport.addEventListener('resize', resyncStandalone);
 // Backstops: on some devices the bars settle without firing a resize.
 requestAnimationFrame(resyncStandalone);

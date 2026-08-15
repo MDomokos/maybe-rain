@@ -782,19 +782,32 @@
            The label row and the grid columns share the same left gutter, gap,
            and flex:1 items, so they stay column-aligned at every width. */
         /* The calendar strip: weekday over date, one column per grid column. */
+        /* The gap between columns is a margin on each column rather than
+           the flex `gap`, because the elastic writes both the widths and
+           the gaps from JS (DR-39) and a container gap would be counted
+           twice. The variable stays the single source of the number. */
         .day-labels {
             display: flex;
-            gap: var(--gap);
+            gap: 0;
             margin-bottom: 2px;
             padding-left: var(--gutter);
             padding-right: var(--overhang);
         }
         .day-label {
             flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
             font-size: 12px;
             color: var(--text-muted);
             text-align: center;
         }
+        /* A column whose day is outside the payload. It says nothing —
+           it has no date to say — but it is still sized and laid out by
+           the same pass as every other label, because a home-week column
+           the payload falls short of is still a column, and a label row
+           that skipped it would stop sitting over the days it names. */
+        .day-label.absent { color: transparent; }
         .day-label.today {
             color: var(--accent);
             font-weight: 500;
@@ -876,12 +889,6 @@
         .reach-v { left: calc((var(--gutter) - 8px) / 2); transform: translateX(-50%); }
         #reachUp { top: -1px; }
         #reachDown { bottom: -1px; }
-        /* The day arrows, vertically centred against the column field. The
-           left one sits in the gutter's outer edge, the right one in the
-           gridline overhang, so neither covers a block. */
-        .reach-h { top: 50%; transform: translateY(-50%); }
-        #reachPrev { left: 1px; }
-        #reachNext { right: 0; }
         html.reduce-motion .reach { animation: none; }
         @media (prefers-reduced-motion: reduce) { .reach { animation: none; } }
 
@@ -921,9 +928,9 @@
         /* Chart and grid */
         .chart {
             position: relative;
-            /* pan-y keeps one-finger vertical scroll while the grid's own
-               swipe gestures (change view / city) read horizontal ones; it
-               also blocks an accidental browser pinch on the grid itself. */
+            /* pan-y keeps one-finger vertical scroll while the day elastic
+               (DR-39) reads horizontal ones; it also blocks an accidental
+               browser pinch on the grid itself. */
             touch-action: pan-y;
             height: clamp(280px, 56vh, 720px);
             padding-left: var(--gutter);
@@ -965,13 +972,22 @@
         }
         .chart-grid {
             display: flex;
-            gap: var(--gap);
+            gap: 0;      /* see .day-labels: the elastic owns the gaps */
             height: 100%;
         }
+        /* Past the end of the days the columns freeze and the whole grid
+           slides toward the pull, its trailing edge clipping into black
+           (DR-39). The clip is switched on for exactly that: at rest the
+           current-hour marker deliberately overhangs the field's left
+           edge, and a clip that was always on would eat it. The transform
+           itself rides the COLUMNS, not this box, or the clip would
+           travel with them and nothing would ever clip. */
+        .chart-grid.sliding, .day-labels.sliding { overflow: hidden; }
         /* Gapped "pixel" grid: no column outline. Each block is a discrete
            rounded pixel; the gaps and gridlines provide the structure. */
         .day-column {
             flex: 1;
+            min-width: 0;
             height: 100%;
             display: flex;
             flex-direction: column;
@@ -1116,6 +1132,58 @@
         .weather-block.empty {
             background: transparent;
             cursor: default;
+        }
+
+        /* --- Far days, at the data's own cadence (DR-39) ---------------
+           A block that stands for three or six hours is simply taller;
+           its height is written inline from the slots it covers, so
+           nothing is needed here. The DAILY bar is the one that also
+           changes shape: inset from the column's sides and outlined with
+           a hairline, so a single value for a whole day cannot be
+           mistaken for an hour that happens to be very tall. DR-29's
+           geometry, unchanged.
+
+           `width: auto` rather than the block's usual 100%: a margin does
+           not shrink a definite width, so 100% plus an 18% margin would
+           push the bar out over its neighbour instead of insetting it.
+           The column is a flex column, so auto stretches to what is left. */
+        .weather-block.daily {
+            width: auto;
+            align-self: stretch;
+            margin-left: 18%;
+            margin-right: 18%;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+        }
+
+        /* --- The lock mark (DR-39) ------------------------------------
+           A hairline BESIDE the grid, never on it: the grid surface is
+           data and stays data. It sits in the chart's own side padding,
+           outside the clip, so the slide never carries it off. It grows
+           and brightens with the overpull, goes solid and glows when the
+           release would lock, and stays small and dim while locked — the
+           reminder of which edge is being held. */
+        .lock-mark {
+            position: absolute;
+            top: 50%;
+            width: 3px;
+            height: 12%;
+            transform: translateY(-50%);
+            border-radius: 2px;
+            background: var(--accent);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 3;
+        }
+        .lock-mark.left { left: 0; }
+        .lock-mark.right { right: 0; }
+        .lock-mark.armed {
+            width: 4px;
+            opacity: 1 !important;
+            box-shadow: 0 0 6px 1px var(--accent);
+        }
+        .lock-mark.held {
+            height: 15%;
+            opacity: 0.4;
         }
 
         /* Sunrise/sunset: one straight gold hairline across the full chart
@@ -2027,16 +2095,17 @@
                 <div class="time-labels" id="times"></div>
                 <div class="chart-grid" id="grid"></div>
                 <div class="rail" id="hourRail" aria-hidden="true"></div>
-                <!-- The reach marks. Nothing at rest; drawn only while a hand
-                     is on the grid, and only on the sides the window can
-                     still travel to. The carets sit in the hour gutter,
-                     which is the rail the hour pull is armed from; the
-                     arrows sit at the two edges of the column field, which
-                     is where a day drag takes hold. -->
+                <!-- The reach carets. Nothing at rest; drawn only while a
+                     hand is on the grid, and only on the sides the hour
+                     window can still travel to. They sit in the hour
+                     gutter, which is the rail the hour pull is armed
+                     from. The day axis had a pair of arrows here; the
+                     elastic shows its own extent in the widths, so they
+                     went with the paging. -->
                 <span class="reach reach-v" id="reachUp" aria-hidden="true" hidden>&#9650;</span>
                 <span class="reach reach-v" id="reachDown" aria-hidden="true" hidden>&#9660;</span>
-                <span class="reach reach-h" id="reachPrev" aria-hidden="true" hidden>&#9664;</span>
-                <span class="reach reach-h" id="reachNext" aria-hidden="true" hidden>&#9654;</span>
+                <!-- The lock mark, beside the grid rather than on it. -->
+                <span class="lock-mark" id="lockMark" aria-hidden="true"></span>
             </div>
             <!-- The control row. One row, in thumb reach: the city name (which
                  IS the city switcher, tap or swipe up) and the three view
