@@ -13,6 +13,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 ### elastic day axis, fine-tuning
 - the day label leads with the date and fades the weekday out as a column narrows, so the row no longer jumps part-way through a pull
 - the grid eases home on release instead of overshooting it. the overshoot used to flash in a day from the opposite end, and made a drag that crossed back over look like the animation ran twice
+- past days now close as smoothly as future ones. a whole column gap used to appear the moment a sliver of a column did, jolting the grid sideways at the end of the movement — on the past side, where the days arrive from the left, that jolt moved everything
 - a pull that starts while the days are still closing continues from where they are, rather than snapping them shut and reopening
 - days held open now survive a city or view switch, clamped to whatever the new city's forecast actually reaches
 

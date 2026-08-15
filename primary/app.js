@@ -1588,26 +1588,59 @@ const slideOf = px => SLIDE_MAX * (1 - Math.exp(-px / SLIDE_MAX));
 // week squishes to pay for whatever is coming in, and today never
 // leaves the screen because it is inside the home week.
 //
+// THE GAPS CARRY THE FRACTION TOO, and that is not a detail. A column
+// entering part-way is `frac` of a column, so it is also `frac` of a
+// gap; the gap budget is (DAY_SPAN − 1 + a) rather than a ceil of it,
+// and the one gap belonging to the entering column is GAP × frac.
+//
+// It used to be a whole gap from the instant a sliver existed, and the
+// asymmetry that hid is this: on the FUTURE side the entering column is
+// appended on the right, so a gap popping into being there moves the
+// right-hand edge, which sits under the overhang and is not watched. On
+// the PAST side it is prepended on the LEFT, so the same pop shoves
+// every column — today included — sideways by a whole 6px. The way home
+// therefore decelerated smoothly to a near-stop and then jumped 6.5px at
+// the very end, which is exactly what a bounce looks like. It was never
+// the easing; the past side had a step in its geometry that the future
+// side put somewhere nobody could see.
+//
 // `n` is clamped to the reach here as well as at the source: past the
 // end the columns FREEZE, and the opposite end must not go on squishing
 // to pay for a pull that is revealing nothing.
-const dayWidths = (n, W) => {
+//
+// Returns widths and left-margins together, because after the above they
+// are one calculation and splitting them is how they drifted apart.
+const dayGeom = (n, W) => {
     const w = new Array(DAY_TOTAL).fill(0);
+    const m = new Array(DAY_TOTAL).fill(0);
     const side = Math.sign(n) || 1;
     const a = Math.min(Math.abs(n), reachOn(side));
-    const cw = (W - Math.ceil(DAY_SPAN - 1 + a) * GAP_PX) / (DAY_SPAN + a);
-    for (let k = 0; k < DAY_SPAN; k++) w[HOME_COL + k] = cw;
     const whole = Math.floor(a), frac = a - whole;
+    const cw = (W - (DAY_SPAN - 1 + a) * GAP_PX) / (DAY_SPAN + a);
+    for (let k = 0; k < DAY_SPAN; k++) w[HOME_COL + k] = cw;
     for (let k = 0; k < whole; k++) {
         const i = side > 0 ? HOME_COL + DAY_SPAN + k : HOME_COL - 1 - k;
         if (i >= 0 && i < DAY_TOTAL) w[i] = cw;
     }
+    let fracCol = -1;
     if (frac > 0) {
         const i = side > 0 ? HOME_COL + DAY_SPAN + whole : HOME_COL - 1 - whole;
-        if (i >= 0 && i < DAY_TOTAL) w[i] = cw * frac;
+        if (i >= 0 && i < DAY_TOTAL) { w[i] = cw * frac; fracCol = i; }
     }
-    return w;
+    for (let i = 0; i < DAY_TOTAL; i++) if (w[i] > 0) m[i] = GAP_PX;
+    // Which gap shrinks with the entering column is which side it enters
+    // from: on the right it is the column's own leading gap, on the left
+    // it is the gap between it and the column it is arriving beside.
+    if (fracCol >= 0) {
+        const g = side > 0 ? fracCol : fracCol + 1;
+        if (g < DAY_TOTAL) m[g] = GAP_PX * frac;
+    }
+    return { w, m };
 };
+// A column narrower than this is not drawn. It has to be small enough to
+// be nothing: at half a pixel it was a visible cliff on the past side,
+// because dropping the column dropped its gap with it.
+const VIS_PX = 0.02;
 
 // The label row mirrors the columns exactly, so the dates stay over the
 // days they name at every width. What a label can SAY changes as it
@@ -1640,9 +1673,9 @@ const applyDayWidths = () => {
     // correctly at whatever width the box turns out to be.
     const W = grid.clientWidth;
     const measurable = W > 0;
-    const w = dayWidths(dayN, measurable ? W : 700);
+    const { w, m } = dayGeom(dayN, measurable ? W : 700);
     let first = -1;
-    for (let i = 0; i < DAY_TOTAL; i++) if (w[i] > 0.5) { first = i; break; }
+    for (let i = 0; i < DAY_TOTAL; i++) if (w[i] > VIS_PX) { first = i; break; }
     const tx = dayOv ? -Math.sign(dayOv) * slideOf(Math.abs(dayOv)) : 0;
     const tf = tx ? `translate3d(${tx.toFixed(1)}px,0,0)` : '';
     // The slide has to move the columns INSIDE the frame, not the frame
@@ -1650,14 +1683,14 @@ const applyDayWidths = () => {
     // it and nothing would ever clip into black.
     const moveTf = tf !== slideTf;
     for (let i = 0; i < DAY_TOTAL; i++) {
-        const width = w[i], vis = width > 0.5;
+        const width = w[i], vis = width > VIS_PX;
         const col = cols[i], lab = labels[i];
         for (const el of [col, lab]) {
             if (!el) continue;
             el.style.display = vis ? '' : 'none';
             if (measurable) { el.style.flex = '0 0 auto'; el.style.width = vis ? width.toFixed(2) + 'px' : '0px'; }
             else { el.style.flex = vis ? `${width.toFixed(3)} 0 0` : '0 0 0'; el.style.width = ''; }
-            el.style.marginLeft = vis && i > first ? GAP_PX + 'px' : '0px';
+            el.style.marginLeft = vis && i > first ? m[i].toFixed(2) + 'px' : '0px';
             if (moveTf) el.style.transform = tf;
         }
         if (!lab || lab.classList.contains('absent')) continue;
@@ -4312,21 +4345,58 @@ const endRowTouch = commit => {
         // direction the control row reads in. Decided on release off the
         // travel, so a slow drag and a flick differ only in where they end.
         endViewScrub(r, commit);
-        return;
+        // A sideways swipe usually ends on top of a view button, and that
+        // button's own click would then set a view the swipe did not choose.
+        return true;
     }
     if (!r.armed) {
         // Never travelled far enough to be a swipe on either axis, so it was
         // a press, so it is a tap — and how long it lasted does not enter
         // into it. A tap on a view word is left to its own click handler.
-        if (commit && r.onName) openSearch();
+        if (commit && r.onName) { openSearch(); return true; }
         return;
     }
     // A swipe up. `closeSheet` takes the aim only if the finger reached a row,
     // so a swipe that opened the switcher and came back down takes nothing.
     if (sheet) closeSheet(commit);
+    return true;
 };
-controlRow.addEventListener('touchend', () => endRowTouch(true));
+// Preventing the default on touchend is what stops the browser synthesising
+// the compatibility mouse events — mousedown, mouseup and CLICK — from this
+// touch. That click is the last thing standing between a tap and search, and
+// the reason is geometry rather than timing: the click is dispatched at the
+// finger's coordinates about 300ms later, by which point search has opened
+// UNDER that point, so it lands on whatever row of the freshly-drawn list now
+// occupies it. Tap the top of the city name and that is a city; tap the
+// bottom and it is a different one, or the field, which is exactly why the
+// same tap did something different depending on where in the label it fell.
+//
+// Only when the touch actually did something. A tap on a view word does
+// nothing here on purpose and reaches its button through that very click, so
+// suppressing it unconditionally would stop rain/temp/wind working.
+controlRow.addEventListener('touchend', e => { if (endRowTouch(true)) e.preventDefault(); });
 controlRow.addEventListener('touchcancel', () => endRowTouch(false));
+
+// --- A surface that opens under a finger is not pressed by it -------------
+// The belt to the braces above, for the cases preventDefault cannot reach: a
+// touchend the browser will not let us cancel, a pointer stack that fires the
+// click anyway, or any future caller that opens the sheet from a release.
+//
+// A click is the END of a press, so it belongs to whatever was under the
+// finger when the press BEGAN. Anything that appeared in between was never
+// pressed at all. `pointerdown` is the right thing to read: it fires once per
+// real press, from the finger, at the moment of contact — the compatibility
+// mouse events that follow a touch do not produce another one.
+let pressTarget = null;
+document.addEventListener('pointerdown', e => { pressTarget = e.target; }, true);
+$('citySheet').addEventListener('click', e => {
+    // Keyboard activation of a focused row: no pointer involved, so there is
+    // no press to trace and nothing to distrust.
+    if (e.detail === 0) return;
+    if ($('citySheet').contains(pressTarget)) return;
+    e.stopPropagation();
+    e.preventDefault();
+}, true);
 
 // Mouse and stylus, which have no hold to read: a click is the tap, and the
 // saved places are the first thing search lists before anything is typed, so
