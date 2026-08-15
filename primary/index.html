@@ -1725,6 +1725,20 @@
            three groups have three different lifetimes and the list used to
            say nothing about that. */
         .search-result.seam { box-shadow: inset 0 1px 0 var(--line-strong); }
+        /* The two-city comparison, drawn only while a switcher preview is
+           aimed. One line, both readings, the destination in the accent so
+           the pair reads as from → to rather than as two unrelated facts.
+           It wraps rather than ellipsizing: half a comparison is worse than
+           a taller box. */
+        .tip-compare {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 0 6px;
+            font-variant-numeric: tabular-nums;
+        }
+        .tip-compare .tc-vs { color: var(--text-dimmer); }
+        .tip-compare .tc-there { color: var(--accent); }
         /* Soft hairline between rows: every row but the last underlines itself,
            so there's no line at the very bottom of the list (or under the
            search bar at the top). */

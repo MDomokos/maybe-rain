@@ -1961,7 +1961,11 @@ const showTooltip = el => {
         const chipHtml = chips.length
             ? `<div class="tip-chips">${chips.map(c => `<span class="tip-chip">${esc(c)}</span>`).join('')}</div>` : '';
 
-        tooltip.innerHTML = when + temp + rain + wind + divider + detailLine + chg + chipHtml;
+        // The comparison sits directly under the detail line and above the
+        // hazard chips: it is a reading, not a warning, and a chip row
+        // between the two numbers being compared would break the pair.
+        const compare = sheetCompareLine(day.date, h);
+        tooltip.innerHTML = when + temp + rain + wind + divider + detailLine + chg + compare + chipHtml;
     }
     // The travel transition is armed BEFORE the position is written, and
     // only for a move. Placed after the innerHTML write so the box is
@@ -2918,6 +2922,43 @@ const placeReading = place => withPlaceState(place, () => {
     return h ? viewReading(h, view) : null;
 });
 
+// --- The comparison line in the tooltip ---------------------------------
+// DR-28 already keeps an open tooltip alive across a city switch and
+// re-targets the same grid position, and BEHAVIOR.md has called that "the
+// comparison tool" ever since. Nothing on screen has ever said so, and
+// nothing about it read as a comparison: you got one city's numbers, then
+// the other city's numbers in the same box, and holding the first set in
+// your head was still your job.
+//
+// So while a preview is aimed, the open tooltip prints BOTH — same hour,
+// same date, two cities, in numbers rather than in colours. That is the
+// honest A/B the whole gesture is for, and it needs no new surface: it is
+// drawn exactly where the reader was already looking.
+//
+// Matched on the date STRING, not on the column index. Two cities can put
+// today at different indices — one a day ahead across the date line, one
+// with fewer past days cached — and comparing column 3 to column 3 would
+// then be comparing two different days while claiming to compare one hour.
+const sheetCompareLine = (date, h) => {
+    if (!sheet || sheetMode !== 'places') return '';
+    const aimed = sheetPlaces()[sheet.aim];
+    if (!aimed || placeKey(aimed) === placeKey(state.place)) return '';
+    const mine = viewReading(h, view);
+    const theirs = withPlaceState(aimed, () => {
+        const di = state.days.findIndex(d => d.date === date);
+        const hh = di >= 0 ? state.data[di]?.find(x => x.hour === h.hour) : null;
+        return hh ? viewReading(hh, view) : null;
+    });
+    // Either side missing is not a comparison. Say nothing rather than
+    // print one number under a heading that promises two.
+    if (mine == null || theirs == null) return '';
+    return `<div class="tip-ctx tip-compare">`
+        + `<span>${esc(state.place.name)} ${esc(mine)}</span>`
+        + `<span class="tc-vs">→</span>`
+        + `<span class="tc-there">${esc(aimed.name)} ${esc(theirs)}</span>`
+        + `</div>`;
+};
+
 // What the mark slot on the right of a row says. The two anchor rows name
 // themselves, because which is which is the whole point of the bottom of
 // the list; the tiers above are named on their FIRST row only, beside the
@@ -3011,9 +3052,20 @@ const paintAim = () => {
     // control row relabelled itself with an unrelated favourite: the city name
     // visibly changed without the city changing, which reads exactly like the
     // switch having fired by mistake.
-    const aimed = sheetMode === 'places' ? sheetPlaces()[sheet.aim] : null;
+    const rows = sheetMode === 'places' ? sheetRows() : [];
+    const aimedRow = rows[sheet.aim] || null;
+    const aimed = aimedRow?.place || null;
     $('locationName').textContent = aimed ? aimed.name : state.place.name;
-    $('cityCount').textContent = aimed ? `${sheet.aim + 1}/${n}` : '';
+    // Beside the destination, WHAT it is rather than where it sits. The
+    // counter used to read "3/5", which is a position in a list that
+    // reorders as you switch: it says how far you have travelled, never
+    // what you will land on or what is next to it, and it means something
+    // different every time. The tier is the fact you can act on — whether
+    // the release lands on a main, on somewhere you were passing through,
+    // or on the city you are already standing on, which is the one reading
+    // that tells you a release changes nothing.
+    $('cityCount').textContent =
+        aimedRow ? (aimedRow.tier === TIER_HERE ? 'now' : aimedRow.tier) : '';
     // The readout at the bottom of the held sheet, which sits exactly where
     // the control row's name will be once the sheet goes.
     $('sheetAim').textContent = aimed ? aimed.name : '';
@@ -3031,6 +3083,13 @@ const setAim = idx => {
     sheet.moved = true;
     navigator.vibrate?.(VIBE_DETENT);
     paintAim();
+    // An open tooltip carries the comparison line, so it has to be re-read
+    // when the aim moves — the same "re-target the same grid position after
+    // a repaint" path a city commit already uses. It is safe to run inside
+    // the drag for the reason the sheet list is not: #tooltip is a sibling
+    // of .chart, so rewriting it cannot detach the element the touch is
+    // being dispatched to.
+    refreshActiveTooltip();
     // Preview the aimed city on the grid, sweeping the way the list is
     // moving so everything visible moves with the finger. Off under
     // reduced motion, where the sheet is the whole answer.
@@ -3310,6 +3369,18 @@ const closeSheet = (commit = false) => {
         if (back) waveTo($('grid'), back, -(Math.sign(cur - s.aim) || 1), { axis: 'y' });
         waveRelease();
         if (!wave) repaint();
+        // The sheet is already null, so this drops the comparison line and
+        // leaves the tooltip reading one city again. The commit path gets
+        // the same thing for free out of changeCity's repaint.
+        refreshActiveTooltip();
+        // A held sheet that was aimed around and then released where it
+        // started IS the peek, so the hint that names it has done its job
+        // and retires. `moved` is what separates it from a dismissal: a
+        // scrim tap or an Escape never aimed at anything and has learned
+        // nothing. Deliberately not retired by a plain commit — switching
+        // city is the other gesture, and it is already named by its own
+        // hint.
+        if (s.via === 'drag' && s.moved) retireHint('peek');
         return;
     }
     // Commit exactly once, and never gate it on something that might not
@@ -3596,7 +3667,15 @@ const LS_HINTS = 'mr-hints-seen';
 const HINTS = [
     { key: 'sheet', text: 'swipe up for cities', live: () => sheetLive() },
     { key: 'days', text: 'drag the grid sideways for other days', live: () => pagingLive() },
-    { key: 'hours', text: 'pull the hours for more of the day', live: () => hourPeekLive() }
+    { key: 'hours', text: 'pull the hours for more of the day', live: () => hourPeekLive() },
+    // The switch is also the app's comparison tool and nothing ever said
+    // so. Holding the name previews each city on the grid at its true
+    // colours, and releasing on the row you started on takes nothing —
+    // which is the whole of "let me just check over there" and reads, with
+    // no cue, as a gesture you got away with rather than one you used.
+    // Last in the list, because the two reveals above it are how you get
+    // around the forecast at all and this is what you do once you can.
+    { key: 'peek', text: 'hold the city name to peek, release to stay', live: () => sheetLive() }
 ];
 // Read once and kept. `retireHint` runs from `setDayOffState` and
 // `setHourOffState`, which fire once per notch inside a move handler, and
