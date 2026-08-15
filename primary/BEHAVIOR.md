@@ -13,8 +13,10 @@ design work. For *why* any of this is the way it is, see the decision records in
 
 One viewport, no scrolling. Nothing above the grid but dates. Top to bottom:
 
-- **Day row** — weekday over the date, one column per grid column. A column
-  that has narrowed drops to the date alone, then to nothing.
+- **Day row** — the date over its weekday, one column per grid column. A column
+  that has narrowed fades the weekday out, then the date too. The date is the
+  top line so that losing the weekday moves nothing, and the row keeps its
+  height either way so the grid never shifts under a pull.
 - **Grid** — 7 columns × 16 rows at rest. Days across, hours 06:00–21:00 down.
   Every block in the home week is one real hour of one real day. Days pulled in
   from beyond it draw at the granularity the forecast actually has: 3-hour

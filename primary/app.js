@@ -220,7 +220,8 @@ const renderSkeleton = () => {
     // skeleton of a different shape would have to be rebuilt the moment
     // real data arrived, and the reveal blink runs in place.
     $('days').innerHTML = Array(days).fill(
-        '<div class="day-label" data-wd="–" data-date="–"></div>').join('');
+        '<div class="day-label"><span class="day-date">–</span>'
+        + '<span class="day-wd">–</span></div>').join('');
     renderTimes();
     // Same reason, for the same instant: a city switch with nothing cached
     // must not leave the previous city's readings sitting in the buttons.
@@ -1598,10 +1599,18 @@ const dayWidths = (n, W) => {
 
 // The label row mirrors the columns exactly, so the dates stay over the
 // days they name at every width. What a label can SAY changes as it
-// narrows: weekday over date while there is room, the date alone when
+// narrows: date over weekday while there is room, the date alone when
 // there is less, nothing at all when there is not enough for a number
 // to be read. Stepped by bucket rather than continuously, so a pull
 // rewrites a label once instead of on every frame.
+//
+// Both lines are always in the DOM and always laid out; the bucket only
+// toggles a class, and the fade is the stylesheet's. That is what makes
+// the drop from two lines to one stop being a swap: the date is the top
+// line, so it does not move when the weekday under it goes, and the row
+// keeps its height so the grid does not move either. The old order
+// (weekday over date) could not do this — losing the top line pulls
+// everything below it upward, whatever it is faded with.
 const labelBucket = px => px >= 34 ? 2 : px >= 16 ? 1 : 0;
 // The slide is written only when it changes, so a rebuild of the columns
 // has to say that the fresh nodes carry nothing yet. `null` is a value
@@ -1643,9 +1652,8 @@ const applyDayWidths = () => {
         const bucket = labelBucket(width);
         if (+lab.dataset.b === bucket) continue;
         lab.dataset.b = bucket;
-        lab.innerHTML = bucket === 2
-            ? `${lab.dataset.wd}<span class="day-date">${lab.dataset.date}</span>`
-            : bucket === 1 ? `<span class="day-date">${lab.dataset.date}</span>` : '';
+        lab.classList.toggle('tight', bucket === 1);
+        lab.classList.toggle('tiny', bucket === 0);
     }
     if (moveTf) {
         slideTf = tf;
@@ -1677,10 +1685,11 @@ const renderDayStrip = () => {
     measureGap();
     if (!state.data.length) { $('days').innerHTML = ''; return; }
 
-    // Weekday over the real date. The elastic can bring any day on
+    // The real date over its weekday. The elastic can bring any day on
     // screen, so a weekday letter alone would stop being an answer to
-    // "which day is this". Today stays gold, the marker it already had;
-    // it is not restated as a dot as well.
+    // "which day is this" — and the date is the line that survives every
+    // width, so it is the line on top. Today stays gold, the marker it
+    // already had; it is not restated as a dot as well.
     //
     // The past class rides the same row as the blocks, so a receded column
     // reads as one whole column sitting behind today. It used to go on the
@@ -1690,13 +1699,15 @@ const renderDayStrip = () => {
     // One label per column, all sixteen, built once and then only ever
     // resized: the labels ARE the columns' widths, and rewriting the row
     // on every frame of a pull is the jitter the elastic exists to
-    // avoid. The text they can hold is what changes as they narrow, and
-    // `applyDayWidths` swaps that by width bucket.
+    // avoid. Both lines are written now and stay written; what changes as
+    // a column narrows is which of them is visible, and `applyDayWidths`
+    // toggles that by width bucket so the stylesheet can fade it.
     $('days').innerHTML = Array.from({ length: days }, (_, i) => {
         const day = state.days[off + i];
         if (!day) return '<div class="day-label absent" aria-hidden="true"></div>';
-        return `<div class="day-label${day.isToday ? ' today' : ''}${day.past ? ' past' : ''}"`
-            + ` data-wd="${esc(day.text)}" data-date="${+day.date.slice(8, 10)}"></div>`;
+        return `<div class="day-label${day.isToday ? ' today' : ''}${day.past ? ' past' : ''}">`
+            + `<span class="day-date">${+day.date.slice(8, 10)}</span>`
+            + `<span class="day-wd">${esc(day.text)}</span></div>`;
     }).join('');
     applyDayWidths();
 };

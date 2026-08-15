@@ -353,20 +353,48 @@
         /* The header is a readout in every state now: search happens in the
            sheet, so nothing up here ever has to get out of its way. */
 
-        /* Calendar day strip. The weekday keeps the old .day-label rule; the
-           date number is added beneath it at the temp row's own lead size and
-           weight, so the three stacked rows (weekday, date, min/max) read as
-           one type ladder rather than three sizes. Today is gold, exactly as
-           the weekday already was: the marker is not restated as a dot, since
-           the app's rule is one signal per thing. */
-        .day-label { line-height: 1.25; }
+        /* Calendar day strip. The DATE is the top line and the weekday sits
+           under it, which is the order the elastic forced: a narrowing column
+           drops the weekday first, and with the weekday on top the date used
+           to jump up into the space it left — a shift on the one row whose
+           whole job is to stay over the days it names. Underneath, the
+           weekday can go without anything above it moving a pixel.
+           Today is gold, exactly as it was: the marker is not restated as a
+           dot, since the app's rule is one signal per thing. */
+        .day-label {
+            line-height: 1.25;
+            /* Both lines are always laid out, so the row's height is the same
+               whether the weekday is visible or not. The weekday leaves by
+               opacity alone; collapsing it would shorten the strip and push
+               the grid up, which is the movement this is here to avoid. */
+            min-height: 2.5em;
+        }
         .day-date {
             display: block;
             font-size: 14px;
             font-weight: 500;
             color: var(--text);
         }
+        /* The weekday, secondary now that it is the line that leaves. It
+           cross-fades on the width bucket rather than being written in and
+           out of the DOM, so the transition is the browser's and a pull
+           costs one class toggle per column instead of an innerHTML swap. */
+        .day-wd {
+            display: block;
+            font-size: 11px;
+            letter-spacing: 0.03em;
+            color: var(--text-muted);
+            transition: opacity 160ms ease;
+        }
         .day-label.today .day-date { color: var(--accent); }
+        .day-label.today .day-wd { color: var(--accent); }
+        /* tight: no room for two lines, the weekday fades. tiny: no room for
+           a number to be read either, and the whole label fades. */
+        .day-label.tight .day-wd,
+        .day-label.tiny .day-wd { opacity: 0; }
+        .day-label.tiny .day-date { opacity: 0; transition: opacity 160ms ease; }
+        html.reduce-motion .day-wd,
+        html.reduce-motion .day-label.tiny .day-date { transition: none; }
 
         /* The control row. Stacked under the status line inside the existing
            .view-toggle block, so the bottom zone keeps one owner and DR-7's
@@ -1972,6 +2000,7 @@
             .time-label { font-size: 12px; }
             .day-label { font-size: 13px; }
             .day-date { font-size: 15px; }
+            .day-wd { font-size: 12px; }
         }
 
         /* Landscape tablet (touch, tall viewport): short and wide. Don't fill

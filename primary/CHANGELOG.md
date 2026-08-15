@@ -12,6 +12,10 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the two gold arrows that appeared at the sides of the grid are gone with them. the columns making room say it better
 - on a keyboard, shift and the arrows move a day at a time and stay put; shift+end holds the days open and lets go again
 
+### the date row stops jumping while you pull
+- the date is now the top line of each day label, with the weekday under it. as a column narrows the weekday fades out instead of the label being rewritten, and the date stays exactly where it was
+- it used to be the other way round, so the moment a column got tight the weekday vanished and the date jumped up into its place
+
 ### the far days say what they really are
 - days a week or more out no longer pretend to be hourly. they draw in three-hour blocks, then six, and a single bar for the whole day once the forecast is only a daily one
 - tapping one of those blocks tells you which hours it covers, how much rain fell across the block rather than per hour, and that the data behind it is no longer hourly
