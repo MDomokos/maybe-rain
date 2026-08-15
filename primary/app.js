@@ -3997,16 +3997,30 @@ const openSheetChrome = () => {
     // rows with a fade playing over them.
     if (sheetExitTimer) sheetExitTimer();
     const sh = $('citySheet'), sc = $('sheetScrim');
+    // Is the sheet ALREADY up? Asked after the exit above has been finished
+    // off, so a sheet mid-fade counts as gone rather than as showing.
+    //
+    // This is the difference between opening the sheet and moving between
+    // its modes. The menu button inside the sheet reaches search through
+    // openSearch, which comes through here, and the entrance was replayed
+    // over a sheet that was already open: `sheetIn` starts at opacity 0, so
+    // the sheet and its scrim both blanked for a frame and what showed
+    // through was the grid — the app's main screen flashing between two
+    // panels that never went anywhere. A mode swap is a change of contents,
+    // and the surface holding them does not move.
+    const already = !sh.hidden && !sh.classList.contains('sheet-out');
     sc.hidden = false;
     sh.hidden = false;
-    // Restart the entrance even if one is already on the element: removing
-    // the class, forcing the reflow and adding it back is the one reliable
-    // way to replay a CSS animation.
-    sh.classList.remove('sheet-in');
-    sc.classList.remove('sheet-in');
-    void sh.offsetHeight;
-    sh.classList.add('sheet-in');
-    sc.classList.add('sheet-in');
+    if (!already) {
+        // Restart the entrance even if one is already on the element:
+        // removing the class, forcing the reflow and adding it back is the
+        // one reliable way to replay a CSS animation.
+        sh.classList.remove('sheet-in');
+        sc.classList.remove('sheet-in');
+        void sh.offsetHeight;
+        sh.classList.add('sheet-in');
+        sc.classList.add('sheet-in');
+    }
     $('location').classList.add('sheet-open');
     $('location').setAttribute('aria-expanded', 'true');
 };
