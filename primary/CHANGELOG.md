@@ -2,10 +2,9 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
-## unreleased
+## v2.5.0 (2026-08-15)
 
 ### the days stretch instead of paging
-
 - pull the grid sideways and the days come in from that side as you pull, the week making room for them. today stays on screen the whole time
 - let go and it springs back. nothing is left open behind you, so there is nothing to find your way back from
 - pull past the last day and the grid keeps moving under your thumb. a mark appears at the edge, and letting go while it is lit holds the extra days open — the same pull again, a pull back, or ⌂ closes it
@@ -14,7 +13,6 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - on a keyboard, shift and the arrows move a day at a time and stay put; shift+end holds the days open and lets go again
 
 ### the far days say what they really are
-
 - days a week or more out no longer pretend to be hourly. they draw in three-hour blocks, then six, and a single bar for the whole day once the forecast is only a daily one
 - tapping one of those blocks tells you which hours it covers, how much rain fell across the block rather than per hour, and that the data behind it is no longer hourly
 
