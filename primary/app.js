@@ -3004,7 +3004,9 @@ registerModal('hourly', closeHourly);
 // from the side they sit on, continuously, one-to-one under the finger,
 // while the home week squishes to pay for them; today never leaves the
 // screen. Let go anywhere short of the end and it was a peek: the grid
-// bounces home, and there was never a position to lose. At full
+// eases home and stops there, and there was never a position to lose.
+// It does not overshoot — home is the seam between the two sides, and
+// anything past it reveals a day from the end the pull was leaving. At full
 // extension the columns freeze and the whole grid slides toward the
 // pull instead, its trailing edge clipping into black — and 32px into
 // THAT slide, a hairline beside the grid arms. Release while armed and
@@ -3082,7 +3084,7 @@ const LOCK_GAP = 32;
 // Arming is one threshold and disarming a lower one, so riding the line
 // cannot rattle the haptic or the mark.
 const LOCK_HYST = 0.6;
-const BOUNCE_MS = 260;        // spring home, with an ease-out-back overshoot
+const HOME_MS = 230;          // the ease home, monotonic: it arrives and stops
 const LOCK_SETTLE_MS = 160;   // an armed release settling onto whole days
 // Travel is accumulated in PIXELS and converted per side, so a drag that
 // crosses the origin prices each side correctly rather than carrying one
@@ -3128,17 +3130,31 @@ const updateArmed = () => {
 };
 
 // --- The springs --------------------------------------------------
-// Two, and they mean different things. The bounce home overshoots
-// slightly (ease-out-back) because the grid is elastic and an elastic
-// thing that stops dead was never under tension. The lock settle is
-// plain ease-in-out onto the whole-day extent: it is arriving somewhere,
-// not springing back.
+// Two, and both of them MONOTONIC. Neither may pass its destination.
+//
+// The way home used to overshoot (ease-out-back), on the reasoning that
+// an elastic thing which stops dead was never under tension. That
+// reasoning is right about elastics and wrong about this one, because of
+// where home sits: home is zero, and zero is the seam between the two
+// sides of the axis. An overshoot past it gives `dayN` the opposite
+// sign, and a signed `dayN` is a REVEAL — so for about eighty
+// milliseconds the grid accordions in a day from the end the pull was
+// never heading toward, and then takes it away again. A day appears that
+// nothing asked for. On a release that has already crossed the origin
+// (pull left, carry on right, let go) it happens on the side just left,
+// which reads as the same animation playing twice.
+//
+// So: ease-out-quint, arriving and stopping. The deceleration is the
+// settle; it is a long tail and it does read as elastic, but it reads as
+// an elastic coming to rest rather than one still moving after it has
+// arrived. The lock settle was always monotonic (ease-in-out onto the
+// whole-day extent) and is unchanged: it is arriving somewhere.
 let elasticAnim = null;
 // The wheel's own hold, declared up here because `stopElastic` below has
 // to be able to cancel it and is reachable before the wheel handler is
 // installed.
 let wheelBack = null;
-const easeOutBack = t => { const c1 = 1.2, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const easeOutQuint = t => 1 - Math.pow(1 - t, 5);
 const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 const springTo = (tn, tov, ms, ease, done) => {
     if (elasticAnim) cancelFrame(elasticAnim);
@@ -3173,15 +3189,30 @@ const springTo = (tn, tov, ms, ease, done) => {
 const stopElastic = () => {
     if (elasticAnim) { cancelFrame(elasticAnim); elasticAnim = null; }
     clearTimeout(wheelBack);
+    wheelBack = null;
+};
+// The wheel's hold, in one place, because both its callers have to leave
+// `wheelBack` honest: it is read as "a peek is being held" and a timer id
+// that has already fired still reads as true.
+const holdWheelBack = () => {
+    clearTimeout(wheelBack);
+    wheelBack = setTimeout(() => { wheelBack = null; elasticHome(); }, WHEEL_HOLD_MS);
 };
 
 // Home is home whichever of the three states it is leaving, and it is
 // the only destination any way out has.
+//
+// Already home and already still is not a journey, and starting one
+// anyway is how a second ease came to play over a grid that had finished
+// moving: the ways home overlap (a release, then an Escape; a tap in
+// dead space landing on a stretch that has just settled), and each of
+// them used to schedule its own. Nothing to travel, nothing scheduled.
 const elasticHome = () => {
+    if (dayMode === 'home' && !dayN && !dayOv && !elasticAnim && !wheelBack) return;
     stopElastic();
     dayMode = 'home';
     setArmed(false);
-    springTo(0, 0, BOUNCE_MS, easeOutBack);
+    springTo(0, 0, HOME_MS, easeOutQuint);
 };
 // Straight back to rest: no spring, no decision, nothing kept.
 const resetElastic = () => {
@@ -3251,10 +3282,15 @@ chart.addEventListener('pointerdown', e => {
     swallowClick = false;
     pull = {
         x: e.clientX, y: e.clientY, id: e.pointerId, axis: null,
-        // A pull that starts from a locked stretch continues from where
-        // that stretch already stands, so "the same pull again" is the
-        // same travel from here as it was from home.
-        basePx: dayMode === 'locked' ? pxFromRaw(dayN) : 0,
+        // A pull continues from wherever the axis actually STANDS, not
+        // from home. For a locked stretch that is the point: "the same
+        // pull again" is the same travel from here as it was from home.
+        // For a stretch still easing home it matters just as much, and
+        // it used to be zero — so a finger that landed mid-ease and then
+        // dragged the other way snapped the grid shut on its first
+        // moved pixel and re-opened it from nothing, which is the second
+        // animation in what should be one continuous gesture.
+        basePx: pxFromRaw(dayN),
         wasLocked: dayMode === 'locked',
         // What the press interrupted, so a press that turns out not to
         // be a pull can put it back rather than leave the axis parked
@@ -3270,7 +3306,7 @@ chart.addEventListener('pointerdown', e => {
 // A press that turns out not to be a pull — a tap, or a vertical drag
 // the page takes — hands the axis back exactly as it found it.
 const restPull = p => {
-    if (p.heldWheel) { wheelBack = setTimeout(elasticHome, WHEEL_HOLD_MS); return; }
+    if (p.heldWheel) { holdWheelBack(); return; }
     if (!p.wasAnimating) return;   // nothing was in flight; nothing to resume
     if (dayMode === 'locked') {
         const side = Math.sign(dayN) || 1, cap = reachOn(side);
@@ -3287,7 +3323,7 @@ chart.addEventListener('pointermove', e => {
         // Vertical belongs to nobody here. Let go of the pointer rather
         // than claim it, so the page behaves as any page would — and
         // give the axis back the movement the press interrupted, or a
-        // finger that lands mid-bounce and then scrolls the page would
+        // finger that lands mid-ease and then scrolls the page would
         // leave the days parked where it caught them, with no ⌂ and no
         // way back.
         if (pull.axis !== 'x' || !elasticLive()) { restPull(pull); pull = null; return; }
@@ -3375,7 +3411,7 @@ chart.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') hol
 // A horizontal wheel over the grid holds a peek open. It is the one
 // input with no release to decide on, so it cannot lock and it cannot
 // latch: the stretch it opens settles back a beat after the wheel stops,
-// which is the same "let go and it bounces" the finger gets, driven by
+// which is the same "let go and it eases home" the finger gets, driven by
 // the only thing a wheel has that resembles letting go.
 //
 // Claimed only when the horizontal component dominates, so an ordinary
@@ -3400,8 +3436,7 @@ chart.addEventListener('wheel', e => {
     dayOv = 0;
     if (dayN) retireHint('days');
     applyDayWidths();
-    clearTimeout(wheelBack);
-    wheelBack = setTimeout(elasticHome, WHEEL_HOLD_MS);
+    holdWheelBack();
 }, { passive: false });
 
 // --- The city sheet ----------------------------------------------
@@ -4808,7 +4843,7 @@ const railDrag = (el, opts) => {
 const WHEEL_STEP = 50;   // accumulated px before the wheel is one step
 const WHEEL_GAP_MS = 400; // longer than this and it is a new gesture
 // A wheel has no release, so the day elastic's peek is held for this
-// long after the last notch and then bounces, which is the nearest a
+// long after the last notch and then eases home, which is the nearest a
 // wheel has to letting go. Short enough that it is plainly a peek.
 const WHEEL_HOLD_MS = 1000;
 const railWheel = (el, opts) => {

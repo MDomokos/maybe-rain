@@ -76,8 +76,11 @@ Two surfaces, and which one a drag started on is what decides its meaning.
   the home week; back reaches the two past days the payload carries, for
   checking what happened overnight, and past columns are dimmed. Past days cost
   more travel per day, so the two ends are a comparable pull apart.
-  - **Let go anywhere short of the end and it was a peek.** The grid bounces
-    home. There is no scroll position, so there is nothing to lose.
+  - **Let go anywhere short of the end and it was a peek.** The grid eases
+    home and stops on home — it never overshoots, because home is the seam
+    between the two sides and anything past it would reveal a day from the end
+    the pull was leaving. There is no scroll position, so there is nothing to
+    lose.
   - **At the end the columns freeze** and the whole grid slides toward the pull
     instead, its trailing edge clipping into black. A little way into that
     slide a hairline beside the grid brightens and goes solid, with one haptic
@@ -93,7 +96,7 @@ Two surfaces, and which one a drag started on is what decides its meaning.
     clamps it to what that city actually has; a city with no reach at all
     closes it. An unlocked stretch, and the hour peek, still go home. Nothing
     is stored: the app still opens on the home week.
-  - A horizontal wheel holds a peek open and lets it bounce a beat after it
+  - A horizontal wheel holds a peek open and lets it ease home a beat after it
     stops. It cannot lock: there is no release to read.
 - **More hours** — drag the hour gutter. A spring-loaded peek: the 16-slot
   window slides within the full 24, and springs home on release.

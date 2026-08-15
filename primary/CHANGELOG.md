@@ -12,6 +12,11 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the two gold arrows that appeared at the sides of the grid are gone with them. the columns making room say it better
 - on a keyboard, shift and the arrows move a day at a time and stay put; shift+end holds the days open and lets go again
 
+### letting go of the days no longer flashes a day you didn't ask for
+- the grid used to spring slightly past this week on its way home, which pulled in a sliver of a day from the opposite end for a moment and took it away again. it now eases home and stops there
+- dragging one way and then back the other in a single gesture used to look like the animation played twice, for the same reason. it is one movement now
+- putting a finger down while the days are still closing and dragging again picks up from where they actually are, instead of snapping them shut and starting over
+
 ### days you held open stay open when you switch city or view
 - hold the extra days open, then switch to another city or another view, and they stay open. that was the whole point of holding them — comparing the same days somewhere else, or in wind instead of rain — and it used to close them and make you pull again
 - if the new city's forecast doesn't reach that far, it holds as far as that city goes; if it has nothing out there at all, it closes
