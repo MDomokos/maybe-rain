@@ -86,6 +86,13 @@ Two surfaces, and which one a drag started on is what decides its meaning.
     out, all of them home: the same pull again to the same mark, a clear pull
     back, or ⌂ / Esc. Anything less is a wiggle and the lock holds. The ⌂ chip
     exists only while locked.
+  - **A lock survives a city or view switch.** It is held as a distance from
+    today, so it means the same thing against the new grid — "how do these
+    days look over there / in wind" is the question the switch is asking, and
+    it took two gestures when the switch closed the stretch. A shorter payload
+    clamps it to what that city actually has; a city with no reach at all
+    closes it. An unlocked stretch, and the hour peek, still go home. Nothing
+    is stored: the app still opens on the home week.
   - A horizontal wheel holds a peek open and lets it bounce a beat after it
     stops. It cannot lock: there is no release to read.
 - **More hours** — drag the hour gutter. A spring-loaded peek: the 16-slot

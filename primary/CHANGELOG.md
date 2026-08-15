@@ -12,6 +12,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the two gold arrows that appeared at the sides of the grid are gone with them. the columns making room say it better
 - on a keyboard, shift and the arrows move a day at a time and stay put; shift+end holds the days open and lets go again
 
+### days you held open stay open when you switch city or view
+- hold the extra days open, then switch to another city or another view, and they stay open. that was the whole point of holding them — comparing the same days somewhere else, or in wind instead of rain — and it used to close them and make you pull again
+- if the new city's forecast doesn't reach that far, it holds as far as that city goes; if it has nothing out there at all, it closes
+- tapping the city name or a view no longer counts as the tap in empty space that closes them
+- a peek you were only holding with your thumb still springs back, and the app still opens on this week
+
 ### the date row stops jumping while you pull
 - the date is now the top line of each day label, with the weekday under it. as a column narrows the weekday fades out instead of the label being rewritten, and the date stays exactly where it was
 - it used to be the other way round, so the moment a column got tight the weekday vanished and the date jumped up into its place

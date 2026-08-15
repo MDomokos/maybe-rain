@@ -95,16 +95,28 @@ let revealTimer = null;
 // `revealTimer` itself is paused for an open tooltip. See
 // `armRevealIdle` and `showTooltip`/`hideTooltip` below.
 let pendingRevealFn = null;
-// Send both axes home without repainting, for callers that are about to
-// repaint anyway (a view or city change, which own the whole grid).
-// Neither is ever persisted, so the app always opens on the home week
-// and the default hours (principle 2).
+// For callers that are about to repaint anyway (a view or city change,
+// which own the whole grid). The hour peek always goes home: it is a
+// peek, held only while something is holding it, and there is nothing
+// holding it across a repaint.
+//
+// The day elastic is different, and only in its locked state. A lock is
+// a deliberate act with a way out on screen, so it is a setting about
+// how much of the forecast is being looked at rather than a position in
+// this view of this city — and comparing two cities nine days out, or
+// the same nine days in rain and then in wind, is the thing it is for.
+// It used to be dropped here, which meant the comparison had to be set
+// up again after every switch. A stretch that was merely being held by a
+// finger, or sprung mid-flight, still goes home: nothing was decided.
+//
+// Neither is persisted to storage, so the app still always OPENS on the
+// home week and the default hours (principle 2).
 const resetReveal = () => {
     clearTimeout(revealTimer);
     pendingRevealFn = null;
     hourHomeGen++;
     hourOff = 0;
-    resetElastic();
+    carryElastic();
 };
 const applyBand = () => {
     const w = visibleWindow();
@@ -1743,6 +1755,10 @@ const renderOffsetChrome = (sun = sunForToday()) => {
 };
 
 const updateDisplay = (anim = null) => {
+    // A lock carried in from another city or another view is measured
+    // against THIS payload before anything is drawn against it, so the
+    // strip and the grid are laid out from the same reach.
+    reconcileElastic();
     // Measured once and handed down: both the sun lines and the night
     // swap want the same answer, and working it out asks for the visible
     // window and a slice of the week each time.
@@ -1977,9 +1993,12 @@ const renderViewToggle = () => {
 const setView = (v, anim) => {
     const prev = view;
     view = v;
-    // A view change owns the whole grid, so both reveals go home with it
-    // rather than carrying a stretch into the new view (DR-29: a view or
-    // city change is one of the ways home, and DR-39 keeps it).
+    // A view change owns the whole grid, so the hour peek goes home with
+    // it. A LOCKED day stretch does not: the same nine days in rain and
+    // then in wind is one of the two things a lock is for, and dropping
+    // it here made the user set it up again for every view. Any unlocked
+    // stretch still goes (DR-29's ways home now mean the peek, not the
+    // decision).
     resetReveal();
     saveJSON(LS_VIEW, v);
     renderViewToggle();
@@ -2480,10 +2499,14 @@ const paintCachedForecast = (anim = null) => {
 // steps through the whole list instead of toggling the top two.
 const changeCity = (place, remember = true, anim = null) => {
     state.place = place;
-    // A new city arrives on the home week and the default hours, the
-    // same way the app opens (DR-29 "Entry and exit"): a stretch left
-    // locked open over the old city's day 9 has no meaning against the
-    // new one's data, which may not even reach that far.
+    // A new city arrives on the default hours, the same way the app
+    // opens (DR-29 "Entry and exit"). A locked day stretch comes with
+    // it, because "how does day 9 look THERE" is the question a city
+    // switch under an open stretch is asking, and closing it made that
+    // question two gestures every time. It is measured in days from
+    // today, so it means the same thing against the new payload; if that
+    // payload is shorter, `reconcileElastic` clamps it when it lands,
+    // and closes it if the new city has no reach at all.
     resetReveal();
     saveJSON(LS_PLACE, place);
     if (remember) rememberCity(place);
@@ -3160,13 +3183,45 @@ const elasticHome = () => {
     setArmed(false);
     springTo(0, 0, BOUNCE_MS, easeOutBack);
 };
-// For callers that own the whole grid anyway (a view or city change):
-// no spring, no repaint, just back to rest.
+// Straight back to rest: no spring, no decision, nothing kept.
 const resetElastic = () => {
     stopElastic();
     dayN = 0; dayOv = 0; dayMode = 'home';
     lockArmed = false;
     applyDayWidths();
+};
+
+// What a view or city change does to the axis. A LOCKED stretch is
+// carried across: it is a decision the user made and can see, and the
+// two things it is for — the same nine days in another view, the same
+// nine days in another city — are exactly the switches that used to drop
+// it. Anything else (a finger still down, a spring still flying, a wheel
+// peek still held) is not a decision and goes home with the repaint.
+//
+// The new grid may not reach as far as the old one did. That is settled
+// by `reconcileElastic` once the data is actually in hand, not here:
+// a city change clears state.data before it fetches, so every reach is
+// zero at this moment and clamping now would close every lock.
+const carryElastic = () => {
+    stopElastic();
+    lockArmed = false;
+    dayOv = 0;
+    if (dayMode !== 'locked') { dayN = 0; dayMode = 'home'; }
+    applyDayWidths();
+};
+
+// A lock is held in DAYS FROM TODAY, so it survives a repaint by
+// meaning the same distance rather than the same column. What it cannot
+// survive is a payload that does not reach that far: the new city may be
+// shorter, or a cached one may be stale. Clamped to what the data
+// actually has, and released outright when that end has nothing behind
+// it at all — a ⌂ over a grid identical to home is a lock on nothing.
+const reconcileElastic = () => {
+    if (dayMode !== 'locked' || pull) return;
+    const side = Math.sign(dayN) || 1;
+    const cap = reachOn(side);
+    if (!cap) { resetElastic(); return; }
+    if (Math.abs(dayN) > cap) { dayN = side * cap; dayOv = 0; }
 };
 
 // One whole day either way, for the keyboard. It holds where it is put
@@ -4812,13 +4867,24 @@ railWheel($('hourRail'), {
 // ⌂ exists only while the stretch is locked, and it means home.
 $('dayHome').addEventListener('click', () => elasticHome());
 
-// A tap anywhere off the grid and off the day row releases a locked
-// stretch. The grid itself is deliberately excluded: revealed days stay
-// tappable, and a tap that closed the thing you were reading would make
-// the reveal useless for the question it exists to answer.
+// A tap in dead space releases a locked stretch. Three regions are
+// deliberately excluded, and for the same reason each time: the tap
+// there is part of using the stretch, not part of leaving it.
+//
+//   .chart / .day-row   revealed days stay tappable, and a tap that
+//                       closed the thing you were reading would make the
+//                       reveal useless for the question it answers.
+//   .control-row        the city name and the view words. Switching city
+//                       or view under an open stretch is what the lock
+//                       now survives, so the tap that does it must not
+//                       also be the tap that closes it.
+//   .city-sheet         the switcher opened FROM the control row; the
+//   .sheet-scrim        row it lands on is a city change like any other,
+//                       and dismissing it on the scrim is documented as
+//                       taking nothing, which has to include the lock.
 document.addEventListener('pointerdown', e => {
     if (dayMode !== 'locked') return;
-    if (e.target?.closest?.('.day-row, .chart')) return;
+    if (e.target?.closest?.('.day-row, .chart, .control-row, .city-sheet, .sheet-scrim')) return;
     elasticHome();
 }, true);
 
