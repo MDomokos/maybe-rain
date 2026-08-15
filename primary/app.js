@@ -2296,9 +2296,11 @@ const openSearch = () => {
     // Give the sheet a list to step back to, so leaving search does not
     // land on an empty body when search was what opened the sheet.
     if (!sheet && sheetLive()) {
+        const rows = buildSheetRows();
         sheet = {
             via: 'tap',
-            aim: Math.max(0, sheetPlaces().length - 1),
+            rows,
+            aim: Math.max(0, rows.length - 1),
             moved: false,
             cache: new Map(),
             live: !reduceMotion()
@@ -2358,6 +2360,7 @@ const renderSettings = () => {
 // dismissal closes all three.
 let sheetMode = 'places';   // 'places' | 'search' | 'settings'
 const setSheetMode = m => {
+    const entering = m === 'places' && sheetMode !== 'places';
     sheetMode = m;
     // The switch is a thing you hold open over the grid, so it is drawn on
     // the scrim's own translucency and the scrim behind it stands down: you
@@ -2369,6 +2372,21 @@ const setSheetMode = m => {
     $('searchResults').hidden = m !== 'search';
     $('settings').classList.toggle('hidden', m !== 'settings');
     if (m === 'settings') renderSettings();
+    // Coming back INTO the places body from search or the menu, the list is
+    // rebuilt from a fresh snapshot. Search is where the lists get reshaped
+    // — pinning and unpinning both move cities between tiers — and stepping
+    // back used to reuse rows built before any of that, so every data-idx
+    // in them addressed a list that no longer existed.
+    //
+    // It also covers the sheet that was never built: search can be opened
+    // with nothing worth listing (⌘K, or a first run), and pinning from
+    // there makes the places body worth showing for the first time.
+    if (entering && (sheet || sheetLive())) {
+        if (!sheet) sheet = { via: 'tap', aim: 0, moved: false, cache: new Map(), live: !reduceMotion() };
+        resnapSheet();
+        renderSheet();
+        return;   // renderSheet does the actions and the aim
+    }
     renderActions();
     // The readout is mode-dependent (see paintAim), and callers set the mode
     // AFTER building the sheet, so it has to be repainted here or the control
@@ -2821,12 +2839,15 @@ const cityClamp = i => Math.max(0, Math.min(sheetRows().length - 1, i));
 const TIER_TRANSIENT = 'recent', TIER_PINNED = 'pinned',
       TIER_BACK = 'back', TIER_HERE = 'here';
 
-const sheetRows = () => {
+const buildSheetRows = () => {
     const here = placeKey(state.place);
     const pinnedKeys = new Set(favorites.map(placeKey));
-    // The city the last switch came from. `savedCities` is MRU and
+    // The city the last switch came from, which is an MRU-POSITION fact:
     // `rememberCity` stamps the arriving city at the head, so the previous
-    // city is simply the first entry that is not the current one.
+    // city is the first entry that is not the current one. Deliberately not
+    // read off `seenAt` — `unpinCity` stamps a fresh time without anyone
+    // having gone anywhere, and reading the timestamp here would put a city
+    // you just unpinned into the slot reserved for the one you came from.
     const prev = savedCities.find(c => placeKey(c) !== here) || null;
     const back = prev && !pinnedKeys.has(placeKey(prev)) ? prev : null;
 
@@ -2837,11 +2858,20 @@ const sheetRows = () => {
     const pinned = [...favorites].reverse().filter(p => !taken.has(placeKey(p)));
     pinned.forEach(p => taken.add(placeKey(p)));
 
+    // The transient tier is a RECENCY fact, so it is ordered by `seenAt` and
+    // not by position in the MRU. The two agree for ordinary visits, and
+    // differ for exactly the case the tier exists to catch: `unpinCity`
+    // appends to the far end of the MRU on purpose (so the demoted city
+    // cannot be mistaken for the one you came from) while stamping it as
+    // seen now. Slicing by position dropped it on the floor whenever three
+    // fresher recents already existed, which is the opposite of the
+    // demotion the button promises.
     const fresh = Date.now() - TRANSIENT_TTL_MS;
     const transient = savedCities
         .filter(c => !taken.has(placeKey(c)) && (c.seenAt || 0) >= fresh)
+        .sort((a, b) => (b.seenAt || 0) - (a.seenAt || 0))
         .slice(0, MAX_TRANSIENT)
-        .reverse();   // MRU runs newest-first; the list runs oldest at the top
+        .reverse();   // newest-first above; the list runs oldest at the top
 
     const rows = [
         ...transient.map(place => ({ place, tier: TIER_TRANSIENT })),
@@ -2864,22 +2894,51 @@ const sheetRows = () => {
     rows.forEach((r, i) => { r.seam = i > 0 && group(rows[i - 1]) !== group(r); });
     return rows;
 };
+
+// While a sheet is open the rows are FROZEN, and that is a correctness
+// rule rather than an optimisation. Every `data-idx` in `#sheetList` is an
+// index into this list, so anything that recomputes it mid-opening can
+// hand back a different list than the DOM was built from and every index
+// silently means something else.
+//
+// It is reachable: search is a MODE of the same sheet, pinning and
+// unpinning from it reshape both lists, and stepping back to the places
+// body did not rebuild the rows. Pin a city, press Escape, tap the row
+// that says Auckland, and you got whatever now occupied that index.
+//
+// So the rows are snapshotted when the sheet opens and re-snapshotted
+// exactly where the DOM is rebuilt with them — `setSheetMode('places')`,
+// which is the one door back into the list from either other mode.
+let sheet = null;   // { via, aim, rows, cache, live, aligned }
+const sheetRows = () => sheet?.rows || buildSheetRows();
 // Every index in the sheet is an index into this, so the two must stay
 // derived from one another rather than computed twice.
 const sheetPlaces = () => sheetRows().map(r => r.place);
 // The current city is always a row, so two rows means one other city to
 // go to. The hint, the arm gate and the arrow keys all read this, and all
 // three used to go quiet for someone who had never starred anything.
+// Asked with a sheet open it reads the frozen rows, which is what every
+// index in that sheet already means.
 const sheetLive = () => sheetRows().length >= 2;
-let sheet = null;   // { mode, aim, cache, live }
+// Take a fresh snapshot and keep the aim on the same CITY across it, so a
+// list that reshaped while you were in search does not leave the aim
+// pointing at whatever moved into that index.
+const resnapSheet = () => {
+    if (!sheet) return;
+    const was = sheet.rows?.[sheet.aim]?.place;
+    sheet.rows = buildSheetRows();
+    sheet.cache.clear();
+    const i = was ? sheet.rows.findIndex(r => placeKey(r.place) === placeKey(was)) : -1;
+    sheet.aim = i >= 0 ? i : Math.max(0, sheet.rows.length - 1);
+};
 
 // The destination grid for a PLACE, fitted to the live frame and cached
-// per opening under `key`: a finger can cross the same row many times
-// before it releases. Keyed by place rather than by row index because the
-// way out needs the grid for the city that is actually current, and that
-// city is not always one of the rows (see closeSheet).
-const previewCols = (pl, key, sh = sheet) => {
+// per opening. Keyed by the PLACE, not the row index: the rows are frozen
+// while a sheet is open but a re-snapshot can renumber them, and a cache
+// keyed by position would then answer with another city's grid.
+const previewCols = (pl, sh = sheet) => {
     if (!pl || !sh) return null;
+    const key = placeKey(pl);
     if (sh.cache.has(key)) return sh.cache.get(key);
     const raw = colsForPlace(pl);
     // No cached forecast for that city yet. Preview NOTHING rather than
@@ -2894,10 +2953,7 @@ const previewCols = (pl, key, sh = sheet) => {
     sh.cache.set(key, built);
     return built;
 };
-const sheetColsFor = (idx, sh = sheet) => previewCols(sheetPlaces()[idx], idx, sh);
-// The grid for the city that is actually on screen. Its cache key is a
-// string, so it can never collide with a row index.
-const hereCols = (sh = sheet) => previewCols(state.place, 'here', sh);
+const sheetColsFor = (idx, sh = sheet) => previewCols((sh?.rows || sheetRows())[idx]?.place, sh);
 
 // --- The reading on each row -------------------------------------------
 // A weather app's city switcher listed names and nothing else, so
@@ -3107,19 +3163,19 @@ const openSheet = via => {
     // to ask about ★ favourites alone, so someone with three recents and
     // no stars was sent to search past a list that had plenty to show.
     if (!sheetLive()) { setSheetMode('search'); renderSuggestions(''); $('searchInput').focus(); return; }
+    // The rows are taken once, here, and every index in the sheet from now
+    // until it closes is an index into this exact array. See sheetRows.
+    const rows = buildSheetRows();
     sheet = {
         via,
-        // The bottom row, which sheetRows now makes the current city
-        // unconditionally: the aim starts where the finger is.
-        //
-        // "Whenever it is a favourite" is the catch, and it was the bug. The
-        // list is the ★ favourites, and the city on screen is not necessarily
-        // one of them — search for somewhere and do not star it and it never
-        // is. Then the bottom row is somebody ELSE, the opening aim is a real
-        // destination rather than a no-op, and a release that never aimed
-        // anywhere took it. `moved` is what makes the opening aim inert
-        // regardless of who is standing on it.
-        aim: Math.max(0, sheetPlaces().length - 1),
+        rows,
+        // The bottom row, which buildSheetRows makes the current city
+        // unconditionally, so the aim starts where the finger is and a
+        // release that never moved is a no-op by construction. `moved`
+        // keeps it inert anyway: it is the only thing standing between a
+        // thumb roll and a city change, and one guard on a gesture that
+        // fires by accident is not enough.
+        aim: Math.max(0, rows.length - 1),
         moved: false,
         cache: new Map(),
         live: !reduceMotion()
@@ -3309,22 +3365,12 @@ const closeSheet = (commit = false) => {
     // the row you tap is the row you get, and the click handler sets the aim
     // and commits in one go.
     if (commit && sheet && sheet.via === 'drag' && !sheet.moved) commit = false;
-    // The same bug by the other door, and this one catches a tap-opened
-    // sheet too. `openSheet` aims at the bottom row on the assumption that
-    // the bottom row is the current city, which `sheetPlaces` only
-    // guarantees while the current city is IN the list. Reach a city by
-    // search without pinning it and it is in neither list, so the opening
-    // aim names some other city and a release that never chose anything
-    // takes it. Every route that does choose — a thumb crossing a row, a
-    // tapped row, an arrow key — sets `moved`, so gating on it here leaves
-    // the deliberate cases alone and only refuses the accidental one.
-    if (commit && sheet && !sheet.moved &&
-        sheetPlaces().findIndex(c => placeKey(c) === placeKey(state.place)) < 0) commit = false;
-    // The two action indices are answered before anything is torn down. The
-    // wide one is the mode the sheet is already in; the compact one is the
-    // mode it is not. So the same index means different things depending on
-    // which way you are going, and both directions are one tap in one place.
-    const si = sheetPlaces().length;
+    // The two action indices are answered before anything is torn down, and
+    // off the sheet's own frozen rows rather than off a fresh list. The wide
+    // one is the mode the sheet is already in; the compact one is the mode it
+    // is not. So the same index means different things depending on which way
+    // you are going, and both directions are one tap in one place.
+    const si = sheetRows().length;
     if (commit && sheet && sheet.aim >= si) {
         // The wide slot is the mode the sheet is in; the button is the mode
         // it is not. Both stay INSIDE the sheet, so this path tears nothing
@@ -3342,7 +3388,10 @@ const closeSheet = (commit = false) => {
 
     const s = sheet;
     sheet = null;
-    const place = (commit && s) ? sheetPlaces()[s.aim] : null;
+    // Off the sheet's own rows, captured when it opened. Reading a fresh
+    // list here would be reading a different list than the one the aim is
+    // an index into.
+    const place = (commit && s) ? s.rows[s.aim]?.place : null;
     hideSheetChrome();
     // hideSheetChrome puts the OLD city back in the control row, and the
     // commit below can be a whole wave behind it. Name the destination now,
@@ -3356,16 +3405,11 @@ const closeSheet = (commit = false) => {
         // only lets that wave FINISH: it does not undo where it was pointed.
         // So aim it back at the city that is actually current before letting
         // go, or the grid settles showing one city while every label on the
-        // screen names another.
-        //
-        // That is exactly what used to happen when the current city was in
-        // neither list: `cur` came back -1, the guard below could not fire,
-        // and dismissing a preview left the previewed city's colours on the
-        // grid under the real city's name. The current city always has a
-        // grid whether or not it has a row, so ask for it by place.
-        const cur = sheetPlaces().findIndex(c => placeKey(c) === placeKey(state.place));
-        const back = cur < 0 ? hereCols(s)
-            : cur !== s.aim ? sheetColsFor(cur, s) : null;
+        // screen names another. That is what used to happen when the current
+        // city was in neither list and this lookup came back -1; it always
+        // has a row now, which is what makes the lookup answerable at all.
+        const cur = s.rows.findIndex(r => placeKey(r.place) === placeKey(state.place));
+        const back = cur >= 0 && cur !== s.aim ? sheetColsFor(cur, s) : null;
         if (back) waveTo($('grid'), back, -(Math.sign(cur - s.aim) || 1), { axis: 'y' });
         waveRelease();
         if (!wave) repaint();
@@ -3644,9 +3688,13 @@ $('citySheet').addEventListener('click', e => {
     sheet.moved = true;
     closeSheet(true);
 });
-// Hover aims in tap mode, so a mouse previews the same way a thumb does.
+// Hover aims in tap mode, so a mouse previews the same way a thumb does —
+// and now reads the same comparison, since the tooltip's two-city line
+// follows the aim. This tested `sheet.mode`, which the sheet object has
+// never carried: the field is `via`, so the guard was permanently true and
+// the behaviour has never actually shipped.
 $('citySheet').addEventListener('pointermove', e => {
-    if (!sheet || sheet.mode !== 'tap' || e.pointerType === 'touch') return;
+    if (!sheet || sheet.via !== 'tap' || e.pointerType === 'touch') return;
     aimAtPoint(e.clientX, e.clientY);
 });
 $('sheetScrim').addEventListener('click', () => closeSheet(false));

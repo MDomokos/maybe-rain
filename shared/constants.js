@@ -101,6 +101,11 @@ const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are se
 // The cap only gates ADDING. Anyone already holding more keeps them and
 // simply cannot pin another until they unpin one, which is the same rule
 // the cap has always enforced, just from a different number.
+//
+// classic is bound by it too — it never names the constant, but it reaches
+// it through toggleFavorite and flashFavHint, and the two variants share
+// one `mr-favorites` under one origin. So this is a real change to classic
+// as well, and the honest reading is that one list cannot have two caps.
 const MAX_FAVORITES = 5;
 // primary's switcher carries a second, transient tier below the pinned
 // one: the cities you looked up rather than the ones you keep. Three,
