@@ -26,9 +26,29 @@ const loadCities = key => {
 let savedCities = loadCities(LS_CITIES);   // recents (MRU)
 let favorites = loadCities(LS_FAVORITES);  // explicit ★
 
+// Recents carry `seenAt` so a variant can tell "looked at this morning"
+// from "looked at this in March" — primary's switcher ages its transient
+// tier out on it. MRU order alone cannot answer that: it says which is
+// newer, never whether either is recent.
+//
+// Entries saved before the field existed are stamped once, here, rather
+// than treated as infinitely old. Reading them as expired would empty
+// the tier on the upgrade that introduces it, which is the wrong first
+// impression of a feature whose entire point is that things are already
+// in it. The stamp is a floor, not a claim about when you last looked:
+// everything present at the upgrade gets one TTL window to earn a real
+// one, and anything you do not revisit inside it ages out honestly.
+{
+    let patched = false;
+    savedCities = savedCities.map(c =>
+        c.seenAt ? c : (patched = true, { ...c, seenAt: Date.now() }));
+    if (patched) saveJSON(LS_CITIES, savedCities);
+}
+
 const rememberCity = place => {
     const before = savedCities.length;
-    savedCities = [place, ...savedCities.filter(c => placeKey(c) !== placeKey(place))]
+    savedCities = [{ ...place, seenAt: Date.now() },
+                   ...savedCities.filter(c => placeKey(c) !== placeKey(place))]
         .slice(0, MAX_CITIES);
     saveJSON(LS_CITIES, savedCities);
     // DR-6: an MRU eviction can orphan the evicted place's cache.

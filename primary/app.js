@@ -2019,7 +2019,7 @@ const closeSearch = () => {
     searchHighlight = -1;
     $('searchInput').blur();
     if (sheetMode !== 'search') return;
-    if (favorites.length) setSheetMode('places');
+    if (sheetLive()) setSheetMode('places');
     else { sheet = null; hideSheetChrome(); }
 };
 
@@ -2260,7 +2260,7 @@ const openSearch = () => {
     openSheetChrome();
     // Give the sheet a list to step back to, so leaving search does not
     // land on an empty body when search was what opened the sheet.
-    if (!sheet && favorites.length) {
+    if (!sheet && sheetLive()) {
         sheet = {
             via: 'tap',
             aim: Math.max(0, sheetPlaces().length - 1),
@@ -2734,48 +2734,108 @@ const SHEET_HOLD_MS = 400;
 const VIEW_COMMIT_PX = 45;
 const VIBE_DETENT = [2];        // one 2ms tick per new aim; Android only
 // Clamped, not wrapped: the first and last entry are hard stops.
-const cityClamp = i => Math.max(0, Math.min(favorites.length - 1, i));
-// The order the sheet lists ★ favourites in, and it is not the saved order.
-// The finger enters the sheet from the BOTTOM, so the bottom row is the one
-// it costs nothing to reach, and the top row costs the whole list. Ordering
-// by recency puts that cheapest row where it is worth the most: the current
-// city sits at the bottom under the thumb, the city you were just on sits
-// directly above it, and everything else stacks up by how long ago you last
-// looked at it. Swapping back and forth between two places is then always
-// one row, whichever two they are, instead of costing whatever their fixed
-// positions happened to cost.
+const cityClamp = i => Math.max(0, Math.min(sheetRows().length - 1, i));
+
+// --- What the switcher lists, and in what order -------------------------
 //
-// This is DR-32's ramp by another route. That design made each successive
-// city cost less travel because the list was a rail and could not be
-// reordered. A list can be, so the cheapness goes to the likely answer
-// rather than to the far end.
+// The switcher used to list ★ favourites and nothing else, sorted by
+// recency with the current city forced to the bottom. That produced one
+// good property — the swap was always one row — by giving up two others,
+// and it could not serve the case it most needed to.
 //
-// What it costs: row positions move as you switch, so the list is never the
-// same shape twice and no muscle memory forms for a specific place. That is
-// the trade, and it is the right way round for a gesture whose whole job is
-// the swap rather than the browse.
-const sheetPlaces = () => {
+// The case: you land somewhere, look the place up, and want to flick
+// between it and home for a couple of days. A searched city goes into
+// recents, recents are not in the switcher, so the only route back was
+// through search again, every time. The workaround on offer was ★, which
+// is a permanent capped list you then have to remember to clean up. That
+// is a filing decision demanded in exchange for a glance.
+//
+// So the list has TIERS instead, and each one buys a property the single
+// sorted list could not hold at the same time as the others. Bottom-up,
+// because the finger enters from the bottom and cheapness is measured
+// from there:
+//
+//   current      always the bottom row, whether or not it is pinned. The
+//                aim opens here, so a release that never moved is a no-op
+//                by construction rather than by luck.
+//   back         the city the last switch came from. One row, always, so
+//                the swap costs one row whichever two cities it is
+//                between — the property the old sort existed to produce.
+//                Drawn only when that city is NOT pinned: when it is, it
+//                keeps its place in the block above and nothing is
+//                duplicated. See "What this gives up".
+//   pinned       your mains, in your own order, and they do not move.
+//                Muscle memory, which the old list explicitly could not
+//                offer. Reversed so the FIRST city you pin sits nearest
+//                the thumb: the first pin is almost always home.
+//   transient    the cities you looked up. Filled automatically, MRU,
+//                capped at MAX_TRANSIENT, and aged out after
+//                TRANSIENT_TTL_MS. Nothing to add, nothing to clean up.
+//
+// Read top to bottom the single gradient is commitment: things you have
+// not committed to are furthest away, and browsing is what justifies the
+// travel. Read bottom-up it is cost: the two rows you actually swap
+// between are the two cheapest rows on the screen.
+//
+// What this gives up. When the previous city IS pinned there is no back
+// row, so that one swap costs however far up the pinned block it sits.
+// The alternative was drawing it twice, or pulling it out of the block —
+// and both of those spend the pinned block's stability, which is the
+// whole reason the tier exists. Owner-directed, and the honest reading is
+// that a pinned city is one you already know the position of.
+const TIER_TRANSIENT = 'recent', TIER_PINNED = 'pinned',
+      TIER_BACK = 'back', TIER_HERE = 'here';
+
+const sheetRows = () => {
     const here = placeKey(state.place);
-    // ★ favourites are the curated list, but a visitor who has never starred
-    // anything still has places worth switching between, and a hold that
-    // produced an empty list would read as the gesture being broken. Recents
-    // fill in when there are no favourites; they are already an MRU list, so
-    // the ordering below applies to them unchanged.
-    const source = favorites.length ? favorites : savedCities.slice(0, MAX_FAVORITES);
-    // Recency comes from the recents list, which `rememberCity` already
-    // keeps in most-recent-first order. A favourite that has never been
-    // opened has no entry, and is treated as the oldest thing there is.
-    const age = p => {
-        const i = savedCities.findIndex(c => placeKey(c) === placeKey(p));
-        return i < 0 ? Infinity : i;
-    };
-    return source.slice().sort((a, b) => {
-        const ac = placeKey(a) === here, bc = placeKey(b) === here;
-        if (ac !== bc) return ac ? 1 : -1;   // the current city is always last
-        return age(b) - age(a);              // oldest at the top, newest at the bottom
-    });
+    const pinnedKeys = new Set(favorites.map(placeKey));
+    // The city the last switch came from. `savedCities` is MRU and
+    // `rememberCity` stamps the arriving city at the head, so the previous
+    // city is simply the first entry that is not the current one.
+    const prev = savedCities.find(c => placeKey(c) !== here) || null;
+    const back = prev && !pinnedKeys.has(placeKey(prev)) ? prev : null;
+
+    // One city, one row. Claimed bottom-up, so the cheaper tier wins any
+    // city two tiers could both show.
+    const taken = new Set([here]);
+    if (back) taken.add(placeKey(back));
+    const pinned = [...favorites].reverse().filter(p => !taken.has(placeKey(p)));
+    pinned.forEach(p => taken.add(placeKey(p)));
+
+    const fresh = Date.now() - TRANSIENT_TTL_MS;
+    const transient = savedCities
+        .filter(c => !taken.has(placeKey(c)) && (c.seenAt || 0) >= fresh)
+        .slice(0, MAX_TRANSIENT)
+        .reverse();   // MRU runs newest-first; the list runs oldest at the top
+
+    const rows = [
+        ...transient.map(place => ({ place, tier: TIER_TRANSIENT })),
+        ...pinned.map(place => ({ place, tier: TIER_PINNED })),
+        ...(back ? [{ place: back, tier: TIER_BACK }] : []),
+        { place: state.place, tier: TIER_HERE }
+    ];
+    // The seam is drawn by the row BELOW it, so it costs no element and no
+    // geometry: a separator row would be a dead zone the aim falls into,
+    // and a margin would be a smaller one. `renderSheet` turns this into an
+    // inset hairline, which is a paint and nothing else.
+    //
+    // It follows the GROUP rather than the tier, and the two differ in one
+    // place: `back` and `here` are one group. They are the swap — the two
+    // rows the gesture exists to move between — and a line drawn between
+    // them would separate the only pair on the screen that belongs
+    // together. Everything above the seam is somewhere you might go;
+    // everything below it is the flick.
+    const group = r => r.tier === TIER_BACK || r.tier === TIER_HERE ? 'anchor' : r.tier;
+    rows.forEach((r, i) => { r.seam = i > 0 && group(rows[i - 1]) !== group(r); });
+    return rows;
 };
-const sheetLive = () => favorites.length >= 2;
+// Every index in the sheet is an index into this, so the two must stay
+// derived from one another rather than computed twice.
+const sheetPlaces = () => sheetRows().map(r => r.place);
+// The current city is always a row, so two rows means one other city to
+// go to. The hint, the arm gate and the arrow keys all read this, and all
+// three used to go quiet for someone who had never starred anything.
+const sheetLive = () => sheetRows().length >= 2;
 let sheet = null;   // { mode, aim, cache, live }
 
 // The destination grid for a PLACE, fitted to the live frame and cached
@@ -2804,14 +2864,27 @@ const sheetColsFor = (idx, sh = sheet) => previewCols(sheetPlaces()[idx], idx, s
 // string, so it can never collide with a row index.
 const hereCols = (sh = sheet) => previewCols(state.place, 'here', sh);
 
+// What the mark slot on the right of a row says. The two anchor rows name
+// themselves, because which is which is the whole point of the bottom of
+// the list; the tiers above are named on their FIRST row only, beside the
+// seam, so the label sits on the boundary it explains rather than
+// repeating down the block.
+const rowMark = (r, first) =>
+    r.tier === TIER_HERE ? 'now'
+  : r.tier === TIER_BACK ? 'back'
+  : first ? r.tier : '';
+
 // Built once, when the sheet opens.
 const renderSheet = () => {
     if (!sheet) return;
-    const here = placeKey(state.place);
-    const rows = sheetPlaces().map((pl, i) => {
-        const cur = placeKey(pl) === here ? ' current' : '';
-        const mark = placeKey(pl) === here ? '<span class="sr-mark">now</span>' : '';
-        return `<div class="sheet-row${cur}" id="sheetRow${i}" role="option" tabindex="-1" aria-selected="false" data-idx="${i}"><span class="sr-name">${esc(pl.name)}</span>${mark}</div>`;
+    const rows = sheetRows().map((r, i, all) => {
+        const first = i === 0 || all[i - 1].tier !== r.tier;
+        const mark = rowMark(r, first);
+        return `<div class="sheet-row tier-${r.tier}${r.tier === TIER_HERE ? ' current' : ''}${r.seam ? ' seam' : ''}"`
+            + ` id="sheetRow${i}" role="option" tabindex="-1" aria-selected="false" data-idx="${i}">`
+            + `<span class="sr-name">${esc(r.place.name)}</span>`
+            + (mark ? `<span class="sr-mark">${esc(mark)}</span>` : '')
+            + `</div>`;
     });
     $('sheetList').innerHTML = rows.join('');
     renderActions();
@@ -2910,12 +2983,14 @@ const setAim = idx => {
 const openSheet = via => {
     openSheetChrome();
     // Nothing to pick between: skip the list and land straight in search,
-    // which is the only thing an empty list could offer anyway.
-    if (!favorites.length) { setSheetMode('search'); renderSuggestions(''); $('searchInput').focus(); return; }
+    // which is the only thing a one-row list could offer anyway. This used
+    // to ask about ★ favourites alone, so someone with three recents and
+    // no stars was sent to search past a list that had plenty to show.
+    if (!sheetLive()) { setSheetMode('search'); renderSuggestions(''); $('searchInput').focus(); return; }
     sheet = {
         via,
-        // The bottom row, which the ordering above makes the current city
-        // whenever it is a favourite: the aim starts where the finger is.
+        // The bottom row, which sheetRows now makes the current city
+        // unconditionally: the aim starts where the finger is.
         //
         // "Whenever it is a favourite" is the catch, and it was the bug. The
         // list is the ★ favourites, and the city on screen is not necessarily
@@ -4059,13 +4134,18 @@ const keyStepCity = dir => {
     // Walks the sheet's own order, so ↑ is the city you were last on, the
     // same one a one-row swipe reaches.
     const list = sheetPlaces();
-    const cur = list.length
-        ? list.findIndex(c => placeKey(c) === placeKey(state.place)) : -1;
-    const base = cur < 0 ? (dir > 0 ? -1 : 0) : cur;
-    const place = list[cityClamp(base + dir)];
-    // Honesty guard: with fewer than two favourites, or already at an
-    // end of the list, the target clamps back to the city on screen, so
-    // nothing commits and nothing is drawn.
+    const cur = list.findIndex(c => placeKey(c) === placeKey(state.place));
+    const place = list[cityClamp(cur + dir)];
+    // Honesty guard: with no second city, or already at an end of the
+    // list, the target clamps back to the city on screen, so nothing
+    // commits and nothing is drawn.
+    //
+    // ↓ is at an end by construction: the current city is the bottom row,
+    // so from a closed sheet there is never a row below it and ↓ does
+    // nothing. That is the clamp working, not a dead key — the list is
+    // destinations ordered by cost and you are standing on the cheapest
+    // one. ↓ IS live with the sheet open, where the aim can be anywhere
+    // in the list and `sheetKey` walks it in both directions.
     if (!place || placeKey(place) === placeKey(state.place)) return;
     // The sweep opposes the list step, so the incoming city arrives from
     // the side the list is moving toward.
@@ -4121,7 +4201,7 @@ document.addEventListener('keydown', e => {
         // The sheet is the next layer down. One Escape steps back out of a
         // mode; the next dismisses the sheet, taking nothing.
         if (!$('citySheet').hidden) {
-            if (sheetMode !== 'places' && favorites.length) {
+            if (sheetMode !== 'places' && sheetLive()) {
                 if (sheetMode === 'search') closeSearch(); else setSheetMode('places');
                 return;
             }
@@ -4164,7 +4244,7 @@ document.addEventListener('keydown', e => {
     // ←/→ cycle views, which the control row's buttons also do. ↓ is NEXT,
     // matching the order the sheet lists them in.
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        if (!favorites.length) return;
+        if (!sheetLive()) return;
         e.preventDefault();
         keyStepCity(e.key === 'ArrowDown' ? 1 : -1);
         return;

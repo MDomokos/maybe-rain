@@ -91,5 +91,15 @@ const LS_VERSION = 'mr-version';     // build id last seen on this device (drive
 const APP_VERSION = '__APP_VERSION__';
 const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
 const MAX_FAVORITES = 9; // cap on ★ favorites (user must unfavorite to add more)
+// primary's switcher carries a second, transient tier below the pinned
+// one: the cities you looked up rather than the ones you keep. Three,
+// because the whole sheet has to stay inside one thumb sweep, and three
+// unpinned places is already more than a trip usually needs at once.
+const MAX_TRANSIENT = 3;
+// How long a place stays in that tier without being visited. A trip
+// spans days, so it survives a restart; a week later it is not "recent"
+// by any reading, and a tier that never expires is just a worse
+// favourites list that nobody asked for.
+const TRANSIENT_TTL_MS = 72 * 60 * 60 * 1000;
 // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
 const MOD = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';

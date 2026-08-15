@@ -617,6 +617,24 @@
         .sheet-row .sr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .sheet-row .sr-mark { flex-shrink: 0; font-size: 11px; color: var(--text-dim); }
         .sheet-row.current .sr-name { font-weight: 600; }
+        /* The tier seam. An inset hairline rather than a border or a
+           separator row, because both of those are geometry: a border grows
+           the row by a pixel and throws off the readout alignment, and a row
+           of its own is a strip the aim falls into and finds no .sheet-row
+           on. This is a paint and nothing else, so the list the thumb walks
+           is exactly the list it was walking before. Doubled against the
+           divider above it, which is what makes it read as a seam rather
+           than as one more row line. */
+        .sheet-row.seam { box-shadow: inset 0 1px 0 var(--line-strong); }
+        /* Tier names sit on the first row of their block, beside the seam
+           they explain. They are gone during a drag: at 11px, under a moving
+           thumb, on a list that is being scrubbed rather than read, they are
+           noise on top of the one word that matters. The seam itself stays,
+           because a boundary you can see without reading still helps. The
+           two anchor rows keep their marks throughout — "now" and "back" are
+           what the bottom of the list is FOR. */
+        .city-sheet.gesture .tier-recent .sr-mark,
+        .city-sheet.gesture .tier-pinned .sr-mark { display: none; }
         .sheet-row.aim {
             color: var(--accent);
             border-bottom-color: var(--accent);
