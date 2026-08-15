@@ -1227,13 +1227,19 @@
            and brightens with the overpull, goes solid and glows when the
            release would lock, and stays small and dim while locked — the
            reminder of which edge is being held. */
+        /* One pixel wide, at every stage of it. The app draws exactly one line
+           weight — the sun lines, the row dividers, the active underline under
+           a view are all 1px — and a 3px bar thickening to 4px was the only
+           rule on the screen that answered a threshold by getting fatter.
+           The mark still says the same three things, in the two channels a
+           hairline has: it GROWS along its own length with the overpull and it
+           BRIGHTENS, and arming lights it and puts a glow behind it. */
         .lock-mark {
             position: absolute;
             top: 50%;
-            width: 3px;
+            width: 1px;
             height: 12%;
             transform: translateY(-50%);
-            border-radius: 2px;
             background: var(--accent);
             opacity: 0;
             pointer-events: none;
@@ -1242,7 +1248,6 @@
         .lock-mark.left { left: 0; }
         .lock-mark.right { right: 0; }
         .lock-mark.armed {
-            width: 4px;
             opacity: 1 !important;
             box-shadow: 0 0 6px 1px var(--accent);
         }
