@@ -108,31 +108,32 @@ Two surfaces, and which one a drag started on is what decides its meaning.
 
 **On the control row**
 
-- **Switch city** — swipe up, or press and hold. The sheet opens under the
-  finger, the row the finger is over is the aim, and releasing lands it. See
-  **Places** for what the list contains and in what order. While it is held
-  the control row and the sheet's own action row are not drawn, and the aimed
-  name is shown where the control row's name will be, so the release moves
-  nothing. Beside it, the aimed row's tier — `pinned`, `recent`, `back`, or
-  `now` when a release would change nothing.
-- **Peek** — the same gesture, released on the row it started on. The grid
-  previews each aimed city at its true colours, so holding and letting go
-  where you were is "let me just check over there" and costs nothing.
+- **Switch city** — swipe up. The sheet opens under the finger, the row the
+  finger is over is the aim, and releasing lands it. See **Places** for what
+  the list contains and in what order. While the swipe is held the control row
+  and the sheet's own action row are not drawn, and the aimed name is shown
+  where the control row's name will be, so the release moves nothing. Beside
+  it, the aimed row's tier — `pinned`, `recent`, `back`, or `now` when a
+  release would change nothing.
   A release only lands a city the finger actually **aimed** at: opening the
-  sheet and letting go without crossing to another row takes nothing, however
-  the sheet was opened. The current city is not always in the list — it is the
-  ★ favourites, and the place on screen need not be starred — so the bottom
-  row cannot be relied on to be a harmless place to land.
+  sheet and letting go without crossing to another row takes nothing.
+- **Peek** — the same gesture, released on the row it started on. The grid
+  previews each aimed city at its true colours, so swiping up and letting go
+  where you were is "let me just check over there" and costs nothing.
 - **Switch view** — swipe sideways, one step per swipe. Scrubbed: the grid
   crossfades under the finger and the active underline slides toward the view
   being pulled toward, so the destination is named before the release. Past a
   short dwell the pull maps to the sweep, and the release either completes it
   or rewinds it.
 - **Search** — tap the city name. Every one of these is decided on release, so
-  a tap that turns into a swipe is still a swipe — and a swipe that turns out
-  to have been a tap with a thumb roll in it is still a tap. The press has to
-  outlast a real long-press (400ms) before it counts as a hold, and travel
-  further than the platform's own tap slop (18px) before it counts as a drag.
+  a tap that turns into a swipe is still a swipe, and a press that never
+  travels is a tap however long it is held.
+  **Distance is the only arbiter.** There is no press-and-hold: a threshold in
+  milliseconds cannot separate a tap from a hold, because a tap has no length
+  people control, so the same gesture landed on search one time and a city
+  switch the next. A touch is a swipe once it travels 24px on one axis —
+  clear of the thumb roll every tap on a 52px target has in it — and a tap
+  otherwise.
 - **Keyboard** — ↑ steps to the row above the current city, which is the swap;
   ← → step views. ↓ from a closed sheet does nothing by construction — the
   current city is the bottom row, so there is nothing below it. Both arrows

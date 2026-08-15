@@ -3453,25 +3453,15 @@ chart.addEventListener('wheel', e => {
 // its true colours, because comparing two cities during the gesture is
 // the thing this replaces and a preview that withholds the colours until
 // release would not serve it. Nothing dims.
-// Upward travel before the touch is a switch. 12 was under every platform's
-// own tap slop (Android's ViewConfiguration is 8dp, which is 16-24 CSS px on
-// a real phone; iOS allows about 10pt), so the thumb roll that every tap on a
-// 52px target has in it was arming the switcher and eating the tap. The slop
-// that decides between a tap and a drag cannot be tighter than the slop the
-// platform uses to decide the same thing.
-const SHEET_ARM_PX = 18;
-// A press that has not moved becomes a switch anyway once it has lasted this
-// long. The project distrusts time thresholds for good reasons (DR-18/19 were
-// reverted over one), and this is allowed for two: it is not the only way in,
-// the swipe is, so a missed hold costs nothing; and its failure mode is a
-// list you can release on your own city to dismiss, not a wrong state.
-//
-// 220 was wrong on the first count. A deliberate tap on a phone routinely
-// lasts 200-300ms — the number is a long-press threshold, and both platforms
-// put theirs at 500ms — so ordinary taps on the name were crossing it, arming
-// the switch, and making the tap-to-search branch below unreachable. 400 sits
-// clear of a tap and still short of a press that has to be waited out.
-const SHEET_HOLD_MS = 400;
+// Travel on one axis before the touch is a swipe rather than a press. This is
+// now the ONLY thing that separates the two gestures on the row, so it has to
+// be a distance a tap does not reach by accident: 12 was under every platform's
+// own tap slop (Android's ViewConfiguration is 8dp, which is 16-24 CSS px on a
+// real phone; iOS allows about 10pt), and the thumb roll that every tap on a
+// 52px target has in it was clearing it. 24 is past the roll and still a short
+// flick — under half the height of one row in the sheet, so the switcher is
+// open well before the finger has anywhere to aim.
+const SHEET_ARM_PX = 24;
 // Sideways travel that commits a view step. Larger than the arming slop, so
 // a drag that wandered off the vertical axis and came back does not also
 // change the view on the way out.
@@ -4164,7 +4154,6 @@ const aimAtPoint = (x, y) => {
 //
 //   swipe up          the city switcher, tracking the finger
 //   swipe sideways    the view switcher, one step per swipe
-//   press and hold    the city switcher, without moving
 //   tap the name      search
 //   tap a view word   that view
 //
@@ -4175,6 +4164,16 @@ const aimAtPoint = (x, y) => {
 // The axis is locked once, at the slop distance, from whichever component of
 // the travel is larger, and never re-read. Two gestures sharing a surface
 // need one arbiter, not a running argument.
+//
+// And DISTANCE is the only arbiter. There was a press-and-hold here too — a
+// second way into the switcher, for a finger that had not moved — and a
+// threshold in milliseconds cannot tell a hold from a tap, because a tap does
+// not have a length people control. Whatever the number was, some taps were
+// under it and some were over, so the same gesture produced search one time
+// and a city switch the next: not a threshold that needed tuning, a question
+// that cannot be answered from the clock. It is gone. A press that does not
+// travel is a tap, however long it lasts, and the swipe is the only way into
+// the switcher. One gesture, one outcome, decided by where the finger went.
 const controlRow = $('controlRow');
 let rowTouch = null;
 // Set for a moment after a touch has decided the outcome, so the trailing
@@ -4197,10 +4196,7 @@ controlRow.addEventListener('touchstart', e => {
     const t = e.touches[0];
     rowTouch = {
         x: t.clientX, y: t.clientY, dx: 0,
-        axis: null, armed: false, hold: 0,
-        // When it started, and whether the hold timer is what armed it. A
-        // release reads both to tell a press from a tap that wobbled.
-        t0: performance.now(), held: false,
+        axis: null, armed: false,
         // The sideways scrub's own state: whether it ever ran, and the two
         // neighbouring views it has built, kept for the life of the drag
         // so crossing back over the origin costs nothing.
@@ -4208,22 +4204,6 @@ controlRow.addEventListener('touchstart', e => {
         // Which tap this would be if it turns out to be one.
         onName: !!e.target.closest?.('#location')
     };
-    rowTouch.hold = setTimeout(() => {
-        if (!rowTouch || rowTouch.axis) return;
-        if (!armSwitch()) return;
-        rowTouch.axis = 'y';
-        rowTouch.held = true;
-        // The finger has not moved, so the aim is whatever the start point
-        // is over: nothing, which leaves it on the bottom row.
-        aimAtPoint(t.clientX, t.clientY);
-        // ...except that this runs on the sheet's FIRST frame, where sheetIn
-        // still has it translated 14px down, so the row under the start point
-        // is whichever one the entrance animation has parked there — not the
-        // one that will be there when it lands. That reading must not count as
-        // the finger having aimed, or a motionless press would commit a row it
-        // was never pointed at. The finger has not moved; nothing has moved.
-        if (sheet) sheet.moved = false;
-    }, SHEET_HOLD_MS);
 }, { passive: true });
 
 controlRow.addEventListener('touchmove', e => {
@@ -4232,16 +4212,27 @@ controlRow.addEventListener('touchmove', e => {
     const dx = t.clientX - rowTouch.x, dy = t.clientY - rowTouch.y;
     rowTouch.dx = dx;
     if (!rowTouch.axis) {
-        if (Math.hypot(dx, dy) < SHEET_ARM_PX) return;
-        clearTimeout(rowTouch.hold);
+        // Which way is this going? Nothing is claimed until the travel says
+        // so on one axis, and the distance is measured on THAT axis rather
+        // than as a straight-line hypotenuse: a mostly-sideways wobble whose
+        // diagonal happened to clear the slop was arming the switcher.
         if (Math.abs(dy) > Math.abs(dx)) {
-            // Upward only. A downward drag from the bottom row has nowhere
-            // to go, so it is released rather than claimed.
-            if (dy > 0 || !armSwitch()) { rowTouch = null; return; }
+            // Dragged well downward: off the gesture entirely. There is
+            // nothing below the bottom row, and a finger heading that way is
+            // leaving, so it is neither a switch nor still a tap.
+            if (dy > SHEET_ARM_PX) { rowTouch = null; return; }
+            if (-dy < SHEET_ARM_PX) return;
+            if (!armSwitch()) { rowTouch = null; return; }
             rowTouch.axis = 'y';
-        } else {
-            rowTouch.axis = 'x';
+            e.preventDefault();
+            // The sheet opened on THIS event, so its rows are wherever the
+            // entrance animation has them — a frame short of where they will
+            // land. Aiming now would aim at the animation. This move opened
+            // the door; the next one aims.
+            return;
         }
+        if (Math.abs(dx) < SHEET_ARM_PX) return;
+        rowTouch.axis = 'x';
     }
     e.preventDefault();
     if (rowTouch.axis === 'y') { aimAtPoint(t.clientX, t.clientY); return; }
@@ -4314,7 +4305,6 @@ const endRowTouch = commit => {
     const r = rowTouch;
     rowTouch = null;
     if (!r) return;
-    clearTimeout(r.hold);
     cityTouchOwns = true;
     setTimeout(() => { cityTouchOwns = false; }, 400);
     if (r.axis === 'x') {
@@ -4324,31 +4314,16 @@ const endRowTouch = commit => {
         endViewScrub(r, commit);
         return;
     }
-    const tap = commit && r.onName;
     if (!r.armed) {
-        // Neither held nor swiped: a plain tap, and now that the finger has
-        // lifted it is safe to say which one. A tap on a view word is left
-        // to its own click handler.
-        if (tap) openSearch();
+        // Never travelled far enough to be a swipe on either axis, so it was
+        // a press, so it is a tap — and how long it lasted does not enter
+        // into it. A tap on a view word is left to its own click handler.
+        if (commit && r.onName) openSearch();
         return;
     }
-    // Armed, but the finger never aimed at anything. Two ways to get here and
-    // they want opposite answers:
-    //
-    //   a press that was waited out    the switcher, opened and then not used.
-    //                                  Release dismisses it, which is what the
-    //                                  hold's stated failure mode always was.
-    //   a tap with a roll in it        the slop was crossed by the thumb
-    //                                  pivoting, not by an intent to switch.
-    //                                  It is a tap, and the tap is search.
-    //
-    // Told apart by the clock: a gesture shorter than the hold cannot have
-    // been the hold, and a tap that never reached another row in that time was
-    // never going anywhere. Without this the wobbly tap was simply swallowed —
-    // the sheet flashed open and shut and search never came.
-    const idle = !sheet || !sheet.moved;
+    // A swipe up. `closeSheet` takes the aim only if the finger reached a row,
+    // so a swipe that opened the switcher and came back down takes nothing.
     if (sheet) closeSheet(commit);
-    if (idle && tap && !r.held && performance.now() - r.t0 < SHEET_HOLD_MS) openSearch();
 };
 controlRow.addEventListener('touchend', () => endRowTouch(true));
 controlRow.addEventListener('touchcancel', () => endRowTouch(false));
@@ -4406,13 +4381,13 @@ const HINTS = [
     { key: 'days', text: 'pull the grid sideways for more days', live: () => elasticLive() },
     { key: 'hours', text: 'pull the hours for more of the day', live: () => hourPeekLive() },
     // The switch is also the app's comparison tool and nothing ever said
-    // so. Holding the name previews each city on the grid at its true
+    // so. Keeping the swipe held previews each city on the grid at its true
     // colours, and releasing on the row you started on takes nothing —
     // which is the whole of "let me just check over there" and reads, with
     // no cue, as a gesture you got away with rather than one you used.
     // Last in the list, because the two reveals above it are how you get
     // around the forecast at all and this is what you do once you can.
-    { key: 'peek', text: 'hold the city name to peek, release to stay', live: () => sheetLive() }
+    { key: 'peek', text: 'swipe up to peek, release to stay', live: () => sheetLive() }
 ];
 // Read once and kept. `retireHint` runs from the day elastic's own
 // move handler and from `setHourOffState`, both once per frame or notch
