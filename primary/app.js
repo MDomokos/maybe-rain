@@ -2612,8 +2612,8 @@ const renderSuggestions = async query => {
             // favourites, and evict the cache — and none of them was the
             // one thing anybody wanted, which was "not in my mains".
             const action = p.tier === 'pinned'
-                ? `<button class="unpin" data-i="${i}" aria-label="Unpin ${esc(p.name)}" title="Unpin">${MR_ICON.close}</button>`
-                : `<button class="pin" data-i="${i}" aria-label="Pin ${esc(p.name)}" title="Pin to your mains">${MR_ICON.star}</button>`;
+                ? `<button class="unpin" data-i="${i}" aria-label="Unpin ${esc(p.name)}" title="Unpin">${MR_ICON.unpin}</button>`
+                : `<button class="pin" data-i="${i}" aria-label="Pin ${esc(p.name)}" title="Pin to your mains">${MR_ICON.pin}</button>`;
             return `<div class="search-result tier-${p.tier}${first && i > 0 ? ' seam' : ''}" data-i="${i}">
                 <span class="result-label"><span class="rl-city">${esc(p.name)}</span>${
                     (p.admin1 || p.country)

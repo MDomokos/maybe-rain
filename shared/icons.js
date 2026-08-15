@@ -32,6 +32,23 @@ const MR_ICON = {
     now: "<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M8 5 8 19 18 12Z\"/></svg>",
     caret: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M6 9 12 15 18 9\"/></svg>",
     danger: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 4 21 20H3Z\"/></svg>",
+    // Pin and unpin, for primary's switcher and its search list.
+    //
+    // These exist because `star` above is not a star: it is a PLUS, and the
+    // unpin action was drawing `close`, which is the same two strokes turned
+    // 45°. A plus and a cross at 13px in the two dimmest greys in the palette
+    // are the same mark to anyone not looking for the difference, so the two
+    // buttons that mean opposite things were telling them apart by rotation.
+    // Shape carries it now: a real five-pointed star, and the same star struck
+    // through. `star` is left alone because classic reads it, and redrawing
+    // another variant's controls is not this change's business.
+    pin: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.2 14.7 9.1 21 9.9 16.4 14.3 17.6 20.6 12 17.5 6.4 20.6 7.6 14.3 3 9.9 9.3 9.1Z\"/></svg>",
+    // The slash is drawn twice: once in the surrounding background at double
+    // width, then in the ink. That knocks a clean gap through the star's own
+    // outline where the two cross, so the strike reads as ONE line laid over
+    // the shape rather than as another edge of it — which at 17px is the whole
+    // difference between "not pinned" and an unreadable tangle.
+    unpin: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.2 14.7 9.1 21 9.9 16.4 14.3 17.6 20.6 12 17.5 6.4 20.6 7.6 14.3 3 9.9 9.3 9.1Z\"/><path vector-effect=\"non-scaling-stroke\" stroke=\"var(--bg)\" stroke-width=\"4\" d=\"M4.4 3.6 19.6 20.4\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.4 3.6 19.6 20.4\"/></svg>",
 };
 // Saved favourite: the plus mark in gold with a heavier stroke.
 const MR_ICON_STAR_SAVED = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5.5V18.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5.5 12H18.5\"/></svg>";

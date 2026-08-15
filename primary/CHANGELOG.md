@@ -12,6 +12,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - a sideways swipe that finishes on top of rain, temp or wind no longer also taps it
 - the hint about peeking at another city now says to swipe up rather than to hold
 
+### the switcher says what each city is
+- the grey pill at the top of the switcher and the search panel is gone. it is the mark a sheet you can drag taller wears, and this one has never been draggable, resizable, or dismissed from the top
+- pinning and unpinning are a star and a struck-through star, larger and brighter. they were a plus and a cross — the same mark at two angles, in the two faintest greys the app has
+- a pinned city's star is gold, so which cities are yours reads without being worked out
+- "pinned", "recent", "back" and "now" are set as labels rather than as another word on the row, with the two nearest your thumb in gold. they also stay put while you swipe, which is when the question actually comes up — they used to hide exactly then
+
 ### the switcher fits in one thumb sweep
 - the switcher is capped at eight rows. it could reach ten, which is more than the sheet holds, and the overflow fell off the bottom — hiding the city you are on and the one you came from, the two rows nearest your thumb and the two the swipe exists to move between
 - pinned cities are still capped at five. when there is not room for everything, the recently-looked-up rows give way instead, oldest first, since those drop off by themselves anyway

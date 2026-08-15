@@ -570,7 +570,6 @@
                vertical scrolling for the tap-mode case. */
             touch-action: pan-y;
         }
-        .city-sheet > .sheet-grip,
         .city-sheet > .sheet-actions { flex: none; }
         .city-sheet > .sheet-list,
         .city-sheet > .search-results,
@@ -617,13 +616,14 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .sheet-grip {
-            width: 36px;
-            height: 3px;
-            border-radius: var(--radius);
-            background: var(--line);
-            margin: 0 auto 10px;
-        }
+        /* The grip is gone. A rounded grey pill centred at the top of a sheet
+           is a drag handle everywhere else it appears, and it promised the one
+           thing this sheet cannot do: it is not resizable, it does not expand,
+           and it is not dismissed by pulling it down. The sheet is opened by a
+           swipe on the control row and closed by releasing that swipe, tapping
+           a row, or the scrim — none of which happen anywhere near the top of
+           the screen, and none of which the pill was pointing at. It also cost
+           13px of a list that is already rationed to eight rows. */
         /* Rows follow .search-result: a reserved bottom hairline whose colour
            travels with the selection, gold under the row a release would land
            on. 44px minimum, since this list is aimed at with a thumb. */
@@ -643,7 +643,28 @@
            display:none, so the wide slot has to be told twice. */
         .sheet-row[hidden] { display: none; }
         .sheet-row .sr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .sheet-row .sr-mark { flex-shrink: 0; font-size: 11px; color: var(--text-dim); }
+        /* The tier name. It was 11px of --text-dim set as an ordinary word,
+           which put it at the same weight as everything else on the row and
+           left it reading as part of the city rather than as a label about
+           it — so the three tiers the list is built out of were, in practice,
+           told apart by one hairline. Set as a label instead: smaller, but
+           uppercase, tracked out and at --text-muted, which is the treatment
+           the app already uses for the seg-button captions. Small caps at
+           high contrast is legible at a glance in a way that 11px of grey
+           lowercase beside a 15px city name is not. */
+        .sheet-row .sr-mark {
+            flex-shrink: 0;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+        /* The two anchors are the pair the swipe exists to move between, so
+           they are named in the accent: at the bottom of the list, under the
+           thumb, "now" and "back" are the labels doing the most work. */
+        .sheet-row.tier-back .sr-mark,
+        .sheet-row.tier-here .sr-mark { color: var(--accent); }
         .sheet-row.current .sr-name { font-weight: 600; }
         /* The reading. Right-aligned in a fixed column with tabular figures,
            so the values line up as a column that can be read down in one
@@ -671,14 +692,14 @@
            than as one more row line. */
         .sheet-row.seam { box-shadow: inset 0 1px 0 var(--line-strong); }
         /* Tier names sit on the first row of their block, beside the seam
-           they explain. They are gone during a drag: at 11px, under a moving
-           thumb, on a list that is being scrubbed rather than read, they are
-           noise on top of the one word that matters. The seam itself stays,
-           because a boundary you can see without reading still helps. The
-           two anchor rows keep their marks throughout — "now" and "back" are
-           what the bottom of the list is FOR. */
-        .city-sheet.gesture .tier-recent .sr-mark,
-        .city-sheet.gesture .tier-pinned .sr-mark { display: none; }
+           they explain, and they now stay put during the drag as well. They
+           used to be hidden there, on the argument that 11px of grey under a
+           moving thumb was noise — which was true of 11px of grey. The drag
+           is exactly when the question "is this one of mine or one I passed
+           through?" gets asked, so hiding the answer during it removed the
+           labels from the only moment they were needed. As a tracked-out
+           small cap the label is read rather than parsed, and it costs the
+           name nothing. */
         .sheet-row.aim {
             color: var(--accent);
             border-bottom-color: var(--accent);
@@ -1110,10 +1131,13 @@
         .geo-btn svg { width: 1em; height: 1em; display: block; }
         .status-icon { display: inline-flex; align-items: center; vertical-align: -0.18em; margin-right: 1px; }
         .status-icon svg { width: 1.15em; height: 1.15em; display: block; }
-        .search-result .pin svg,
-        .search-result .unpin svg,
         .install-banner .dismiss svg,
         .modal-close svg { width: 1em; height: 1em; display: block; }
+        /* 17px rather than the 13px an inherited 1em gave them. These two are
+           the only controls in the list and they were the smallest ink in it,
+           drawn at the size of a caption. */
+        .search-result .pin svg,
+        .search-result .unpin svg { width: 17px; height: 17px; display: block; }
         .tooltip svg { width: 1em; height: 1em; vertical-align: -0.15em; }
         .legend .swatch svg { width: 1em; height: 1em; display: block; }
         .setting-row span svg { width: 1em; height: 1em; vertical-align: -0.15em; }
@@ -1804,19 +1828,34 @@
             cursor: pointer;
             padding: 0;
         }
-        /* The star is an offer, so it sits at the quietest grey the app has
-           until it is reached for. The ✕ is only ever on a row you already
-           committed to, so it is one step brighter: it is not advertising
-           itself, it is findable. */
-        .search-result .pin { color: var(--text-dimmer); }
-        .search-result .pin:hover { color: var(--accent); }
-        .search-result .unpin { color: var(--text-dim); }
-        .search-result .unpin:hover { color: var(--text); }
+        /* The star is an offer, so it stays quiet until it is reached for —
+           but --text-dimmer is the grey the app reserves for things that are
+           off, and an offer nobody can see is not one. One step up, and gold
+           on the way in. */
+        .search-result .pin { color: var(--text-dim); }
+        .search-result .pin:hover,
+        .search-result .pin:focus-visible { color: var(--accent); }
+        /* The struck star is only ever on a row that IS pinned, so it is not
+           advertising an action so much as reporting a state, and it is drawn
+           in the accent for the same reason the row's label is: gold is what
+           this app uses for "chosen". Hovering takes the gold away, which is
+           a fair picture of what pressing it does. */
+        .search-result .unpin { color: var(--accent); }
+        .search-result .unpin:hover,
+        .search-result .unpin:focus-visible { color: var(--text-muted); }
         /* Tier name, on the first row of its block beside the seam, in the
            same treatment as the switcher's. Live geocoding hits get none:
            they are what the list is for, and the two saved tiers are named
            by contrast with them. */
-        .rl-tier { flex-shrink: 0; font-size: 11px; color: var(--text-dim); padding-left: var(--sp-1); }
+        .rl-tier {
+            flex-shrink: 0;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            padding-left: var(--sp-1);
+        }
         /* Same doubled hairline the sheet uses, and for the same reason: the
            three groups have three different lifetimes and the list used to
            say nothing about that. */
@@ -2198,7 +2237,6 @@
          pinned to the bottom of all three. Nothing about it appears anywhere
          near the top of the screen. -->
     <div class="city-sheet" id="citySheet" hidden>
-        <div class="sheet-grip" aria-hidden="true"></div>
         <div class="sheet-list" id="sheetList" role="listbox" tabindex="-1"
              aria-label="Saved cities" aria-activedescendant=""></div>
         <div class="search-results" id="searchResults" hidden></div>
