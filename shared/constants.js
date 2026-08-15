@@ -90,7 +90,18 @@ const LS_VERSION = 'mr-version';     // build id last seen on this device (drive
 // copy keeps the literal token, so the post-update note just never fires.
 const APP_VERSION = '__APP_VERSION__';
 const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
-const MAX_FAVORITES = 9; // cap on ★ favorites (user must unfavorite to add more)
+// Cap on ★ favorites — the pinned tier in primary's switcher. Nine was
+// DR-32's figure, set when the switcher held favorites and nothing else;
+// primary's sheet now carries a transient tier and two anchor rows on top
+// of them, and nine pinned would put it at fourteen rows, well past the
+// one thumb sweep the gesture is built around. Five pinned plus three
+// transient plus the two anchors is ten, which is the same reach the old
+// nine-row list had.
+//
+// The cap only gates ADDING. Anyone already holding more keeps them and
+// simply cannot pin another until they unpin one, which is the same rule
+// the cap has always enforced, just from a different number.
+const MAX_FAVORITES = 5;
 // primary's switcher carries a second, transient tier below the pinned
 // one: the cities you looked up rather than the ones you keep. Three,
 // because the whole sheet has to stay inside one thumb sweep, and three

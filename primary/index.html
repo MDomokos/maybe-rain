@@ -1066,8 +1066,8 @@
         .geo-btn svg { width: 1em; height: 1em; display: block; }
         .status-icon { display: inline-flex; align-items: center; vertical-align: -0.18em; margin-right: 1px; }
         .status-icon svg { width: 1.15em; height: 1.15em; display: block; }
-        .search-result .fav svg,
-        .search-result .forget svg,
+        .search-result .pin svg,
+        .search-result .unpin svg,
         .install-banner .dismiss svg,
         .modal-close svg { width: 1em; height: 1em; display: block; }
         .tooltip svg { width: 1em; height: 1em; vertical-align: -0.15em; }
@@ -1685,46 +1685,46 @@
             background: var(--warn-bg-soft);
             border-bottom: 1px solid var(--line);
         }
-        /* Row actions align to the header controls above them: the ✕ remove
-           sits under the ⚙ gear (34px column, flush to the right edge), the ★
-           favorite under the GPS button (30px column + 10px gap reproduces the
-           gear→GPS spacing). An empty .forget-slot holds the ✕ column on rows
-           with no remove action so the ★ never shifts out of the GPS column. */
-        .result-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-        .search-result .forget,
-        .search-result .forget-slot {
-            width: 34px;              /* aligns the ✕ column under the ⚙ gear */
+        /* One action per row now — ★ pins, ✕ unpins, and a row only ever
+           carries the one that applies to it — so the two reserved columns
+           and the empty spacer that kept them aligned are gone with the
+           toggle that needed them. What is left is a single 44px target
+           flush to the right edge: the minimum, which the old 30px and 34px
+           columns were both under. */
+        .result-actions { display: flex; align-items: center; flex-shrink: 0; }
+        .search-result .pin,
+        .search-result .unpin {
+            width: 44px;
+            height: 44px;
             flex-shrink: 0;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             background: none;
             border: none;
-            color: var(--text-dim);
-            font-family: inherit;
-            font-size: 13px;
-            line-height: 1;
-            padding: 4px 0;
-        }
-        .search-result .forget { cursor: pointer; }
-        .search-result .forget:hover { color: var(--text); }
-        .search-result .fav {
-            width: 30px;              /* aligns the ★ column under the GPS button */
-            flex-shrink: 0;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background: none;
-            border: none;
-            color: var(--text-dimmer);              /* muted outline star when not a favorite */
             font-family: inherit;
             font-size: 13px;
             line-height: 1;
             cursor: pointer;
-            padding: 4px 0;
+            padding: 0;
         }
-        .search-result .fav.on { color: var(--accent); }   /* gold when favorited */
-        .search-result .fav:hover { color: var(--accent); }
+        /* The star is an offer, so it sits at the quietest grey the app has
+           until it is reached for. The ✕ is only ever on a row you already
+           committed to, so it is one step brighter: it is not advertising
+           itself, it is findable. */
+        .search-result .pin { color: var(--text-dimmer); }
+        .search-result .pin:hover { color: var(--accent); }
+        .search-result .unpin { color: var(--text-dim); }
+        .search-result .unpin:hover { color: var(--text); }
+        /* Tier name, on the first row of its block beside the seam, in the
+           same treatment as the switcher's. Live geocoding hits get none:
+           they are what the list is for, and the two saved tiers are named
+           by contrast with them. */
+        .rl-tier { flex-shrink: 0; font-size: 11px; color: var(--text-dim); padding-left: var(--sp-1); }
+        /* Same doubled hairline the sheet uses, and for the same reason: the
+           three groups have three different lifetimes and the list used to
+           say nothing about that. */
+        .search-result.seam { box-shadow: inset 0 1px 0 var(--line-strong); }
         /* Soft hairline between rows: every row but the last underlines itself,
            so there's no line at the very bottom of the list (or under the
            search bar at the top). */

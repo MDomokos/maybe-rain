@@ -2119,10 +2119,17 @@ const changeCity = (place, remember = true, anim = null) => {
     scheduleHourTick();
 };
 
-// Ordering: ★ favorites first (always, filtered by the query), then
-// (only in the resting list) recents, then live geocoding hits.
-// Typing collapses recents but keeps matching favorites above the
-// geocoding results, so a starred city is always one keystroke away.
+// Ordering: ★ pinned first (always, filtered by the query), then
+// (only in the resting list) the transient recents, then live geocoding
+// hits. Typing collapses recents but keeps matching pinned above the
+// geocoding results, so a pinned city is always one keystroke away.
+//
+// The three used to be one flat run of identical rows, distinguishable
+// only by which buttons happened to be on them — so the list said nothing
+// about the fact that its three parts have three different lifetimes.
+// They are grouped and named now, with the same seam the switcher uses,
+// because the search list is where those lifetimes are decided.
+const SUGGEST_TIERS = { pinned: 'pinned', recent: 'recent', result: '' };
 let suggestToken = 0;
 const renderSuggestions = async query => {
     const token = ++suggestToken;
@@ -2140,27 +2147,35 @@ const renderSuggestions = async query => {
     }
     if (token !== suggestToken) return; // superseded by a newer query
     state.suggestions = [
-        ...favs.map(p => ({ ...p, saved: true, fav: true })),
-        ...recents.map(p => ({ ...p, saved: true, fav: false })),
-        ...hits.map(p => ({ ...p, saved: isRecent(p), fav: false }))
+        ...favs.map(p => ({ ...p, tier: 'pinned' })),
+        ...recents.map(p => ({ ...p, tier: 'recent' })),
+        ...hits.map(p => ({ ...p, tier: 'result' }))
     ];
     searchHighlight = -1; // list rebuilt: drop any arrow-key highlight
     $('searchResults').innerHTML =
-        state.suggestions.map((p, i) =>
-            `<div class="search-result" data-i="${i}">
+        state.suggestions.map((p, i, all) => {
+            const first = i === 0 || all[i - 1].tier !== p.tier;
+            const label = first ? SUGGEST_TIERS[p.tier] : '';
+            // One action per row, and it is the one that applies. A pinned
+            // city can only be unpinned and everything else can only be
+            // pinned, so there is never a button here whose meaning has to
+            // be worked out from the row it is sitting on. The old ✕ meant
+            // three things at once — drop from recents, drop from
+            // favourites, and evict the cache — and none of them was the
+            // one thing anybody wanted, which was "not in my mains".
+            const action = p.tier === 'pinned'
+                ? `<button class="unpin" data-i="${i}" aria-label="Unpin ${esc(p.name)}" title="Unpin">${MR_ICON.close}</button>`
+                : `<button class="pin" data-i="${i}" aria-label="Pin ${esc(p.name)}" title="Pin to your mains">${MR_ICON.star}</button>`;
+            return `<div class="search-result tier-${p.tier}${first && i > 0 ? ' seam' : ''}" data-i="${i}">
                 <span class="result-label"><span class="rl-city">${esc(p.name)}</span>${
                     (p.admin1 || p.country)
                         ? `<span class="rl-region">${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>`
                         : ''
                 }</span>
-                <span class="result-actions">
-                    <button class="fav${p.fav ? ' on' : ''}" data-i="${i}"
-                            aria-label="${p.fav ? 'Unfavorite' : 'Favorite'} ${esc(p.name)}"
-                            aria-pressed="${p.fav}">${p.fav ? MR_ICON_STAR_SAVED : MR_ICON.star}</button>
-                    ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">${MR_ICON.close}</button>` : `<span class="forget-slot" aria-hidden="true"></span>`}
-                </span>
-            </div>`
-        ).join('');
+                ${label ? `<span class="rl-tier">${esc(label)}</span>` : ''}
+                <span class="result-actions">${action}</span>
+            </div>`;
+        }).join('');
     // Preselect the first result so pressing Enter has an obvious,
     // visible target. Hover or arrow keys move it from here.
     const firstRow = $('searchResults').querySelector('.search-result');
@@ -4369,27 +4384,25 @@ $('geoBtn').addEventListener('click', () => {
 });
 
 $('searchResults').addEventListener('click', e => {
-    const star = e.target.closest('.fav');
-    if (star) { // ★ toggles favorite; panel stays open, list re-sorts
-        const { saved, fav, ...place } = state.suggestions[+star.dataset.i];
-        if (toggleFavorite(place)) renderSuggestions($('searchInput').value);
-        else flashFavHint(); // cap reached: hint instead of a silent no-op
+    const pin = e.target.closest('.pin');
+    if (pin) { // ★ promotes into the pinned tier; the panel stays open
+        const { tier, ...place } = state.suggestions[+pin.dataset.i];
+        if (pinCity(place)) renderSuggestions($('searchInput').value);
+        // Cap reached: a hint rather than a silent no-op, in the list's own
+        // vocabulary rather than the storage layer's.
+        else flashFavHint(`Pinned cities are limited to ${MAX_FAVORITES}. Unpin one to add another.`);
         return;
     }
-    const forget = e.target.closest('.forget');
-    if (forget) { // ✕ dismisses from both recents and favorites
-        const gone = state.suggestions[+forget.dataset.i];
-        savedCities = savedCities.filter(c => placeKey(c) !== placeKey(gone));
-        favorites = favorites.filter(c => placeKey(c) !== placeKey(gone));
-        saveJSON(LS_CITIES, savedCities);
-        saveJSON(LS_FAVORITES, favorites);
-        sweepForecasts(); // DR-6: a dismissed place's cache goes with it
+    const unpin = e.target.closest('.unpin');
+    if (unpin) { // ✕ demotes into the transient tier; it is not a delete
+        const { tier, ...place } = state.suggestions[+unpin.dataset.i];
+        unpinCity(place);
         renderSuggestions($('searchInput').value);
         return;
     }
     const row = e.target.closest('.search-result');
     if (row) {
-        const { saved, fav, ...place } = state.suggestions[+row.dataset.i];
+        const { tier, ...place } = state.suggestions[+row.dataset.i];
         // A pick we already have fresh cache for swipes up into view (the
         // same wave as the ↑ arrow); an uncached place keeps skeleton → reveal.
         const entry = loadForecast(place);

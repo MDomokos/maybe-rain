@@ -74,10 +74,41 @@ const toggleFavorite = place => {
     }
     return true;
 };
+// primary's promotion model, in place of the ★ toggle. One glyph that
+// meant two opposite things depending on state you had to read off the
+// row before you could press it is a control that cannot be aimed at;
+// these are one-way, and each row shows only the one that applies to it.
+//
+// classic keeps toggleFavorite: it has its own search list, its own
+// vocabulary, and no tier for a demoted city to fall into.
+const pinCity = place => isFav(place) ? true : toggleFavorite(place);
+const unpinCity = place => {
+    if (!isFav(place)) return;
+    // A demotion, not a delete. The place drops into the transient tier
+    // and ages out from there on its own, so unpinning never has to mean
+    // "gone" and nothing is left needing manual cleanup.
+    //
+    // Appended rather than prepended: unpinning is not visiting, and the
+    // head of the MRU is what the switcher reads as "the city you were
+    // just on". It is stamped fresh either way, so one TTL window starts
+    // now — the same reasoning as the load-time backfill above. Room is
+    // made from the old end first, so the entry being added cannot be the
+    // one the cap drops.
+    const rest = savedCities.filter(c => placeKey(c) !== placeKey(place))
+        .slice(0, MAX_CITIES - 1);
+    savedCities = [...rest, { ...place, seenAt: Date.now() }];
+    saveJSON(LS_CITIES, savedCities);
+    // Ordered after the write so the place is already a recent when
+    // toggleFavorite's sweepForecasts runs, or its cached forecast would
+    // be swept as orphaned in the same breath.
+    toggleFavorite(place);
+};
+
 // Transient advisory shown in the search panel when the favorites cap is
 // hit. Prepended to the results (amber, self-clearing); a later re-render
-// or keystroke wipes it, whichever comes first.
-const flashFavHint = () => {
+// or keystroke wipes it, whichever comes first. The message is a
+// parameter because the two variants call the same list different things.
+const flashFavHint = (msg = `Favorites are limited to ${MAX_FAVORITES}. Unfavorite one to add another.`) => {
     const box = $('searchResults');
     let hint = box.querySelector('.fav-hint');
     if (!hint) {
@@ -86,7 +117,7 @@ const flashFavHint = () => {
         hint.setAttribute('role', 'status');
         box.prepend(hint);
     }
-    hint.textContent = `Favorites are limited to ${MAX_FAVORITES}. Unfavorite one to add another.`;
+    hint.textContent = msg;
     clearTimeout(hint._t);
     hint._t = setTimeout(() => hint.remove(), 3500);
 };
