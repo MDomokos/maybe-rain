@@ -3771,14 +3771,15 @@ const renderSheet = () => {
         const mark = rowMark(r, first);
         const val = placeReading(r.place);
         // The slot is drawn whether or not it has a value, so a city with
-        // no cache does not shunt the column of numbers sideways on the
-        // rows that do. Aria takes the value with the name, because a
-        // screen reader is reading the same comparison off the same row.
+        // no cache does not shunt the name beside it out of line with the
+        // rest of the list. Aria takes the value with the name, in that
+        // order whatever the row's own order is: a screen reader is reading
+        // the same comparison, and the name is what identifies the row.
         return `<div class="sheet-row tier-${r.tier}${r.tier === TIER_HERE ? ' current' : ''}${r.seam ? ' seam' : ''}"`
             + ` id="sheetRow${i}" role="option" tabindex="-1" aria-selected="false" data-idx="${i}"`
             + ` aria-label="${esc(r.place.name)}${val ? `, ${esc(val)}` : ''}">`
-            + `<span class="sr-name">${esc(r.place.name)}</span>`
             + `<span class="sr-val">${val ? esc(val) : ''}</span>`
+            + `<span class="sr-name">${esc(r.place.name)}</span>`
             + (mark ? `<span class="sr-mark">${esc(mark)}</span>` : '')
             + `</div>`;
     });

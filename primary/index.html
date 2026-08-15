@@ -685,15 +685,31 @@
            previewed one at a time. The slot keeps its width when a city has
            no cached forecast, so a blank never shifts the numbers beside it.
            Brighter than the tier marks and quieter than the name: the name
-           is what you are choosing, the number is why. */
+           is what you are choosing, the number is why.
+
+           It LEADS the row. On the right it sat under the ball of the thumb
+           for the whole of the swipe the switcher is driven by — the one
+           column on the screen you cannot read while you are using it. The
+           left edge is the only part of a bottom sheet a right thumb never
+           covers, and a left thumb reaches it across an empty row rather
+           than over the numbers.
+
+           `width`, not `min-width`, is what keeps the promise the column
+           makes: a wide reading (100%, a three-digit °F) can no longer push
+           the name it sits beside, so every city name in the list starts at
+           the same pixel whatever is printed to the left of it. */
         .sheet-row .sr-val {
-            flex-shrink: 0;
-            min-width: 3.6em;
+            flex: none;
+            width: 2.8em;
             text-align: right;
             font-size: 13px;
             font-variant-numeric: tabular-nums;
             color: var(--text-muted);
         }
+        /* The list's rows give the gutter to the reading. The action rows do
+           not: the wide slot is the search placeholder, and it has to stay in
+           the exact place the live field appears in when it is tapped. */
+        .sheet-list .sheet-row { padding-left: var(--sp-1); }
         .sheet-row.aim .sr-val { color: var(--accent); }
         /* The tier seam. An inset hairline rather than a border or a
            separator row, because both of those are geometry: a border grows
