@@ -13,9 +13,12 @@ design work. For *why* any of this is the way it is, see the decision records in
 
 One viewport, no scrolling. Nothing above the grid but dates. Top to bottom:
 
-- **Day row** — weekday over the date, one column per grid column.
+- **Day row** — weekday over the date, one column per grid column. A column
+  that has narrowed drops to the date alone, then to nothing.
 - **Grid** — 7 columns × 16 rows at rest. Days across, hours 06:00–21:00 down.
-  Every block is one real hour of one real day.
+  Every block in the home week is one real hour of one real day. Days pulled in
+  from beyond it draw at the granularity the forecast actually has: 3-hour
+  blocks at lead 7–8, 6-hour at 9–10, one inset daily bar from 11.
 - **Side axis** — hour labels, with the current temperature in gold and a ▶ at
   the current hour when today is in frame.
 - **Control row** — the city name, then the three views as words, each carrying
@@ -59,25 +62,37 @@ Any view can be turned off in ⚙; the switcher only cycles the enabled ones.
 ## Navigation
 
 This is where primary diverges from classic. The grid frame never changes size —
-gestures slide a window over more data instead of growing it.
+gestures make room inside it rather than growing it or scrolling it away.
 
 Two surfaces, and which one a drag started on is what decides its meaning.
 
 **On the grid**
 
-- **Other days** — horizontal drag, one day per notch, forward and back. Back
-  reaches the two past days the payload carries, for checking what happened
-  overnight; past columns are dimmed and the tooltip names yesterday. A ⌂ chip
-  returns home from either direction, and it self-returns after an idle window
-  unless a tooltip is open, which counts as the screen being actively read. A
-  horizontal wheel does the same.
+- **Other days** — pull sideways from the side the days you want are on. They
+  accordion in continuously under the finger while the home week squishes to
+  pay for them; today never leaves the screen. Forward reaches seven days past
+  the home week; back reaches the two past days the payload carries, for
+  checking what happened overnight, and past columns are dimmed. Past days cost
+  more travel per day, so the two ends are a comparable pull apart.
+  - **Let go anywhere short of the end and it was a peek.** The grid bounces
+    home. There is no scroll position, so there is nothing to lose.
+  - **At the end the columns freeze** and the whole grid slides toward the pull
+    instead, its trailing edge clipping into black. A little way into that
+    slide a hairline beside the grid brightens and goes solid, with one haptic
+    tick: **release there and the stretch locks open.**
+  - **Locked is a place.** Taps open tooltips exactly as at home. Three ways
+    out, all of them home: the same pull again to the same mark, a clear pull
+    back, or ⌂ / Esc. Anything less is a wiggle and the lock holds. The ⌂ chip
+    exists only while locked.
+  - A horizontal wheel holds a peek open and lets it bounce a beat after it
+    stops. It cannot lock: there is no release to read.
 - **More hours** — drag the hour gutter. A spring-loaded peek: the 16-slot
   window slides within the full 24, and springs home on release.
 - **The key** — appears in the caption slot while a finger or pointer is on the
   grid, and gives the slot back on release.
-- **The reach marks** — on the same signal as the key: a gold arrow at each side
-  of the grid and a caret above and below the hour axis, drawn only in the
-  directions the window can still travel. Nothing at rest.
+- **The reach carets** — on the same signal as the key: a caret above and below
+  the hour axis, drawn only in the directions the hour window can still travel.
+  Nothing at rest. The day axis needs none: the columns making room say it.
 
 **On the control row**
 
@@ -110,7 +125,9 @@ Two surfaces, and which one a drag started on is what decides its meaning.
   ← → step views. ↓ from a closed sheet does nothing by construction — the
   current city is the bottom row, so there is nothing below it. Both arrows
   are live with the sheet open, where the aim can be anywhere in the list.
-  Shift+← → step the day window, in both directions; Esc sends it home.
+  Shift+← → nudge the day elastic a day at a time, in both directions, and it
+  holds where it is put; Shift+End locks the stretch open and lets it go again;
+  Esc and ⌂ are home.
 
 ## Tooltip
 
@@ -129,6 +146,11 @@ Contents: hour, condition, temperature and apparent temperature, rain chance and
 mm/h, snow cm/h, wind with gusts when they exceed the sustained wind
 meaningfully, UV, and any hazard as a labelled chip. Sunrise and sunset lines
 appear on the days that carry them.
+
+On a far day, where a block stands for several hours, the header gives the hour
+range instead of the hour, the rain and snow figures are totals across the block
+rather than rates, and a line says what the block is — `3-hour block · beyond
+native hourly`, or `daily value` on the single daily bar.
 
 ## The sheet
 
