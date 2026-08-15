@@ -486,9 +486,17 @@ const viewReading = (h, v) =>
   : v === 'wind' ? (h.wind != null ? `${displayWind(h.wind)}` : null)
   : /* rain */     (h.pop  != null ? `${h.pop}%` : null);
 
-const renderViewValues = () => {
+// The hour datum for right now, in whatever city `state` is currently
+// describing. Named because the sheet rows ask the same question of a
+// DIFFERENT city, through withPlaceState, and both have to mean the same
+// thing by "now": the city's own local hour, not the reader's.
+const nowHour = () => {
     const ti = state.days.findIndex(d => d.isToday);
-    const h = ti >= 0 ? state.data[ti]?.find(x => x.hour === cityNow().hour) : null;
+    return ti >= 0 ? state.data[ti]?.find(x => x.hour === cityNow().hour) : null;
+};
+
+const renderViewValues = () => {
+    const h = nowHour();
     document.querySelectorAll('#viewSeg button[data-view]').forEach(b => {
         const el = b.querySelector('.seg-val');
         if (!el) return;
@@ -1270,9 +1278,16 @@ return shownDays.map((dayData, dayIndex) => {
 // instead: black is the page background rather than a value in any
 // palette, so it reads as ABSENT and never as a wrong number. The real
 // data arrives on landing, through the ordinary changeCity fetch.
-const colsForPlace = place => {
+//
+// Everything that reads another city does it through here: swap `state`
+// onto that city's cached payload, run `fn` against the ordinary render
+// path, put `state` back. One delicate swap with one list of fields to
+// restore, rather than one per caller — the failure mode of a second copy
+// is a field nobody remembered to keep, and it surfaces as the live grid
+// quietly indexing its week through another city's anchor.
+const withPlaceState = (place, fn) => {
     if (!place) return null;
-    if (placeKey(place) === placeKey(state.place)) return buildCols();
+    if (placeKey(place) === placeKey(state.place)) return fn();
     const entry = loadForecast(place);
     if (!entry?.payload || forecastExpired(entry)) return null;
     const keep = {
@@ -1292,13 +1307,14 @@ const colsForPlace = place => {
         // of a different city must never inherit its pulses.
         state.changed = null; state.pulsePending = false;
         processData(entry.payload);
-        return buildCols();
+        return fn();
     } catch {
         return null;
     } finally {
         Object.assign(state, keep);
     }
 };
+const colsForPlace = place => withPlaceState(place, buildCols);
 
 // The sweep needs both grids to be the same shape, and a city with a
 // shorter cached payload can yield fewer than DAY_SPAN columns. Pad
@@ -2864,6 +2880,29 @@ const sheetColsFor = (idx, sh = sheet) => previewCols(sheetPlaces()[idx], idx, s
 // string, so it can never collide with a row index.
 const hereCols = (sh = sheet) => previewCols(state.place, 'here', sh);
 
+// --- The reading on each row -------------------------------------------
+// A weather app's city switcher listed names and nothing else, so
+// comparing cities was strictly SERIAL: preview one, hold it in your head,
+// preview the next. The reader was the register file.
+//
+// A number on every row makes the list itself the comparison, and demotes
+// the live grid preview to what it should always have been — confirmation
+// of a decision already made rather than the mechanism for making it.
+//
+// It is the ACTIVE view's value, so the switcher answers the question you
+// are already asking: chance in rain, temperature in temp, speed in wind.
+// That is the control row's own convention, where each view button
+// already prints its own current reading, applied one level out.
+//
+// A city with no cached forecast reads BLANK, never a guess and never a
+// zero. Same honesty rule DR-32 settled for the preview, where an
+// uncached city sweeps to black rather than to invented colours: the app
+// has one way of saying "not here yet" and it is to say nothing.
+const placeReading = place => withPlaceState(place, () => {
+    const h = nowHour();
+    return h ? viewReading(h, view) : null;
+});
+
 // What the mark slot on the right of a row says. The two anchor rows name
 // themselves, because which is which is the whole point of the bottom of
 // the list; the tiers above are named on their FIRST row only, beside the
@@ -2880,9 +2919,16 @@ const renderSheet = () => {
     const rows = sheetRows().map((r, i, all) => {
         const first = i === 0 || all[i - 1].tier !== r.tier;
         const mark = rowMark(r, first);
+        const val = placeReading(r.place);
+        // The slot is drawn whether or not it has a value, so a city with
+        // no cache does not shunt the column of numbers sideways on the
+        // rows that do. Aria takes the value with the name, because a
+        // screen reader is reading the same comparison off the same row.
         return `<div class="sheet-row tier-${r.tier}${r.tier === TIER_HERE ? ' current' : ''}${r.seam ? ' seam' : ''}"`
-            + ` id="sheetRow${i}" role="option" tabindex="-1" aria-selected="false" data-idx="${i}">`
+            + ` id="sheetRow${i}" role="option" tabindex="-1" aria-selected="false" data-idx="${i}"`
+            + ` aria-label="${esc(r.place.name)}${val ? `, ${esc(val)}` : ''}">`
             + `<span class="sr-name">${esc(r.place.name)}</span>`
+            + `<span class="sr-val">${val ? esc(val) : ''}</span>`
             + (mark ? `<span class="sr-mark">${esc(mark)}</span>` : '')
             + `</div>`;
     });
