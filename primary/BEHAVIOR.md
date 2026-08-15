@@ -29,7 +29,9 @@ One viewport, no scrolling. Nothing above the grid but dates. Top to bottom:
 - **Bottom line** — one slot of fixed height with three occupants that never
   coexist: the status line at rest, the condition key while the grid is being
   touched or hovered, and the gesture hint on a first run. Fixed height, so the
-  swap moves nothing, and the three dissolve rather than cut. The last thing on
+  swap moves nothing, and the three dissolve rather than cut. It takes the full
+  width of the screen — nothing in it is a column, so it keeps none of the
+  grid's gutter. The last thing on
   the screen: it is read, never pressed. The hint names one gesture per launch
   (cities, days, hours, peek), skips any with nowhere to go, and each retires
   itself the first time its own gesture is used.
@@ -83,8 +85,15 @@ Two surfaces, and which one a drag started on is what decides its meaning.
     lose.
   - **At the end the columns freeze** and the whole grid slides toward the pull
     instead, its trailing edge clipping into black. A little way into that
-    slide a hairline beside the grid brightens and goes solid, with one haptic
-    tick: **release there and the stretch locks open.**
+    slide a hairline beside the grid grows and brightens, then goes solid with
+    one haptic tick: **release there and the stretch locks open.** One pixel
+    wide throughout — it answers the threshold by lighting up, never by
+    thickening.
+  - **A flick is answered in words.** The axis is dragged and held; there is no
+    momentum in it anywhere, so a thrown swipe opens a few days and shuts them
+    before they can be read. A release that fast, after that little travel,
+    puts one transient line in the status line saying to keep hold of the drag.
+    Three times ever, and never again once a stretch has been locked open.
   - **Locked is a place.** Taps open tooltips exactly as at home. Three ways
     out, all of them home: the same pull again to the same mark, a clear pull
     back, or ⌂ / Esc. Anything less is a wiggle and the lock holds. The ⌂ chip
@@ -204,9 +213,11 @@ swap is one row whenever the previous city is not pinned. Groups are split by a
 hairline seam — except between **back** and **current**, which are the swap and
 belong together.
 
-Every row carries that city's **current reading for the active view** (chance
-in rain, degrees in temp, speed in wind), read off its cached forecast. A city
-with no cache reads blank, never a zero.
+Every row **leads with** that city's **current reading for the active view**
+(chance in rain, degrees in temp, speed in wind), read off its cached forecast,
+in a fixed column at the left edge — the one part of the sheet the thumb
+driving the swipe never covers, and a width no reading can push, so every city
+name starts at the same place. A city with no cache reads blank, never a zero.
 
 - **Pinning, not favouriting.** A searched city enters the transient tier by
   itself and ages out by itself; nothing needs cleaning up. In the search list

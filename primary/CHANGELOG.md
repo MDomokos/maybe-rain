@@ -2,6 +2,16 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.5.4 (2026-08-16) — bugfix
+
+- a sideways pull that goes out one way and comes back the other now stays continuous. crossing back through the point the pull started jumped the grid the better part of a day sideways, which is exactly where peeking at the days ahead and then the days behind lands
+- a fast flick at the grid says what it wants. the day axis is dragged and held, never thrown, so a flick opened a few days and shut them again before they could be read — and said nothing about why. it now answers in the status line, three times ever, and stops for good once the days have been held open properly
+- the bottom line takes the whole width of the screen. it was inset by the hour labels' gutter, so the freshness reading fell off the end of a narrow phone into empty space beside them
+- the mark for the end of a swipe is a hairline. it was a 3px bar that thickened to 4px, the only rule on the screen that answered a threshold by getting fatter; it grows, brightens and lights up instead
+- the reading leads each row of the city switcher instead of trailing it. on the right it sat under the thumb driving the swipe — the one column you could not read while using it. every city name still starts at the same place, whatever is printed beside it
+- the city switcher opens where it lands. it was measuring the held city name against a sheet that was still rising, then correcting itself a moment later, which read as the list dropping after it had arrived
+- stepping between search and the settings menu no longer flashes the main screen. the sheet was replaying its own entrance for a move that never left it, so it blanked for a frame with the grid behind it
+
 ## v2.5.3 (2026-08-16) — bugfix
 
 - make the city switcher UI more obviously pinned / unpinned
