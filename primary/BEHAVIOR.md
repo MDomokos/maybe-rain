@@ -26,8 +26,8 @@ One viewport, no scrolling. Nothing above the grid but dates. Top to bottom:
   touched or hovered, and the gesture hint on a first run. Fixed height, so the
   swap moves nothing, and the three dissolve rather than cut. The last thing on
   the screen: it is read, never pressed. The hint names one gesture per launch
-  (cities, days, hours), skips any with nowhere to go, and each retires itself
-  the first time its own gesture is used.
+  (cities, days, hours, peek), skips any with nowhere to go, and each retires
+  itself the first time its own gesture is used.
 
 There is no header band, no ⚙ and no separate legend band. The three view
 buttons are where the app prints the current temperature, chance of rain and
@@ -82,11 +82,15 @@ Two surfaces, and which one a drag started on is what decides its meaning.
 **On the control row**
 
 - **Switch city** — swipe up, or press and hold. The sheet opens under the
-  finger, the row the finger is over is the aim, and releasing lands it. The
-  list is ordered by recency with the current city at the bottom, so the city
-  you were last on is one row away. While it is held the control row and the
-  sheet's own action row are not drawn, and the aimed name is shown where the
-  control row's name will be, so the release moves nothing.
+  finger, the row the finger is over is the aim, and releasing lands it. See
+  **Places** for what the list contains and in what order. While it is held
+  the control row and the sheet's own action row are not drawn, and the aimed
+  name is shown where the control row's name will be, so the release moves
+  nothing. Beside it, the aimed row's tier — `pinned`, `recent`, `back`, or
+  `now` when a release would change nothing.
+- **Peek** — the same gesture, released on the row it started on. The grid
+  previews each aimed city at its true colours, so holding and letting go
+  where you were is "let me just check over there" and costs nothing.
   A release only lands a city the finger actually **aimed** at: opening the
   sheet and letting go without crossing to another row takes nothing, however
   the sheet was opened. The current city is not always in the list — it is the
@@ -102,7 +106,10 @@ Two surfaces, and which one a drag started on is what decides its meaning.
   to have been a tap with a thumb roll in it is still a tap. The press has to
   outlast a real long-press (400ms) before it counts as a hold, and travel
   further than the platform's own tap slop (18px) before it counts as a drag.
-- **Keyboard** — ↑ ↓ step cities in the sheet's own order; ← → step views.
+- **Keyboard** — ↑ steps to the row above the current city, which is the swap;
+  ← → step views. ↓ from a closed sheet does nothing by construction — the
+  current city is the bottom row, so there is nothing below it. Both arrows
+  are live with the sheet open, where the aim can be anywhere in the list.
   Shift+← → step the day window, in both directions; Esc sends it home.
 
 ## Tooltip
@@ -111,6 +118,12 @@ A single tap on a block opens it; tapping the same block, the tooltip itself, or
 anywhere else closes it. There is no pinned tier and no long press. An open
 tooltip survives a city or view swipe and re-targets the same grid position, so
 it doubles as the comparison tool.
+
+While a switcher preview is aimed, an open tooltip prints **both** cities on
+one line — same date, same hour, the current reading and the aimed one, in the
+active view's terms. Matched on the date rather than the column, so two cities
+whose today sits at different indices are still compared hour for hour. It
+goes when the sheet does.
 
 Contents: hour, condition, temperature and apparent temperature, rain chance and
 mm/h, snow cm/h, wind with gusts when they exceed the sustained wind
@@ -125,6 +138,13 @@ to the bottom of all three — the mode you are in reads as the wide slot on the
 left, the mode you are not is the button on the right. In search the wide slot
 is the field itself.
 
+The places list is **frozen for the life of an opening**: its rows are taken
+once when the sheet opens, and every row index means an index into that array
+until it closes. Search is a mode of the same sheet and pinning from it
+reshapes the tiers, so `setSheetMode('places')` — the one door back in —
+re-snapshots the rows and rebuilds the DOM together, keeping the aim on the
+same city across the renumbering.
+
 The viewport meta carries `interactive-widget=resizes-content` so the on-screen
 keyboard shrinks the layout viewport and the sheet sits above it rather than
 behind it. A `visualViewport` fallback covers browsers that do not honour it,
@@ -132,12 +152,38 @@ gated at 80px so a retracting URL bar cannot trigger it.
 
 ## Places
 
-- Tap the city name to search (Open-Meteo geocoding), or use the location button.
-- **Favorites** (★) are the curated list the switcher cycles, capped at 9. With
-  none saved it falls back to recents, so the gesture always has something.
-- **Recents** are automatic, capped at 12, most-recently-used order.
+Tap the city name to search (Open-Meteo geocoding), or use the location button.
+
+The switcher is a **tiered list**, not a favourites list. Bottom-up, which is
+the direction the thumb travels:
+
+| tier | what it holds | order |
+|---|---|---|
+| **current** | the city on screen, always, pinned or not | the bottom row |
+| **back** | the city the last switch came from | one row up — drawn only when that city is not pinned |
+| **pinned** (★) | your mains, capped at 5 | pin order, reversed, so the first city you pin is nearest the thumb. They do not move |
+| **transient** | cities you looked up | MRU, capped at 3, dropped after 72h without a visit |
+
+Read down, the gradient is commitment; read up from the thumb, it is cost. The
+swap is one row whenever the previous city is not pinned. Groups are split by a
+hairline seam — except between **back** and **current**, which are the swap and
+belong together.
+
+Every row carries that city's **current reading for the active view** (chance
+in rain, degrees in temp, speed in wind), read off its cached forecast. A city
+with no cache reads blank, never a zero.
+
+- **Pinning, not favouriting.** A searched city enters the transient tier by
+  itself and ages out by itself; nothing needs cleaning up. In the search list
+  ★ pins and ✕ unpins, one action per row, never both. Unpinning is a
+  demotion into the transient tier, not a delete.
+- **Recents** are still automatic and capped at 12; the transient tier is the
+  freshest 3 of them that are not otherwise on the list.
 - Both lists and the forecast cache are shared with classic — same storage keys,
-  same 3-dp lat/lon identity.
+  same 3-dp lat/lon identity. Recents now also carry `seenAt`, which classic
+  ignores.
+- The search list is grouped the same way: pinned, recents, then live results,
+  seamed and named.
 - The current place lives in the URL, so any view is shareable. ⚙ → Share copies
   either the place link or the plain site link.
 

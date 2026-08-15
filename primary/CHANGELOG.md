@@ -4,9 +4,27 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ## unreleased
 
+### a city you just looked up is now in the switcher
+- search a city and it goes straight into the switcher, under a line, without being starred. swap between it and home for as long as the trip lasts, and it drops off by itself after three days
+- your main cities sit in their own block above that line, in the order you pinned them, and they stay put. the list used to re-sort itself every time you switched, so no place ever kept its position
+- the city you were last on is always the row directly above the one you are on, so swapping back and forth is one row whichever two places it is between. (if it is one of your pinned cities it keeps its place in the block instead of being pulled out)
+- the city you are on is always the bottom row, whether or not it is one of your mains
+- ★ pins a city to your mains and ✕ unpins it — one button per row, and only the one that applies. unpinning drops the city back into the recently-looked-up list rather than deleting it
+- mains are capped at five now rather than nine, because the list carries more than mains
+
+### the switcher shows the weather
+- every row in the switcher shows that city's reading right now — chance of rain, temperature or wind speed, whichever view you are in. you can compare the cities in the list instead of previewing them one at a time
+- a city the app has never fetched shows nothing rather than a made-up zero
+- with a tooltip open, holding the city name shows both cities on one line for that same hour, so the comparison is in numbers and not only in colour
+- the counter beside the city name used to read "3/5". it names what you are aiming at instead — one of your mains, somewhere you were passing through, the city you were last on, or the one you are already on
+- the hint line now also mentions that you can hold the city name to look at another city and let go to stay where you are
+
 ### tapping the city name opens search again
 - tapping the name to search often switched to another city instead, or did nothing at all. a slightly slow tap, or one with the usual thumb roll in it, was being read as the swipe that switches city. it now takes a longer press and more travel before a tap counts as a gesture
-- the city switcher only changes city when a row is actually aimed at. opening it and letting go without moving to another row takes nothing, whichever way it was opened
+- the city switcher only changes city when a row is actually aimed at. opening it and letting go without moving to another row takes nothing, whichever way it was opened — by touch, by tap or from the keyboard
+- dismissing the switcher while looking at another city puts your own city's weather back on the grid. it used to leave the other city's colours there under your city's name
+- pinning or unpinning a city from search and then going back to the list no longer leaves the old list on screen. tapping a row there could switch you to a different city than the one it named
+- on a desktop, moving the mouse down the switcher previews each city, the way a thumb does. this was meant to work all along and never had
 - the city name in the bottom row no longer changes when search opens
 - with search open, Enter searches instead of switching city
 
