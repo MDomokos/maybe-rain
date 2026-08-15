@@ -8,6 +8,8 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - tapping the city name opens search. it was landing on search, the city switcher or a different city altogether, depending on how long the tap happened to take
 - press and hold is gone. the switcher opens by swiping up on the row, which is now the only way in
 - a swipe has to travel further than a thumb naturally rolls before it counts as one, so a tap that wobbles is still a tap
+- a tap near the top of the city name switched to whichever city search then drew under your finger, and flashed the search list on its way past. a tap no longer carries through to whatever opens beneath it, so where in the name you tap makes no difference
+- a sideways swipe that finishes on top of rain, temp or wind no longer also taps it
 - the hint about peeking at another city now says to swipe up rather than to hold
 
 ### elastic day axis, fine-tuning
