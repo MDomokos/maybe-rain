@@ -308,13 +308,26 @@
            The control row is the only thing on this screen that gets touched,
            so it takes the position nearest the thumb; the line above it was
            spending the best reach in the app on text that is only ever read. */
+           It takes the WHOLE width. The grid's gutter and overhang exist to
+           line columns up with the hour labels, and nothing in this slot is a
+           column: the status line, the key and the hint are one box of centred
+           text. Inset by the gutter it was starting 44px in from the left edge
+           and ending 14px short of the right, so a line that ellipsizes from
+           the right was dropping its freshness reading into empty space beside
+           the hour labels, and the key was fitting fewer steps than the screen
+           had room for. The row lives inside .view-toggle, which carries that
+           inset for the control row's sake, so the width is taken back here
+           rather than by moving the slot out of the block that owns it. */
         .botcap {
             height: 26px;
             display: flex;
             flex-direction: column;
             justify-content: center;
-            margin-left: var(--gutter);
-            margin-right: var(--overhang);
+            /* Exactly cancels the parent's inset, so the slot lands on the
+               container's own edges — the same width the chart above it has,
+               which is the whole of the screen the app is given. */
+            margin-left: calc(-1 * var(--gutter));
+            margin-right: calc(-1 * var(--overhang));
         }
         .botcap > * { width: 100%; }
         .status-wrap[hidden] { display: none; }
