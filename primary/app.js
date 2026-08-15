@@ -3306,7 +3306,7 @@ const nudgeElastic = dir => {
 // Pointer events, so one path covers finger, mouse and stylus, and
 // pointer capture routes every move and the release back here whatever
 // a repaint did to the DOM underneath.
-let pull = null;   // { x, y, id, axis, basePx, wasLocked }
+let pull = null;   // { x, y, id, axis, slop, basePx, wasLocked }
 
 chart.addEventListener('pointerdown', e => {
     if (pull || !e.isPrimary) return;
@@ -3362,6 +3362,10 @@ chart.addEventListener('pointermove', e => {
         // way back.
         if (pull.axis !== 'x' || !elasticLive()) { restPull(pull); pull = null; return; }
         chart.setPointerCapture?.(e.pointerId);
+        // Where the pull was claimed, frozen once. Every later frame
+        // measures travel from HERE, so the slop is spent exactly once at
+        // the start of the gesture and is never re-applied.
+        pull.slop = dx;
         if (dayMode !== 'locked') dayMode = 'stretch';
         // Deliberately NOT closing an open tooltip: it survives the pull
         // and keeps reading the same block, which is what makes it the
@@ -3372,7 +3376,16 @@ chart.addEventListener('pointermove', e => {
     // and the meaning share a side, which is the whole logic of it. The
     // slop is subtracted rather than ignored, so the grid does not jump
     // by the threshold at the moment the pull is claimed.
-    const travel = -(dx - Math.sign(dx) * PULL_SLOP);
+    //
+    // Subtracted as a FIXED origin, not as `sign(dx) * PULL_SLOP`. That
+    // form flips with the finger, so a drag that goes out one way and
+    // comes back through its own starting point moved the origin 20px in
+    // one frame — the grid jumped a day and a half sideways at the exact
+    // moment the pull crossed from one side of the axis to the other,
+    // which is the one place a continuous gesture must be continuous.
+    // Peeking forward and then back in a single motion crosses it every
+    // time.
+    const travel = -(dx - pull.slop);
     const raw = rawFromPx(pull.basePx + travel);
     const side = Math.sign(raw) || 1, cap = reachOn(side);
     // An end with no days behind it does not stretch and does not arm.
