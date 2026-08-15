@@ -2,7 +2,7 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
-## unreleased
+## v2.5.1 (2026-08-15) — bugfix
 
 ### the city name is a tap, and only a tap
 - tapping the city name opens search. it was landing on search, the city switcher or a different city altogether, depending on how long the tap happened to take
