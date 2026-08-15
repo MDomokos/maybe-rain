@@ -4028,17 +4028,34 @@ const alignAimReadout = (force = false) => {
     // forces the reflow, which is what makes this safe to do synchronously;
     // an animation frame was one frame too early and measured the sheet
     // before it had landed.
-    pin.style.paddingBottom = '0px';
+    pin.style.marginBottom = '0px';
     pin.style.paddingLeft = '0px';
     const a = pin.getBoundingClientRect(), b = name.getBoundingClientRect();
     // Nothing laid out yet: leave `aligned` false so the next aim tries
     // again rather than locking in a measurement that never happened.
     if (!a.height || !b.height) return;
     sheet.aligned = true;
-    // border-box: the padding eats into the 52px row, and the row centres its
-    // content, so P of bottom padding lifts the text by P/2.
+    // Move the BOX, by exactly the gap. It used to move the text INSIDE the
+    // box, with bottom padding, on the reasoning that border-box padding eats
+    // into the 52px row and a centred line therefore lifts by half of it. That
+    // holds for the first 28px — the slack between the 52px row and its 24px
+    // line — and then stops dead: `min-height` is a minimum, so past the slack
+    // the padding grows the box instead of displacing the line, and the box
+    // grows UPWARD because it is the last child of a bottom-anchored sheet.
+    //
+    // Measured, the gap is 64px, so it applied 128px of padding: 28 of that
+    // behaved as designed and lifted 14px, the other 100 grew the box 52 → 152
+    // and dragged the line up one-for-one. 114px of lift for a 64px gap. It
+    // overshot the control row by 50px AND spent 100px of the list doing it —
+    // worse on both counts than leaving it alone would have been. The ×2 only
+    // ever described the first 28px, and no single factor describes both.
+    //
+    // Margin rather than a transform, which would be free: in gesture mode
+    // this is the last thing in the sheet and the list above it takes whatever
+    // is left, so a transform would slide the readout up over rows that still
+    // think they own that space. The margin makes the list give the space up.
     const dy = (a.top + a.height / 2) - (b.top + b.height / 2);
-    if (dy > 0) pin.style.paddingBottom = `${Math.round(dy * 2)}px`;
+    pin.style.marginBottom = dy > 0 ? `${Math.round(dy)}px` : '0px';
     pin.style.paddingLeft = `${Math.max(0, Math.round(b.left - a.left))}px`;
 };
 
