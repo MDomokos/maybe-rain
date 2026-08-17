@@ -2,6 +2,10 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.1 (2026-08-17)
+
+- the current hour plays its own weather when the grid settles — rain falls, snow drifts, lightning strikes — then stops. it marks where now is on arrival, and stays out of the way after
+
 ## v2.6.0 (2026-08-17)
 
 - rain is drawn as falling marks rather than a hatch cut off by the edge of the block. every line now starts and finishes where it means to
