@@ -27,12 +27,31 @@
 //
 // Config locked 2026-07-24 (Maybe Rain Precipitation + Climatology), with
 // the mark field's own constants from Maybe Rain Line Refinements.
-const LN = { sp0: 15, sp1: 4.7, sw0: 0.85, sw1: 2.6, gamma: 0.4, cap: 8,
-             floor: 0.3, b1: 1, tlen: 3.7, tgap: 5.1, b2: 2, blen: 14, bgap: 6,
-             shade: 0.5, alpha: 0.6, popFloor: 8, warn: 20,
-             traceSp: 16, traceLen: 2.5, traceGap: 7, traceSw: 0.7, traceAlpha: 0.55,
+const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20, shade: 0.5,
              maxAngle: 55, windSat: 40,
-             snowCap: 2,   // cm/h; the 5y Budapest max (Climatology note)
+             snowCap: 2,      // cm/h; the 5y Budapest max (Climatology note)
+             snowGamma: 0.4,  // DR-15's curve, until snow joins the lattice
+             // The lattice barely moves: 6.4 px at the light end, 4.7 at
+             // the heavy one. Amount is no longer spent on COUNT, so the
+             // drizzle end stops being drawn with three lines.
+             spLo: 6.4, spHi: 4.7,
+             // The light band is 0.3 to 1 mm — the jacket question — and
+             // it lives in its own short range with a deliberate GAP
+             // before real rain begins. One continuous ramp put 0.4 mm at
+             // 37% of the maximum length, so a drizzle hour was already
+             // most of the way to looking like rain: the thing the three
+             // dash bands existed to prevent, and what retiring them
+             // quietly cost. The category boundary is now a jump in size.
+             light: 1,
+             lenTrace: 2.2, lenLo: 3.0, lenLight: 6.5, lenMain: 12.5, lenHi: 26,
+             // Weight steps with it, more gently, and has a floor. The
+             // ramp used to start at 0.9 px, which is under one device
+             // pixel on a 1x screen, so the lightest marks in the system
+             // were drawing sub-pixel smudges.
+             swFloor: 1.5, swLo: 1.5, swLight: 1.8, swMain: 2.0, swHi: 2.6,
+             gapTrace: 5.4, gapLo: 3.4, gapHi: 3.0,
+             gamma: 0.55, lightGamma: 0.8,
+             alpha: 0.62, alphaLight: 0.74, alphaTrace: 0.5,
              // The field's own two: how far a mark is held off the block's
              // edge, and how much of a mark has to survive the clip to be
              // worth drawing. The cull floor is 0 on purpose — a mark cut
@@ -184,10 +203,25 @@ const marksToPath = (segs, figure, m) => ({
 });
 
 // --- the amount ramp -------------------------------------------------
-// Still DR-12's, unchanged: spacing and weight ride one gamma curve on mm
-// and the three dash bands set the mark length. The field draws it rather
-// than a pattern, so the only thing that is different is that a mark now
-// begins and finishes where it means to. What the ramp SAYS changes next.
+// How much rain is the mark's LENGTH and weight, not the count of marks.
+//
+// DR-12 spent intensity on spacing: 15 px at the light end down to 4.7 at
+// the heavy one. The arithmetic of that is what broke the drizzle band. At
+// the drizzle end a 46 px block held three lines and the trace tier held
+// two — while 61 to 67% of all wet hours are under 0.5 mm. The modal rain
+// hour was drawn with the least ink in the system.
+//
+// So the lattice barely moves and the mark carries the amount instead.
+// Drizzle is a fine mist of short round-capped ticks covering the whole
+// fill; a downpour is few, long, thick, near-solid runs. Ink still rises
+// with mm, and coverage no longer collapses at the bottom.
+//
+// The ramp is two segments with a gap between them rather than one curve,
+// because the light band is a different question from the heavy one: "is
+// it worth a coat" against "how hard is it raining". A single ramp put
+// 0.4 mm at 37% of the maximum length, which is most of the way to looking
+// like rain. This also retires the three dash bands: length IS the band
+// now, continuously within each segment and stepped between them.
 const amountFor = h => {
     // Marks draw from the liquid part only (rain + showers); the white
     // lattice carries the frozen part. Old cached payloads lack the split:
@@ -204,18 +238,28 @@ const amountFor = h => {
         // sprinkle the amount misses. Chance-driven, and liquid rain only.
         if (COND[h.condition].group === 'snow') return null;
         if (h.pop == null || h.pop < LN.popFloor) return null;
-        return { sp: LN.traceSp, sw: LN.traceSw, alpha: LN.traceAlpha,
-                 len: LN.traceLen, gap: LN.traceGap, trace: true };
+        return { sp: LN.spLo, sw: Math.max(LN.swLo, LN.swFloor), alpha: LN.alphaTrace,
+                 len: LN.lenTrace, gap: LN.gapTrace, trace: true, light: true };
     }
-    const t = Math.pow(Math.min(mm, LN.cap) / LN.cap, LN.gamma);
-    const sp = LN.sp0 + (LN.sp1 - LN.sp0) * t;
-    const sw = LN.sw0 + (LN.sw1 - LN.sw0) * t;
-    // A solid run is one mark long enough to cross the block whatever the
-    // lean, which the clip then cuts to the block's own height.
-    let len = 999, gap = 0;
-    if (mm < LN.b1) { len = LN.tlen; gap = LN.tgap; }
-    else if (mm < LN.b2) { len = LN.blen; gap = LN.bgap; }
-    return { sp, sw, alpha: LN.alpha, len, gap, trace: false };
+    const clamp01 = x => Math.max(0, Math.min(1, x));
+    if (mm < LN.light) {
+        // The jacket band. Its own short, narrow range, and a little more
+        // opacity than the rest, because length still carries the amount
+        // and a thicker light mark does not over-state the hour the way a
+        // longer one would.
+        const t = Math.pow(clamp01((mm - LN.floor) / (LN.light - LN.floor)), LN.lightGamma);
+        return { sp: LN.spLo,
+                 sw: Math.max(LN.swLo + (LN.swLight - LN.swLo) * t, LN.swFloor),
+                 alpha: LN.alphaLight,
+                 len: LN.lenLo + (LN.lenLight - LN.lenLo) * t,
+                 gap: LN.gapLo, trace: false, light: true };
+    }
+    const t = Math.pow(clamp01((Math.min(mm, LN.cap) - LN.light) / (LN.cap - LN.light)), LN.gamma);
+    return { sp: LN.spLo + (LN.spHi - LN.spLo) * t,
+             sw: Math.max(LN.swMain + (LN.swHi - LN.swMain) * t, LN.swFloor),
+             alpha: LN.alpha,
+             len: LN.lenMain + (LN.lenHi - LN.lenMain) * t,
+             gap: LN.gapLo + (LN.gapHi - LN.gapLo) * t, trace: false, light: false };
 };
 
 // --- the block -------------------------------------------------------
@@ -245,7 +289,7 @@ const rainFieldSVG = (h, base, W, H) => {
 const snowLatticeSVG = h => {
     if (h.snow == null || h.snow <= 0) return '';
     if (h.pop != null && h.pop < LN.popFloor) return '';
-    const t = Math.pow(Math.min(h.snow, LN.snowCap) / LN.snowCap, LN.gamma);
+    const t = Math.pow(Math.min(h.snow, LN.snowCap) / LN.snowCap, LN.snowGamma);
     const sp = (14 - (14 - 5.2) * t) / Math.SQRT2, r = 0.8 + 0.8 * t;
     const ang = (windLean(h) * 0.5).toFixed(1);
     const id = 'mrsn' + (lnId++);
