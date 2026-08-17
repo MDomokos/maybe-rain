@@ -191,16 +191,70 @@ const markField = (W, H, angle, o) => {
 // lean and the clipping are shared and only the drawn shape changes.
 const subStraight = ([x1, y1, x2, y2]) =>
     `M${x1.toFixed(2)} ${y1.toFixed(2)}L${x2.toFixed(2)} ${y2.toFixed(2)}`;
+const subDotAt = (cx, cy, r) =>
+    `M${(cx - r).toFixed(2)} ${cy.toFixed(2)}a${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(2 * r).toFixed(2)} 0a${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(-2 * r).toFixed(2)} 0Z`;
 // A dot on the site's own centre, not on the clipped end. See markField.
-const subDot = (s, r) =>
-    `M${(s[7] - r).toFixed(2)} ${s[8].toFixed(2)}a${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(2 * r).toFixed(2)} 0a${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(-2 * r).toFixed(2)} 0Z`;
+const subDot = (s, r) => subDotAt(s[7], s[8], r);
 
 // Build the path data for a set of clipped segments. Stroked figures go in
 // .stroke, filled ones in .fill; a figure may use both.
-const marksToPath = (segs, figure, m) => ({
-    stroke: segs.filter(s => s[9]).map(subStraight).join(''),
-    fill: ''
-});
+//
+// Three figures, and the band a mark falls in picks which:
+//
+//   grain     below 0.3 mm. Short ticks whose length varies over the
+//             ordered cycle. The trace tier is not the drizzle tier: the
+//             amount there is essentially zero and only the chance is real
+//             (DR-16), so it takes a pure texture rather than a shape that
+//             claims a size. It is also the figure that survives a narrow
+//             sliver, which is what a low-chance hour leaves.
+//   broken    0.3 to 1 mm. Each site is a dot, a short tick or a full
+//             dash, chosen on the ordered cycle. Irregularity IS the
+//             texture, which is what a drizzle hour actually looks like.
+//   straight  above 1 mm. A plain run that simply grows.
+//
+// No curves anywhere. The wave family read well blown up and shouted at
+// grid scale: a wavy mark carries more ink than a straight one of the same
+// length and reads bigger still, so a field of them over-states a drizzle
+// hour however it is tuned.
+const marksToPath = (segs, figure, m) => {
+    const drawable = segs.filter(s => s[9]);
+    if (figure === 'grain') {
+        // Length over an ordered 4x4 cycle, not at random, so the field
+        // keeps a rhythm instead of scattering.
+        return {
+            stroke: drawable.map(s => {
+                const f = 0.55 + 0.7 * s[6];
+                return subStraight([s[0], s[1], s[0] + (s[2] - s[0]) * f, s[1] + (s[3] - s[1]) * f]);
+            }).join(''),
+            fill: ''
+        };
+    }
+    if (figure === 'broken') {
+        const r = m.sw * 0.64;
+        const stroke = [], fill = [];
+        drawable.forEach(s => {
+            const k = s[6];
+            if (k < 0.34) {
+                // The dot belongs on the site, which is where a raindrop
+                // would have been. A site near an edge can have its centre
+                // just outside the box even though part of its mark is
+                // inside, so the centre is held to the mark: interior
+                // sites never move, and an edge dot stays on the block
+                // rather than half off it.
+                const cx = Math.min(Math.max(s[7], Math.min(s[0], s[2])), Math.max(s[0], s[2]));
+                const cy = Math.min(Math.max(s[8], Math.min(s[1], s[3])), Math.max(s[1], s[3]));
+                fill.push(subDotAt(cx, cy, r));
+            }
+            else if (k < 0.67) stroke.push(subStraight([s[0], s[1], (s[0] + s[2]) / 2, (s[1] + s[3]) / 2]));
+            else stroke.push(subStraight(s));
+        });
+        return { stroke: stroke.join(''), fill: fill.join('') };
+    }
+    return { stroke: drawable.map(subStraight).join(''), fill: '' };
+};
+// Which figure an hour draws. The boundaries are the ramp's own, so the
+// figure changes exactly where the size does and nowhere else.
+const figureFor = m => m.trace ? 'grain' : m.light ? 'broken' : 'straight';
 
 // --- the amount ramp -------------------------------------------------
 // How much rain is the mark's LENGTH and weight, not the count of marks.
@@ -273,8 +327,9 @@ const rainFieldSVG = (h, base, W, H) => {
     if (!m) return '';
     const c = lnBlue(base);
     const fillW = (h.pop == null ? 1 : Math.min(100, h.pop) / 100) * W;
+    const figure = figureFor(m);
     const segs = markField(W, H, quantLean(h), { ...m, fillW });
-    const p = marksToPath(segs, 'straight', m);
+    const p = marksToPath(segs, figure, m);
     if (!p.stroke && !p.fill) return '';
     const col = `rgba(${c[0]},${c[1]},${c[2]},${m.alpha})`;
     const paths = (p.stroke ? `<path d="${p.stroke}" stroke="${col}" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` : '')
