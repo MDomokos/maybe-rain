@@ -31,6 +31,36 @@ const syncReduceMotion = () =>
     document.documentElement.classList.toggle('reduce-motion', REDUCE_Q.matches);
 REDUCE_Q.addEventListener?.('change', syncReduceMotion);
 syncReduceMotion();
+
+// --- The current hour's arrival ------------------------------------
+// The block plays its own weather once, when the grid it belongs to has
+// settled. Arming and firing are separate because the two are rarely the
+// same moment: the trigger (new data, a view switch, a motion coming
+// home) knows an arrival is due, but only the paint knows when there is
+// a finished block to put it on.
+let arrivePending = false, lastArrive = 0;
+// Opening the app and the first payload landing moments later are two
+// triggers and one arrival; so are a view switch and an in-flight
+// refresh completing. This is the window in which they count as one.
+const ARRIVE_GAP_MS = 800;
+
+const armArrival = () => { arrivePending = true; };
+
+const flushArrival = () => {
+    if (!arrivePending) return;
+    arrivePending = false;
+    if (reduceMotion()) return;
+    const now = Date.now();
+    if (now - lastArrive < ARRIVE_GAP_MS) return;
+    lastArrive = now;
+    const el = $('grid').querySelector('.weather-block.current');
+    if (!el) return;
+    // Removing the class, forcing the reflow and adding it back is the
+    // only reliable way to replay a CSS animation.
+    el.classList.remove('arrive');
+    void el.offsetWidth;
+    el.classList.add('arrive');
+};
 // The hour peek is transient view state, never persisted: the app always
 // opens on the default hours (principle 2). The day axis is the elastic
 // below; its own state lives with the gesture that owns it.
@@ -869,7 +899,12 @@ const waveFrame = () => {
 // old city when half of it does not, and reporting `to` would claim a
 // sweep finished that never did. Either way the next sweep starts from
 // a grid that was never on screen, and cells jump.
-const endWave = () => {
+// `superseded` is the one case that must NOT fire the arrival: paintGrid
+// ends the old wave BEFORE it writes the new blocks, so an arrival put on
+// now would be wiped by the paint that follows and would spend the
+// coalescing window doing it. The pending flag is left armed for the wave
+// that supersedes this one to settle and claim.
+const endWave = (superseded = false) => {
     const w = wave;
     lastCols = [];
     for (let c = 0; c < w.nCols; c++) {
@@ -881,6 +916,9 @@ const endWave = () => {
     wave = null;
     if (waveRaf) { cancelFrame(waveRaf); waveRaf = null; }
     setSweeping(false);
+    // Every animated paint terminates here, so this is the one place that
+    // knows the grid has stopped moving and the blocks are final.
+    if (!superseded) flushArrival();
 };
 
 // The sweep owns the timeline while it runs, so the block's own CSS
@@ -982,7 +1020,7 @@ const paintGrid = (grid, cols, anim) => {
     // sweep in flight so rapid navigation can't leave half-finished cells.
     if (pendingRefresh) { clearTimeout(pendingRefresh); pendingRefresh = null; }
     gridTimers.forEach(clearTimeout); gridTimers.length = 0;
-    if (wave) endWave();
+    if (wave) endWave(true);
 
     // No animation (or reduced motion): rebuild the grid instantly.
     if (!animated) {
@@ -992,6 +1030,7 @@ const paintGrid = (grid, cols, anim) => {
         lastCols = cols;
         invalidateSlide();
         applyDayWidths();
+        flushArrival();
         return;
     }
     setSweeping(true);
@@ -1884,6 +1923,10 @@ const updateDisplay = (anim = null) => {
     // hour). Purely ambient: a single --bg swap, accent stays gold.
     document.body.classList.toggle('night', nightFactor(currentHour, sun) >= 0.5);
 
+    // Read BEFORE the paint, not after it with pulsePending: the paint is
+    // what fires the arrival, and an unanimated one fires it inline.
+    if (state.arrivePending) { state.arrivePending = false; armArrival(); }
+
     const cols = buildCols();
     paintGrid($('grid'), cols, anim);
     // Keep an open block tooltip in sync with the repaint (city swap,
@@ -2133,6 +2176,7 @@ const setView = (v, anim) => {
             ? { type: 'wave', axis: 'x', dir: ni > oi ? -1 : 1 }
             : { type: 'reveal' };
     }
+    armArrival();
     updateDisplay(a);
 };
 
@@ -2600,6 +2644,9 @@ const paintCachedForecast = (anim = null) => {
     try {
         state.fetchedAt = entry.timestamp;
         processData(entry.payload);
+        // First open and a city switch both land here, and both are a
+        // grid the eye has not seen before.
+        armArrival();
         updateDisplay(anim);
         return true;
     } catch {
@@ -3326,7 +3373,9 @@ const elasticHome = () => {
     stopElastic();
     dayMode = 'home';
     setArmed(false);
-    springTo(0, 0, HOME_MS, easeOutQuint);
+    // The elastic settles without rebuilding the grid, so there is no
+    // paint to wait for: arm and fire in the same breath.
+    springTo(0, 0, HOME_MS, easeOutQuint, () => { armArrival(); flushArrival(); });
 };
 // Straight back to rest: no spring, no decision, nothing kept.
 const resetElastic = () => {
@@ -5027,7 +5076,12 @@ const springHours = () => {
         gen,
         genOf: () => hourHomeGen,
         setOffset: n => { hourOff = n; },
-        colsFor: (offset, cache) => hourColsFor(offset, cache)
+        colsFor: (offset, cache) => hourColsFor(offset, cache),
+        // The peek comes home to a grid the tween has already rebuilt,
+        // so the arrival is armed and fired together. The reduced-motion
+        // shortcut above returns before the tween, which is right:
+        // nothing should fire there.
+        done: () => { armArrival(); flushArrival(); }
     });
 };
 

@@ -17,5 +17,6 @@ let state = {
     lastError: '',   // last no-data error text, so updateStatus can restate it
     changed: null,   // "date|hour" → {pop|temp|wind: [was, now]} vs the previous model run
     pulsePending: false, // the next render pulses changed cells, then consumes this
+    arrivePending: false, // new data is due an arrival on the current hour; primary's grid consumes it
     suggestions: [] // saved cities + geocoding hits, in display order
 };

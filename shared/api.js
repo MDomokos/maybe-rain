@@ -187,6 +187,11 @@ const fetchWeather = async (force = false) => {
             // pending directional/first-load reveal from the skeleton.
             const hadData = state.data.length > 0;
             processData(payload);
+            // Genuinely new data: the guard above returns early when the
+            // payload matches the cached one, so a poll that changes
+            // nothing never reaches here. Which is exactly the test for
+            // "the current hour has something new to say".
+            state.arrivePending = true;
             updateDisplay(hadData ? { type: 'refresh' } : (nextRevealAnim || { type: 'reveal' }));
             nextRevealAnim = null;
             setLoading(false);
