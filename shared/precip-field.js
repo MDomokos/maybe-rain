@@ -52,6 +52,44 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20, shade: 0.5,
              gapTrace: 5.4, gapLo: 3.4, gapHi: 3.0,
              gamma: 0.55, lightGamma: 0.8,
              alpha: 0.62, alphaLight: 0.74, alphaTrace: 0.5,
+             // The chance channel: how far across the block the committed
+             // marks reach. A floor and a gamma, because at 12% the bare
+             // reading is about 5 px of a 46 px block and no texture
+             // survives 5 px at any size.
+             popFill: 0.06, popGamma: 0.62,
+             // Past the committed edge, on the TRACE TIER ONLY, the same
+             // marks continue at reduced strength out to 1.9x the chance:
+             // "possibly a bit more than this". Scoped twice on purpose.
+             // Ghosting the whole block was too much ink everywhere, and
+             // the cells that needed help were only ever the near-empty
+             // ones; reaching the whole cell read as a second fill rather
+             // than as the block's own uncertainty.
+             //
+             // Opacity alone cannot make a ghost read as a ghost on every
+             // sky: the same fraction that whispers on gold reads as a
+             // second mark on slate, where a pale blue on a dark base is
+             // already high-contrast. So the alpha is cut again on dark
+             // bases and the mark is drawn SHORTER as well as fainter — a
+             // size difference holds up wherever an opacity difference
+             // does not.
+             ghostSpan: 1.9, ghostAlpha: 0.30, ghostDark: 0.5,
+             ghostScale: 0.62, ghostWeight: 0.78,
+             // An hour at 0 mm with a real chance is the commonest trace
+             // case, not a rare one: the deterministic run says nothing
+             // and the ensemble says 40%. It draws NOTHING at full
+             // strength — the whole field is the ghost — so it can never
+             // be confused with a drizzle hour, which always carries at
+             // least one committed mark.
+             //
+             // It gets its own lighter set, because it has no committed
+             // mark beside it to be read against. What it sits beside is
+             // the next block along, which may be a coloured rain hour, so
+             // an opacity that looked like a whisper in context read as an
+             // ordinary drizzle line on its own. Its alpha is absolute
+             // rather than a fraction of the trace alpha, which would land
+             // near 0.07 and vanish.
+             nilMax: 0.05, nilAlpha: 0.17, nilDark: 0.62,
+             nilScale: 0.50, nilWeight: 0.58,
              // The field's own two: how far a mark is held off the block's
              // edge, and how much of a mark has to survive the clip to be
              // worth drawing. The cull floor is 0 on purpose — a mark cut
@@ -322,18 +360,60 @@ const amountFor = h => {
 // version the fill edge is not a CSS width on the wrapper but a rect the
 // marks are clipped to, so a mark the edge crosses is drawn short with a
 // round end instead of being cut in half.
+//
+// The committed band takes a floor and a gamma, because a bare 12% is
+// about 5 px of a 46 px block and no texture survives 5 px.
+const chanceBand = h => h.pop == null ? 1
+    : LN.popFill + (1 - LN.popFill) * Math.pow(Math.min(100, h.pop) / 100, LN.popGamma);
+// Emit one path per strength. Marks may be shortened toward their own
+// start and drawn at a lighter weight, which is how a ghost is told from
+// a committed mark by size as well as by opacity.
+const emitMarks = (segs, figure, m, c, alpha, scale, weight) => {
+    if (!segs.length) return '';
+    const use = scale === 1 ? segs : segs.map(s =>
+        [s[0], s[1], s[0] + (s[2] - s[0]) * scale, s[1] + (s[3] - s[1]) * scale,
+         s[4], s[5], s[6], s[7], s[8], s[9]]);
+    const sw = m.sw * weight;
+    const p = marksToPath(use, figure, { ...m, sw });
+    const col = `rgba(${c[0]},${c[1]},${c[2]},${alpha.toFixed(3)})`;
+    return (p.stroke ? `<path d="${p.stroke}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` : '')
+        + (p.fill ? `<path d="${p.fill}" fill="${col}"/>` : '');
+};
 const rainFieldSVG = (h, base, W, H) => {
     const m = amountFor(h);
     if (!m) return '';
-    const c = lnBlue(base);
-    const fillW = (h.pop == null ? 1 : Math.min(100, h.pop) / 100) * W;
+    const c = lnBlue(base), dark = lnLum(base) <= 135;
+    const band = chanceBand(h);
+    // The ghost is the trace tier's alone. Above it the block already has
+    // committed marks to read, and the chance is not the only real fact.
+    const ghosted = m.trace && h.pop != null;
+    // An hour whose amount is literally zero draws entirely in the ghost.
+    const mm = h.liquid ?? h.mm ?? 0;
+    const nil = ghosted && mm <= LN.nilMax;
+    // The reach over-reports on purpose, and that is the accepted trade.
+    // Drawing a 0 mm hour to its bare chance was tried and reverted: it is
+    // more honest about extent and it puts the block straight back to the
+    // one-thin-line problem the whole light band exists to fix.
+    // Over-reporting a possibility is the better error. The cost is
+    // recorded rather than hidden: above about 30% chance the reach
+    // saturates at the block width, so the top of the chance scale
+    // resolves less than the bottom.
+    const reach = ghosted ? Math.min(1, band * LN.ghostSpan) : band;
     const figure = figureFor(m);
-    const segs = markField(W, H, quantLean(h), { ...m, fillW });
-    const p = marksToPath(segs, figure, m);
-    if (!p.stroke && !p.fill) return '';
-    const col = `rgba(${c[0]},${c[1]},${c[2]},${m.alpha})`;
-    const paths = (p.stroke ? `<path d="${p.stroke}" stroke="${col}" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` : '')
-        + (p.fill ? `<path d="${p.fill}" fill="${col}"/>` : '');
+    const segs = markField(W, H, quantLean(h), { ...m, fillW: reach * W });
+    if (!segs.length) return '';
+    // Which side of the committed edge a mark falls on is decided by its
+    // site, not by its clipped end, so a mark does not change strength
+    // because the block happened to cut it.
+    const bandW = band * W;
+    const committed = [], ghost = [];
+    segs.forEach(s => ((nil || (ghosted && s[7] > bandW)) ? ghost : committed).push(s));
+    const gA = nil ? LN.nilAlpha * (dark ? LN.nilDark : 1)
+                   : m.alpha * LN.ghostAlpha * (dark ? LN.ghostDark : 1);
+    const paths = emitMarks(committed, figure, m, c, m.alpha, 1, 1)
+        + emitMarks(ghost, figure, m, c, gA,
+            nil ? LN.nilScale : LN.ghostScale, nil ? LN.nilWeight : LN.ghostWeight);
+    if (!paths) return '';
     return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${paths}</svg></span>`;
 };
 
