@@ -704,14 +704,19 @@ const updateDisplay = (anim = null) => {
             const comfortText = view === 'temp' && feelsVal != null
                 ? ` · ${TEMP_BANDS[bandIndex(feelsVal)].name.toLowerCase()}` : '';
             const info = `${dayMeta[dayIndex].date ? dateLabel(dayMeta[dayIndex].date) + ', ' : ''}${hourLabel(h.hour)} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${chText}`;
-            // Marks: precipitation overlays first (under the glyphs;
-            // rain lines + snow lattice + hail rings, any subset;
-            // lines + lattice together IS sleet) + the frost contour
-            // (temp view) + centred wind arrow (wind view) + bottom-right
-            // hazard glyph + bottom-left sky glyph. Any may be empty.
-            const marks = (rainView
-                    ? rainLinesSVG(h, rgb) + snowLatticeSVG(h) + hailRingsSVG(h, rgb)
-                    : '')
+            // Marks: the precipitation overlay first (under the glyphs)
+            // + the frost contour (temp view) + centred wind arrow (wind
+            // view) + bottom-right hazard glyph + bottom-left sky glyph.
+            // Any may be empty.
+            //
+            // Which renderer `precipOverlay` is depends on which file this
+            // variant names in its index.html. Classic carries
+            // shared/precip-pattern.js: rain lines + snow lattice + hail
+            // rings, any subset, lines + lattice together being sleet. The
+            // signature takes the block's pixel size for the mark field in
+            // shared/precip-field.js; a pattern tiles to whatever box it is
+            // given, so classic has nothing to pass and does not.
+            const marks = (rainView ? precipOverlay(h, rgb) : '')
                 + frost
                 + arrow
                 + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')

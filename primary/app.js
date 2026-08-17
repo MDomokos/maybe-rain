@@ -1454,14 +1454,15 @@ return Array.from({ length: days }, (_, dayIndex) => {
             : slots >= rows ? ' · daily value' : ` · ${slots}-hour block`;
         const provText = slots === 1 ? '' : ' · beyond native hourly';
         const info = `${meta.date ? dateLabel(meta.date) + ', ' : ''}${spanLabel} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${cadText}${provText}${chText}`;
-        // Marks: precipitation overlays first (under the glyphs;
-        // rain lines + snow lattice + hail rings, any subset;
-        // lines + lattice together IS sleet) + the frost contour
-        // (temp view) + centred wind arrow (wind view) + bottom-right
-        // hazard glyph + bottom-left sky glyph. Any may be empty.
-        const marks = (rainView
-                ? rainLinesSVG(h, rgb) + snowLatticeSVG(h) + hailRingsSVG(h, rgb)
-                : '')
+        // Marks: the precipitation overlay first (under the glyphs) +
+        // the frost contour (temp view) + centred wind arrow (wind view)
+        // + bottom-right hazard glyph + bottom-left sky glyph. Any may
+        // be empty.
+        //
+        // Which renderer `precipOverlay` is depends on which file this
+        // variant names in its index.html, so this call site does not
+        // know and does not need to.
+        const marks = (rainView ? precipOverlay(h, rgb) : '')
             + frost
             + arrow
             + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')

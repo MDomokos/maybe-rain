@@ -48,7 +48,8 @@ are shared directly instead of parameterised.
 | `cache.js` | `placeKey`, localStorage JSON, per-place forecast cache, sweep, change detection | see below |
 | `settings.js` | `settings`/`view` declaration, defaults, `VIEWS` | yes |
 | `format.js` | unit and clock formatting | yes |
-| `colors.js` | the whole colour/gradient system: temp bands, wind ramp, both sky models, conditions, rain/snow/hail overlays, the legend strip | yes — the file is identical; which sky model it uses is picked by `SKY_MODEL` (see below) |
+| `colors.js` | the whole colour/gradient system: temp bands, wind ramp, both sky models, conditions, the DR-13 rain blues, the legend strip | yes — the file is identical; which sky model it uses is picked by `SKY_MODEL` (see below) |
+| `precip-pattern.js` | the DR-12/15/16 precipitation overlay, the pattern renderer, frozen | **classic only** (see below) |
 | `icons.js` | `MR_ICON` | yes |
 | `astro.js` | moon phase, lunar eclipses | yes |
 | `wmo.js` | WMO code to condition, weekday and date labels | yes |
@@ -69,6 +70,38 @@ version rather than the code being parameterised:
 Both reduce to the same decision. The two variants now fetch the same 15
 days. See `classic/config.js` for why: a shared cache holding two different
 horizons is asymmetric in both directions.
+
+### The second divergence: which precipitation renderer a variant names
+
+`colors.js` is shared, so editing the overlay in place changed classic
+too — and `research/test-lines.mjs` was re-pointed at classic by DR-38
+precisely to hold the frozen system still. Rather than put two renderers
+behind a flag inside one function, the split is by **concern**, and the
+load-order machinery already supports it: each variant's `index.html`
+lists its own `<script src>` tags and `build.mjs` inlines whatever is
+listed, so a file only one variant names is a file only that variant
+carries.
+
+| file | what | carried by |
+|---|---|---|
+| `precip-pattern.js` | DR-12/15/16 verbatim: `rainLinesSVG`, `snowLatticeSVG`, `hailRingsSVG`, `LN` | classic |
+| `precip-field.js` | the mark field: one lattice, discrete marks, round caps | primary |
+
+Both define the same entry point, so neither `app.js` knows which one it
+got:
+
+```js
+const precipOverlay = (h, base, W, H) => …   // one per file, same signature
+```
+
+Classic is frozen by *not being touched* rather than by a branch, and
+neither variant ships the other's renderer. Two constraints hold it
+together: `precip-*.js` loads **after** `colors.js`, because it reads
+`lnBlue`, `lnLum` and `SNOW_CODES` from there; and, per the rule above,
+nothing in it may read a variant binding at evaluation time. Porting
+classic later is one line in `classic/index.html` — swap which precip
+file it names — plus whatever `classic/app.js` needs to hand the block's
+pixel size to the call.
 
 ### The one deliberate divergence: `SKY_MODEL`
 
