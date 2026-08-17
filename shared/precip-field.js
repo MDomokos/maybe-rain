@@ -39,7 +39,11 @@ const LN = { sp0: 15, sp1: 4.7, sw0: 0.85, sw1: 2.6, gamma: 0.4, cap: 8,
              // by the block or by the chance edge is drawn short with a
              // round end rather than dropped, so the field reaches the
              // edges instead of floating inside a margin.
-             inset: 0.4, minKeep: 0 };
+             inset: 0.4, minKeep: 0,
+             // Five leans, not a fan: two steps each side of vertical,
+             // evenly spaced to the cap, with a deadband below which the
+             // hour simply falls straight down.
+             leanSteps: 2, leanCap: 26, leanDead: 6 };
 // A fallback block, used only when the frame cannot be measured (first
 // paint, a hidden tab). 46 x 40 is the reference block every constant in
 // this file was tuned against.
@@ -54,6 +58,27 @@ const windLean = h => {
     if (h.wind == null || h.windDir == null) return 0;
     const u = h.wind * Math.sin((h.windDir + 180) * Math.PI / 180);
     return LN.maxAngle * Math.max(-1, Math.min(1, u / LN.windSat));
+};
+// The lean the field draws: five angles, 0 and +/-13 and +/-26.
+//
+// The busyness was never the lean, it was that the lean was continuous.
+// Two neighbouring hours whose wind differs by 3 km/h got visibly
+// different angles, and the eye read the difference as meaning, so a
+// windy afternoon came out as a fan of slightly different slopes instead
+// of one weather. Quantising makes every hour in the same airflow share
+// an angle: the block of grid leans, not each block in it.
+//
+// The 26deg cap is the p90 of the 5-year wet-hour wind record, which is
+// where DR-12's original fixed 28deg came from, so the resting look is
+// the one the mockups proved. Under the deadband the hour is drawn
+// vertical, because calm should read as calm rather than as a slight
+// preference.
+const quantLean = h => {
+    const a = windLean(h);
+    if (Math.abs(a) < LN.leanDead) return 0;
+    const n = LN.leanSteps, cap = LN.leanCap;
+    const k = Math.min(n, Math.max(1, Math.round((Math.abs(a) - LN.leanDead) / ((cap - LN.leanDead) / n))));
+    return Math.sign(a) * k * (cap / n);
 };
 let lnId = 0; // unique per-render pattern ids
 
@@ -204,7 +229,7 @@ const rainFieldSVG = (h, base, W, H) => {
     if (!m) return '';
     const c = lnBlue(base);
     const fillW = (h.pop == null ? 1 : Math.min(100, h.pop) / 100) * W;
-    const segs = markField(W, H, windLean(h), { ...m, fillW });
+    const segs = markField(W, H, quantLean(h), { ...m, fillW });
     const p = marksToPath(segs, 'straight', m);
     if (!p.stroke && !p.fill) return '';
     const col = `rgba(${c[0]},${c[1]},${c[2]},${m.alpha})`;
