@@ -2,6 +2,16 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.0 (2026-08-17)
+
+- rain is drawn as falling marks rather than a hatch cut off by the edge of the block. every line now starts and finishes where it means to
+- a drizzle hour looks like a drizzle hour. the lightest rain used to get the least ink of anything on the grid, while being most of the rain there is
+- an hour with a chance of rain but nothing forecast shows a faint field instead of a bare block, so "possible, but nothing predicted" is a thing you can see rather than something only the tooltip knows
+- rain leans with the wind in five steps instead of a separate angle per hour, so a windy afternoon reads as one weather rather than a fan
+- snow, sleet and hail fall on the same grid as the rain. a mixed hour reads as a mix, and snow is lighter than the rain it used to outweigh
+- flakes are whole circles. half of them were being cut in two by the edge of the pattern that drew them
+- a murky hour says so. below 2km visibility the block draws a mist texture across it, which nothing in the app used to answer
+
 ## v2.5.5 (2026-08-17)
 
 - the day row says where the week turns over and where the past ends, as a short line hanging under the date rather than a rule down the grid

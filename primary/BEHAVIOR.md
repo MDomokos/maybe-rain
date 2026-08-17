@@ -57,11 +57,42 @@ Three, cycled by the toggle row, a horizontal swipe, or ← →:
 
 | view | block colour | overlay |
 |---|---|---|
-| **rain** | the sky as seen overhead (DR-38): clearness sets brightness, sunshine sets how gold, per-hour night. Rain tints toward navy by amount × chance; storms are dark slate, not violet, and carry the hazard on the glyph | rain streaks (chance = fill extent, amount = texture, wind lean), snow lattice, hail rings |
+| **rain** | the sky as seen overhead (DR-38): clearness sets brightness, sunshine sets how gold, per-hour night. Rain tints toward navy by amount × chance; storms are dark slate, not violet, and carry the hazard on the glyph | a field of falling marks (DR-40), plus a mist texture where visibility drops (DR-41) |
 | **temp** | apparent temperature in absolute comfort bands | — |
 | **wind** | speed ramp | centred direction arrow |
 
 Any view can be turned off in ⚙; the switcher only cycles the enabled ones.
+
+### What the rain overlay says
+
+Four facts, four independent properties of one lattice of marks. Nothing is
+overlaid on anything, so the three phases cannot disagree about where a mark
+belongs (DR-40).
+
+| fact | how it is drawn |
+|---|---|
+| **how much** | the mark's length and weight. Under 0.3 mm, grain — short ticks of varying length. From 0.3 to 1 mm, broken — each site a dot, a tick or a dash. Above 1 mm, a plain run that grows, from 12.5 px to 26. The jump between the drizzle band and rain is deliberate: it is the jacket question answered as a change of size |
+| **how likely** | how far across the block the marks reach, anchored left, nothing below 8% |
+| **which way** | the lean, in five steps — straight down, and 13° or 26° either side. Hours in the same airflow share an angle, so a windy afternoon leans as one block of grid |
+| **what kind** | which mark a site carries. A blue streak is rain, a white dot is a flake, a short white stub is hail. A flake grows a tail only while the hour is mixed, so a sleet hour reads as a mix and a pure snow hour is pure dots |
+
+Two readings sit outside that. An hour under 0.3 mm keeps a **ghost** past the
+edge its chance commits to: the same marks at reduced strength, out to about
+twice as far, meaning "possibly a bit more than this". An hour with a real
+chance but **nothing forecast** is drawn entirely in that ghost — no committed
+mark at all — which is a thing you can see rather than something only the
+tooltip knows. Below 2 km visibility the block also draws short **horizontal**
+runs, which is the one direction nothing else uses, so a murky drizzle hour
+draws both and neither reads as the other.
+
+Every mark begins and finishes where it means to: marks are clipped to the block
+and to the chance edge and finished with round caps, so nothing is severed by an
+edge. All the marks of one phase in a block are one path, so the overlay is the
+same single element the old pattern was.
+
+Classic still draws the DR-12 pattern overlay, deliberately: `shared/precip-pattern.js`
+is named only by `classic/index.html` and `shared/precip-field.js` only by
+primary's, and both answer to the same `precipOverlay` call.
 
 ## Navigation
 
