@@ -940,27 +940,51 @@
         /* Days behind today, reachable by paging the grid to the right.
            They are ordinary data and stay fully legible; the recession
            says only that they are behind now, so the eye lands on today
-           first when the window is part-way back. Opacity rather than a
-           colour change, so it composes with the block colours instead
-           of fighting them, and the hazard glyphs and rain lines recede
-           by the same amount as the cell they sit on.
+           first when the window is part-way back.
 
-           0.55 was picked to sit clearly below the live columns while
-           keeping the blue/grey rain colours apart from each other on
-           an OLED phone at low brightness; much below that and light
-           rain and overcast stop being distinguishable, which is the
-           one comparison a past column exists to support.
+           The recession used to be opacity 0.55 alone, and it was paying
+           too much for what it said. Measured in CIELAB against the sky
+           swatches, 0.55 keeps only 62% of the separation between
+           adjacent sky levels: partly/cloudy falls from dE 15.0 to 9.2
+           and cloudy/overcast from 16.1 to 9.9 — the middle of the ramp,
+           where most weather here actually sits, dropped to the edge of
+           being told apart. That is the wrong place to spend it, because
+           checking whether a forecast was right is the one thing a past
+           column exists for.
+
+           It is now a shallower dim carrying a slight desaturation, and
+           the seam in the label row carries the rest of the meaning. The
+           pair measures better on every count than the single channel it
+           replaces: 78% of the ramp kept instead of 62%, the tightest
+           adjacent pair back up to 12.8, and a past column still sitting
+           dE 15 away from the same sky live — comfortably read as behind.
+           Desaturation earns its place by moving the column off the
+           ramp's own axis, so the separation from a live column does not
+           have to come out of brightness alone.
+
+           Both channels apply to the whole cell, so the hazard glyphs and
+           rain lines recede by the same amount as the block they sit on.
 
            .temp-item is no longer in this list: the min/max row it named
            is gone, and the day label and the blocks carry the recession
            between them. */
-        .day-label.past { opacity: 0.55; }
-        .weather-block.past { opacity: 0.55; }
+        .weather-block.past {
+            opacity: 0.82;
+            filter: saturate(0.85);
+        }
+        /* The label recedes in colour rather than opacity. Its two lines
+           are already achromatic, so stepping them down the app's own
+           greys says "behind" without dimming the row the elastic is
+           being steered by — and it leaves the label legible at the
+           widths where it is about to fade for want of room anyway. */
+        .day-label.past .day-date { color: var(--text-muted); }
+        .day-label.past .day-wd { color: var(--text-faint); }
         /* The current-hour marker never lands on a past column, so no
            .current interaction to handle here. Focus is left at full
            strength: a keyboard user tabbing into a past block should
-           see the same focus ring as anywhere else. */
-        .weather-block.past:focus-visible { opacity: 1; }
+           see the same focus ring as anywhere else, and the ring is a
+           box-shadow, which a filter on the same element would dull. */
+        .weather-block.past:focus-visible { opacity: 1; filter: none; }
 
         /* --- The hour rail (DR-29) --------------------------------------
            One transparent, never-rebuilt gesture layer. Nothing is drawn at

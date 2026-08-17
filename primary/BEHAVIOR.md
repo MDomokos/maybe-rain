@@ -76,7 +76,10 @@ Two surfaces, and which one a drag started on is what decides its meaning.
   accordion in continuously under the finger while the home week squishes to
   pay for them; today never leaves the screen. Forward reaches seven days past
   the home week; back reaches the two past days the payload carries, for
-  checking what happened overnight, and past columns are dimmed. Past days cost
+  checking what happened overnight. Past columns recede slightly, in brightness
+  and saturation together, and the day row draws a seam where they end — enough
+  to read as behind while keeping the conditions comparable, which is the whole
+  reason to look back. Past days cost
   more travel per day, so the two ends are a comparable pull apart.
   - **Let go anywhere short of the end and it was a peek.** The grid eases
     home and stops on home — it never overshoots, because home is the seam

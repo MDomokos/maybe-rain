@@ -5,6 +5,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 ## v2.5.5 (2026-08-17)
 
 - the day row says where the week turns over and where the past ends, as a short line hanging under the date rather than a rule down the grid
+- days behind today recede less heavily, so the conditions in them stay as easy to tell apart as the days ahead — which is the whole reason to look back at them
 
 ## v2.5.4 (2026-08-16) — bugfix
 
