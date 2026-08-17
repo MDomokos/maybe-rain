@@ -63,10 +63,16 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // replacing it.
              mistVis: 2000, mistSp: 4.5, mistSw: 1.0, mistLen: 7, mistLenHi: 12,
              mistGap: 5, mistAlpha: 0.14, mistAlphaHi: 0.44,
-             // The lattice barely moves: 6.4 px at the light end, 4.7 at
-             // the heavy one. Amount is no longer spent on COUNT, so the
-             // drizzle end stops being drawn with three lines.
-             spLo: 6.4, spHi: 4.7,
+             // The lattice: 7.6 px at the light end, 4.7 at the heavy
+             // one. Amount is not spent on COUNT — that is what drew a
+             // drizzle hour with three lines — but it is not spent on
+             // nothing either. At 6.4 px the light end carried nearly
+             // twice the marks of the pattern renderer it replaced, and
+             // a whole day of drizzle, which is most of the days there
+             // are, came out visibly busier than the sky it describes.
+             // 7.6 keeps about twenty marks in a 46 px block, so the
+             // field is still a field and not a few lines.
+             spLo: 7.6, spHi: 4.7,
              // The light band is 0.3 to 1 mm — the jacket question — and
              // it lives in its own short range with a deliberate GAP
              // before real rain begins. One continuous ramp put 0.4 mm at
@@ -76,19 +82,36 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // quietly cost. The category boundary is now a jump in size.
              light: 1,
              lenTrace: 2.2, lenLo: 3.0, lenLight: 6.5, lenMain: 12.5, lenHi: 26,
-             // Weight steps with it, more gently, and has a floor. The
-             // ramp used to start at 0.9 px, which is under one device
-             // pixel on a 1x screen, so the lightest marks in the system
-             // were drawing sub-pixel smudges.
-             swFloor: 1.5, swLo: 1.5, swLight: 1.8, swMain: 2.0, swHi: 2.6,
+             // Weight steps with the amount, and the floor is 1.1 px.
+             //
+             // It was 1.5 for a while, on the argument that 0.9 px is
+             // under one device pixel on a 1x screen. That argument does
+             // not survive contact with the screens the app runs on: at
+             // 2x and 3x a 1.1 px stroke is two or three device pixels,
+             // and at 1x a sub-pixel stroke antialiases to a faint
+             // hairline, which is exactly what the lightest hour in the
+             // grid should look like. The floor bought a worry about one
+             // screen density and paid for it with weight on all of them
+             // — the trace tier alone came out at more than twice the
+             // ink of the renderer it replaced.
+             swFloor: 1.1, swLo: 1.1, swLight: 1.1, swMain: 1.4, swHi: 2.6,
              gapTrace: 5.4, gapLo: 3.4, gapHi: 3.0,
              gamma: 0.55, lightGamma: 0.8,
-             alpha: 0.62, alphaLight: 0.74, alphaTrace: 0.5,
+             // Opacity, and the light band no longer gets extra of it.
+             // It was raised to 0.74 to rescue a drizzle mark that was
+             // drawing at 0.9 px; now that weight has a sensible floor
+             // the mark does not need the help, and the band sat a
+             // quarter brighter than the rain above it for no reason a
+             // reader could see.
+             alpha: 0.55, alphaLight: 0.58, alphaTrace: 0.30,
              // The chance channel: how far across the block the committed
              // marks reach. A floor and a gamma, because at 12% the bare
              // reading is about 5 px of a 46 px block and no texture
-             // survives 5 px at any size.
-             popFill: 0.06, popGamma: 0.62,
+             // survives 5 px at any size. The gamma is 0.78 rather than
+             // the 0.62 it started at: 0.62 widened every hour on the
+             // grid by about a fifth on its way to rescuing the lowest
+             // ones, and 0.78 still takes a 12% hour to 11 px.
+             popFill: 0.06, popGamma: 0.78,
              // Past the committed edge, on the TRACE TIER ONLY, the same
              // marks continue at reduced strength out to 1.9x the chance:
              // "possibly a bit more than this". Scoped twice on purpose.
@@ -419,7 +442,12 @@ const emitMarks = (segs, figure, m, c, alpha, scale, weight, group) => {
     const use = scale === 1 ? src : src.map(s =>
         [s[0], s[1], s[0] + (s[2] - s[0]) * scale, s[1] + (s[3] - s[1]) * scale,
          s[4], s[5], s[6], s[7], s[8], s[9], s[10]]);
-    const sw = m.sw * weight;
+    // The ghost's weight is a FRACTION of the mark's, so it has to be held
+    // to the same floor: a ghost of a thin mark lands at 0.64 px, which is
+    // not a faint line but an absent one. Length and opacity carry the
+    // difference instead, and both of those are still size and strength
+    // rather than a single channel doing double duty.
+    const sw = Math.max(m.sw * weight, LN.swFloor);
     const p = marksToPath(use, figure, { ...m, sw });
     const col = `rgba(${c[0]},${c[1]},${c[2]},${alpha.toFixed(3)})`;
     return (p.stroke ? `<path d="${p.stroke}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` : '')

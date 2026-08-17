@@ -2,6 +2,10 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.2 (2026-08-18)
+
+- rain draws lighter. a whole day of drizzle was carrying nearly three times the ink the old hatch did, and a week of it read as a busy screen rather than as light rain. the marks are thinner, fainter and a little further apart, and there are still twenty-odd of them in an hour, so nothing got harder to read
+
 ## v2.6.1 (2026-08-17)
 
 - the current hour plays its own weather when the grid settles — rain falls, snow drifts, lightning strikes — then stops. it marks where now is on arrival, and stays out of the way after
