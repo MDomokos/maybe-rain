@@ -49,6 +49,17 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // and is told apart by being short, white and on its own
              // sites rather than by being fat.
              hailShare: 0.3,
+             // Mist. DR-12 reserved texture for precipitation and DR-31
+             // gives hazards to glyphs, so humidity, air quality, pressure
+             // and CAPE stay out: none of them fall out of the sky. Low
+             // visibility is a property of the falling water itself, and
+             // it answers "is it murky out", which nothing else does.
+             //
+             // Horizontal runs: the one direction nothing else in the
+             // system uses, so it composes with drizzle rather than
+             // replacing it.
+             mistVis: 2000, mistSp: 4.5, mistSw: 1.0, mistLen: 7, mistLenHi: 12,
+             mistGap: 5, mistAlpha: 0.14, mistAlphaHi: 0.44,
              // The lattice barely moves: 6.4 px at the light end, 4.7 at
              // the heavy one. Amount is no longer spent on COUNT, so the
              // drizzle end stops being drawn with three lines.
@@ -534,7 +545,32 @@ const precipFieldSVG = (h, base, W, H) => {
     return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${out}</svg></span>`;
 };
 
+// Mist / low visibility. Short horizontal runs on the same lattice
+// machinery, laid across the block rather than down it, so a murky
+// drizzle hour draws both and neither reads as the other. Its own
+// overlay, because it is not precipitation falling and does not belong
+// on the precipitation lattice.
+//
+// It is checked before it is drawn: `vis` is null on any payload cached
+// before the field was asked for, and on a provider that does not carry
+// it (DR-37 had to learn the same lesson).
+const mistSVG = (h, base, W, H) => {
+    if (h.vis == null || h.vis > LN.mistVis) return '';
+    const t = Math.max(0, Math.min(1, 1 - h.vis / LN.mistVis));
+    const c = lnLum(base) > 135 ? [70, 78, 88] : [226, 232, 238];
+    const segs = markField(W, H, 90, {
+        sp: LN.mistSp, sw: LN.mistSw, gap: LN.mistGap,
+        len: LN.mistLen + (LN.mistLenHi - LN.mistLen) * t, fillW: W
+    });
+    const d = segs.filter(s => s[9]).map(subStraight).join('');
+    if (!d) return '';
+    const a = (LN.mistAlpha + (LN.mistAlphaHi - LN.mistAlpha) * t).toFixed(3);
+    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg"><path d="${d}" stroke="rgba(${c[0]},${c[1]},${c[2]},${a})" stroke-width="${LN.mistSw.toFixed(2)}" stroke-linecap="round" fill="none"/></svg></span>`;
+};
+
 // The overlay for one block, or ''. Same signature as the pattern
 // renderer's, so the call site does not know which one it got.
-const precipOverlay = (h, base, W, H) =>
-    precipFieldSVG(h, base, W > 0 ? W : LN_BLOCK.W, H > 0 ? H : LN_BLOCK.H);
+const precipOverlay = (h, base, W, H) => {
+    const w = W > 0 ? W : LN_BLOCK.W, hh = H > 0 ? H : LN_BLOCK.H;
+    return precipFieldSVG(h, base, w, hh) + mistSVG(h, base, w, hh);
+};

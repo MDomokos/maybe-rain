@@ -2,7 +2,9 @@
 const forecastURL = p =>
     'https://api.open-meteo.com/v1/forecast' +
     `?latitude=${p.latitude}&longitude=${p.longitude}` +
-    '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
+    // `visibility` is the mist texture's field (DR-41). It rides the same
+    // request as everything else and costs nothing extra to ask for.
+    '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,visibility,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
     '&daily=sunrise,sunset' +
     // FORECAST_DAYS (15) fetched, 7 columns ever displayed at once
     // (visibleWindow). 14 of them are reachable: the shipped week is lead

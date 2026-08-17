@@ -2,7 +2,7 @@
 const processData = payload => {
     state.tz = payload.timezone || state.tz;
     state.utcOffset = payload.utc_offset_seconds || 0; // for city-local sky-event day windows
-    const { time, temperature_2m, apparent_temperature, relative_humidity_2m, weather_code, cloud_cover, precipitation, rain, showers, snowfall, precipitation_probability, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
+    const { time, temperature_2m, apparent_temperature, relative_humidity_2m, weather_code, cloud_cover, precipitation, rain, showers, snowfall, precipitation_probability, visibility, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
 
     // Daily sunrise/sunset (local ISO strings) → per-date {h, m}.
     state.sun = {};
@@ -35,6 +35,9 @@ const processData = payload => {
             liquid: (rain?.[i] != null || showers?.[i] != null)
                 ? +(((rain?.[i] ?? 0) + (showers?.[i] ?? 0)).toFixed(2)) : null,
             snow: snowfall?.[i] ?? null,              // cm/h
+            // Metres. Null on a payload cached before the field was
+            // asked for, which is why the texture checks before drawing.
+            vis: visibility?.[i] ?? null,
             code: weather_code[i],                    // raw WMO code (hail rings on 96/99)
             cloud: cloud_cover?.[i] ?? null,          // %, for the lines-mode sky base
             uv: uv_index?.[i] ?? null,
