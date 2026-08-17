@@ -1213,6 +1213,62 @@
             pointer-events: none;
         }
         .rain-ov svg { width: 100%; height: 100%; display: block; }
+        /* Sky effects: the current hour's arrival cue when the precipitation
+           field has nothing to say — a strike, a glint across a clear sky, a
+           cloud passing, or the neutral drift the temp and wind views get.
+           Every rule below rests off-block or at zero opacity, so a block
+           that never carries `.arrive` looks exactly as it did before any of
+           this existed. Same box as .rain-ov: inset, clipped, inert. */
+        .sky-fx { position: absolute; inset: 0; overflow: hidden;
+                  border-radius: var(--radius); pointer-events: none; }
+        .sky-fx i { position: absolute; display: block; }
+
+        /* lightning */
+        .fx-strike { background: linear-gradient(#fff, rgba(255,255,255,.35)); opacity: 0; }
+
+        /* a glint crossing a clear sky, parked past the right edge at rest */
+        .fx-glint i { top: -70%; bottom: -70%; left: 0; width: 26%;
+            background: linear-gradient(90deg, transparent 12%,
+                rgba(255,255,255,.85) 50%, transparent 88%);
+            opacity: .65; transform: translateX(430%) rotate(16deg); }
+
+        /* a cloud, parked off to the left at rest and carried clear off the
+           right. The shapes are opaque with hard edges and softened by
+           filter: blur(). Semi-transparent shapes compound where they
+           overlap and read as flat cut-outs stacked on each other. */
+        .fx-cloud i, .fx-neutral i {
+            top: -50%; bottom: -50%; left: -250%; width: 400%;
+            background-size: 50% 100%; background-repeat: no-repeat; }
+        .fx-cloud i {
+            background-image:
+              radial-gradient(ellipse 22% 11% at 30% 53%, #000 0 99%, transparent 100%),
+              radial-gradient(ellipse 15% 14% at 42% 59%, #000 0 99%, transparent 100%),
+              radial-gradient(ellipse 26%  9% at 50% 65%, #000 0 99%, transparent 100%),
+              radial-gradient(ellipse 12% 12% at 61% 56%, #000 0 99%, transparent 100%),
+              radial-gradient(ellipse 18%  8% at 37% 69%, #000 0 99%, transparent 100%);
+            filter: blur(4px); opacity: .5; }
+        .fx-cloud i.b {
+            top: -34%; bottom: -62%;
+            background-image:
+              radial-gradient(ellipse 24% 8% at 68% 48%, #000 0 99%, transparent 100%),
+              radial-gradient(ellipse 14% 11% at 76% 55%, #000 0 99%, transparent 100%),
+              radial-gradient(ellipse 19% 7% at 84% 60%, #000 0 99%, transparent 100%);
+            filter: blur(7.6px); opacity: .3; }
+
+        /* the temp and wind fallback: same language, cased so it survives
+           any fill the two scales put under it */
+        .fx-neutral i {
+            background-image:
+              radial-gradient(ellipse 24% 10% at 24% 42%, #fff 0 99%, transparent 100%),
+              radial-gradient(ellipse 16% 13% at 40% 50%, #fff 0 99%, transparent 100%),
+              radial-gradient(ellipse 21%  9% at 33% 58%, #fff 0 99%, transparent 100%);
+            filter: blur(5.6px); opacity: .45; }
+        .fx-neutral i.b {
+            top: -22%; bottom: -72%;
+            background-image:
+              radial-gradient(ellipse 22% 11% at 70% 52%, #000 0 99%, transparent 100%),
+              radial-gradient(ellipse 15% 13% at 82% 60%, #000 0 99%, transparent 100%);
+            filter: blur(5.6px); opacity: .35; }
         /* Wind view: one SVG arrow centred in the block, rotated to the wind
            octant by an inline transform. Larger than a corner mark so the
            direction reads at a glance. */
@@ -2068,6 +2124,13 @@
             .block-mark {
                 font-size: 11px;
             }
+            /* The cloud is drawn in fractions of the block and softened by a
+               blur, and a blur is an absolute length: it has to be restated
+               wherever the block changes size or it reads as a different
+               cloud on a different screen. */
+            .fx-cloud i { filter: blur(3px); }
+            .fx-cloud i.b { filter: blur(5.7px); }
+            .fx-neutral i, .fx-neutral i.b { filter: blur(4.2px); }
             html {
                 height: -webkit-fill-available;
             }
@@ -2147,6 +2210,10 @@
             /* the seam clears the taller date line here */
             .day-label.seam-week::before,
             .day-label.seam-past::before { top: 19px; }
+            /* a bigger block wants a bigger blur (see the phone rule) */
+            .fx-cloud i { filter: blur(5px); }
+            .fx-cloud i.b { filter: blur(9.5px); }
+            .fx-neutral i, .fx-neutral i.b { filter: blur(7px); }
         }
 
         /* Landscape tablet (touch, tall viewport): short and wide. Don't fill

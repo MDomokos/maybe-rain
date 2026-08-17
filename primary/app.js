@@ -1229,6 +1229,10 @@ const spanHour = (hours, startHour) => {
 // pull only ever narrows a column, so the block clips the field rather than
 // exposing bare space, and the chance edge sits a little further right than
 // the width would put it until the next rebuild.
+// The sky levels a glint reads against. Anything cloudier gets the cloud
+// pass instead, so a dry hour always has exactly one arrival cue.
+const SKY_FX_CLEAR = new Set(['clear', 'mclear']);
+
 const blockPx = rows => {
     const grid = $('grid');
     const gw = grid ? grid.clientWidth : 0, gh = grid ? grid.clientHeight : 0;
@@ -1488,10 +1492,30 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // variant names in its index.html, so this call site does not
         // know and does not need to. A coarse block stands for `slots`
         // hour bands and is that much taller, gaps included.
-        const marks = (rainView
-                ? precipOverlay(h, rgb, bw, bh > 0
-                    ? bh * slots + BLOCK_GAP_PX * (slots - 1) : 0)
-                : '')
+        //
+        // The current hour asks for the layered field, which is the only
+        // block whose overlay the arrival animation can drive.
+        const precip = rainView
+            ? precipOverlay(h, rgb, bw, bh > 0
+                ? bh * slots + BLOCK_GAP_PX * (slots - 1) : 0,
+                isCurrent ? { layered: true } : null)
+            : '';
+        // The arrival cue for an hour the precipitation field cannot
+        // speak for. `precip` being empty IS the test for "this hour
+        // draws no precipitation" — the amount, the chance floor and the
+        // condition group are all weighed inside the renderer, and a
+        // second reading of them here would drift away from it.
+        const skyFX = () => {
+            if (!isCurrent) return '';
+            if (!rainView) return '<span class="sky-fx fx-neutral"><i></i><i class="b"></i></span>';
+            if (STORM_CODES.has(h.code)) return '<span class="sky-fx fx-strike"></span>';
+            if (precip) return '';
+            return SKY_FX_CLEAR.has(skyLevelFor(h.code, h.cloud))
+                ? '<span class="sky-fx fx-glint"><i></i></span>'
+                : '<span class="sky-fx fx-cloud"><i></i><i class="b"></i></span>';
+        };
+        const marks = precip
+            + skyFX()
             + frost
             + arrow
             + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
