@@ -1213,6 +1213,30 @@ const spanHour = (hours, startHour) => {
 // same time, so the painter can hold one on the cells the playhead has
 // not reached yet. `colsForPlace` below builds one for a city that is
 // not the current one.
+// The block's pixel size, for the mark field. Unlike a pattern, a field of
+// discrete marks has to know how big the box is before it can decide where
+// a mark begins and ends, so the size has to reach the overlay.
+//
+// It comes from the geometry the elastic already computes rather than from
+// measuring a node: a read per cell would be a forced layout inside the
+// build, and every block in the grid is the same size anyway. A frame that
+// cannot be measured yet answers 0 and the overlay falls back to its
+// reference block.
+//
+// One consequence to name. The columns are rebuilt on a view or city
+// change and never inside a gesture (DR-39), so during a pull the field is
+// the one laid out for the width the columns had when they were built. The
+// pull only ever narrows a column, so the block clips the field rather than
+// exposing bare space, and the chance edge sits a little further right than
+// the width would put it until the next rebuild.
+const blockPx = rows => {
+    const grid = $('grid');
+    const gw = grid ? grid.clientWidth : 0, gh = grid ? grid.clientHeight : 0;
+    if (!(gw > 0) || !(gh > 0) || !(rows > 0)) return { bw: 0, bh: 0 };
+    const { w } = dayGeom(dayN, gw);
+    return { bw: w[HOME_COL], bh: gh / rows - BLOCK_GAP_PX };
+};
+
 const buildCols = () => {
     // No data, no columns. The frame is not drawn empty and then
     // explained: an empty grid IS the honest state, and the status line
@@ -1221,6 +1245,7 @@ const buildCols = () => {
     const { start, end, days, off } = visibleWindow();
     const rows = end - start + 1;
     const currentHour = cityNow().hour;
+    const { bw, bh } = blockPx(rows);
 
 // The rain view is the sky base (skyBaseRGB, which is DR-38's radiance
 // model here and DR-14's palette in classic) plus the streak
@@ -1461,8 +1486,12 @@ return Array.from({ length: days }, (_, dayIndex) => {
         //
         // Which renderer `precipOverlay` is depends on which file this
         // variant names in its index.html, so this call site does not
-        // know and does not need to.
-        const marks = (rainView ? precipOverlay(h, rgb) : '')
+        // know and does not need to. A coarse block stands for `slots`
+        // hour bands and is that much taller, gaps included.
+        const marks = (rainView
+                ? precipOverlay(h, rgb, bw, bh > 0
+                    ? bh * slots + BLOCK_GAP_PX * (slots - 1) : 0)
+                : '')
             + frost
             + arrow
             + (hazGlyph ? `<span class="block-mark">${hazGlyph}</span>` : '')
@@ -1572,9 +1601,16 @@ const HOME_COL = PAST_DAYS;   // today's column, and the home week's first
 // a forced style recalculation sixty times a second for a number that
 // only changes when the stylesheet does.
 let GAP_PX = 2;
+// The vertical gap between blocks in a column, read the same way and for
+// the same reason: the mark field needs the block's height, and a block
+// is its hour band less this.
+let BLOCK_GAP_PX = 6;
 const measureGap = () => {
-    const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gap'));
+    const cs = getComputedStyle(document.documentElement);
+    const v = parseFloat(cs.getPropertyValue('--gap'));
     if (v > 0) GAP_PX = v;
+    const b = parseFloat(cs.getPropertyValue('--block-gap'));
+    if (b >= 0) BLOCK_GAP_PX = b;
 };
 
 // Past the end the columns freeze and the whole grid slides toward the
