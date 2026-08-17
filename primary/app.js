@@ -1695,10 +1695,17 @@ const applyDayWidths = () => {
         }
         if (!lab || lab.classList.contains('absent')) continue;
         const bucket = labelBucket(width);
-        if (+lab.dataset.b === bucket) continue;
+        // A seam divides a column from the one before it, so the leading
+        // visible column cannot carry one: the only thing to its left is
+        // the gutter. `first` is already worked out above for the margins,
+        // which is the same question asked once.
+        const lead = i === first ? 1 : 0;
+        if (+lab.dataset.b === bucket && +lab.dataset.lead === lead) continue;
         lab.dataset.b = bucket;
+        lab.dataset.lead = lead;
         lab.classList.toggle('tight', bucket === 1);
         lab.classList.toggle('tiny', bucket === 0);
+        lab.classList.toggle('seam-lead', !!lead);
     }
     if (moveTf) {
         slideTf = tf;
@@ -1723,6 +1730,18 @@ const applyDayWidths = () => {
 // temperature it carried is already in the grid it labelled, and the
 // tooltip gives the exact figure for any hour, so it was a summary of
 // the thing directly beneath it.
+// Monday opens the week, the local convention and the one every planner
+// the strip is read against uses. `dowOf` counts from Sunday.
+const WEEK_START_DOW = 1;
+// Which boundary, if any, a column opens. Two seams, and never both on
+// one label: a week that starts on today puts the two boundaries on the
+// same edge, and the week seam is the coarser division, so it is the one
+// that survives. Deciding it here rather than letting the stylesheet's
+// source order settle it keeps the rule where the dates are known.
+const seamClass = day =>
+    dowOf(day.date) === WEEK_START_DOW ? ' seam-week'
+        : day.isToday ? ' seam-past' : '';
+
 const renderDayStrip = () => {
     const { days, off } = visibleWindow();
     // Once per repaint, never inside a pull: a computed-style read is a
@@ -1750,7 +1769,7 @@ const renderDayStrip = () => {
     $('days').innerHTML = Array.from({ length: days }, (_, i) => {
         const day = state.days[off + i];
         if (!day) return '<div class="day-label absent" aria-hidden="true"></div>';
-        return `<div class="day-label${day.isToday ? ' today' : ''}${day.past ? ' past' : ''}">`
+        return `<div class="day-label${day.isToday ? ' today' : ''}${day.past ? ' past' : ''}${seamClass(day)}">`
             + `<span class="day-date">${+day.date.slice(8, 10)}</span>`
             + `<span class="day-wd">${esc(day.text)}</span></div>`;
     }).join('');

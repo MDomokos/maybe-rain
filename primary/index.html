@@ -891,6 +891,52 @@
             font-weight: 500;
         }
 
+        /* --- Where the row changes region ------------------------------
+           Two boundaries: the week seam, at the Monday that opens a week,
+           and the past seam, where the days behind end and today begins.
+
+           Both live in the label row and stop dead at the field. A
+           hairline down a column gap is not free: the gap is 6px, 4px on
+           a phone, and a line centred in it leaves 2.5px of black either
+           side — under the gap's own weight, so the two columns read as
+           pinched together rather than divided. It would also have to
+           survive `applyDayWidths`, which rewrites every column's width
+           and margin in px on each frame of a pull, so a seam placed
+           against the field would drift for the length of a drag.
+
+           The mark is a descender: it starts under the date and runs to
+           the bottom of the row, so it is beside the columns it divides
+           at exactly the point the eye drops into them, and the date
+           numbers above it stay evenly spaced.
+
+           It is anchored to the label's own left edge rather than centred
+           in the gap, so it is carried by the box the elastic is already
+           sizing and needs no geometry of its own. The label clips its
+           text, which a negative offset would be caught by.
+
+           The two weights are the app's existing pair: the week seam is
+           the coarser division and takes the stronger line, the past seam
+           the softer one. Only ever one per column — `renderDayStrip`
+           keeps the classes mutually exclusive, so which wins is decided
+           where the boundaries are known and not by source order here. */
+        .day-label { position: relative; }
+        .day-label.seam-week::before,
+        .day-label.seam-past::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 18px;
+            bottom: 0;
+            width: 1px;
+            pointer-events: none;
+        }
+        .day-label.seam-week::before { background: var(--line-strong); }
+        .day-label.seam-past::before { background: var(--line); }
+        /* A seam divides a column from the one before it, so the leading
+           visible column has nothing to carry one against: the gap it
+           would sit beside is the gutter. `applyDayWidths` marks it. */
+        .day-label.seam-lead::before { display: none; }
+
         /* Days behind today, reachable by paging the grid to the right.
            They are ordinary data and stay fully legible; the recession
            says only that they are behind now, so the eye lands on today
@@ -2074,6 +2120,9 @@
             .day-label { font-size: 13px; }
             .day-date { font-size: 15px; }
             .day-wd { font-size: 12px; }
+            /* the seam clears the taller date line here */
+            .day-label.seam-week::before,
+            .day-label.seam-past::before { top: 19px; }
         }
 
         /* Landscape tablet (touch, tall viewport): short and wide. Don't fill

@@ -2,6 +2,10 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.5.5 (2026-08-17)
+
+- the day row says where the week turns over and where the past ends, as a short line hanging under the date rather than a rule down the grid
+
 ## v2.5.4 (2026-08-16) — bugfix
 
 - a sideways pull that goes out one way and comes back the other now stays continuous. crossing back through the point the pull started jumped the grid the better part of a day sideways, which is exactly where peeking at the days ahead and then the days behind lands
