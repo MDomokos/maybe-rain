@@ -418,6 +418,11 @@ const precipFieldSVG = (h, base, W, H) => {
     // total mm, except on snow-coded hours, where the total IS the snow
     // and counting it twice would draw rain that is not falling.
     const snow = h.snow > 0 ? h.snow : 0;
+    // An hour whose amount is not known at all draws nothing. It is not
+    // the same as an hour forecast at zero, and the 0 mm field says
+    // "nothing is forecast", which would be a claim this hour cannot
+    // make (principle 4: an absence is drawn as an absence).
+    if (h.mm == null && h.liquid == null && snow === 0) return '';
     const liquid = Math.max(0, h.liquid ?? (COND[h.condition].group === 'snow' ? 0 : (h.mm ?? 0)));
     const total = liquid + snow;
     if (h.pop != null && h.pop < LN.popFloor) return '';
