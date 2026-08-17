@@ -562,11 +562,18 @@ const snowLatticeSVG = h => {
     if (h.snow == null || h.snow <= 0) return '';
     if (h.pop != null && h.pop < LN.popFloor) return '';
     const t = Math.pow(Math.min(h.snow, LN.snowCap) / LN.snowCap, LN.gamma);
-    const sp = 14 - (14 - 5.2) * t, r = 0.8 + 0.8 * t;
+    // The tile is square with the two dots on its diagonal, so every dot
+    // clears the tile edge by 0.5sp — always more than r — and the grid
+    // draws whole circles. The first version tiled sp x 2sp with the
+    // second dot at 0.05sp, hard against the edge, so the pattern cut it
+    // and every other flake in the grid was a half moon. sp is divided by
+    // root 2 because a square tile holds the same two dots over twice the
+    // area, which would otherwise halve the density.
+    const sp = (14 - (14 - 5.2) * t) / Math.SQRT2, r = 0.8 + 0.8 * t;
     const ang = (windLean(h) * 0.5).toFixed(1);
     const id = 'mrsn' + (lnId++);
     const dot = (cx, cy) => `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" fill="rgba(255,255,255,0.92)"/>`;
-    const pat = `<pattern id="${id}" width="${sp.toFixed(2)}" height="${(sp * 2).toFixed(2)}" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})">${dot(sp / 2, sp / 2)}${dot(sp * 0.05, sp * 1.5)}</pattern>`;
+    const pat = `<pattern id="${id}" width="${(sp * 2).toFixed(2)}" height="${(sp * 2).toFixed(2)}" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})">${dot(sp * 0.5, sp * 0.5)}${dot(sp * 1.5, sp * 1.5)}</pattern>`;
     const wp = h.pop == null ? 100 : Math.min(100, h.pop);
     return `<span class="rain-ov" style="width:${wp}%"><svg xmlns="http://www.w3.org/2000/svg"><defs>${pat}</defs><rect width="100%" height="100%" fill="url(#${id})"/></svg></span>`;
 };
