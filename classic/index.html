@@ -334,7 +334,7 @@
             5%, 60% { opacity: 0.45; }
             65%, 100% { opacity: 1; }
         }
-        /* DR-6: one-shot ~2s pulse on cells whose forecast meaningfully
+        /* One-shot ~2s pulse on cells whose forecast meaningfully
            moved since the previous model run. Lives on a pseudo-element so
            it composes with the reveal animation and its inline dither
            delay; currentColor is the block's luminance-picked glyph color,
@@ -502,7 +502,7 @@
         }
         .block-mark svg { width: 1em; height: 1em; display: block; }
         .block-mark.sky { right: auto; left: 2px; }
-        /* DR-17 frost contour: a region-level outline on ACTUAL air temp. An
+        /* Frost contour: a region-level outline on ACTUAL air temp. An
            overlay inset over the block; the render sets a border only on the
            sides that face out of the frozen (solid, 0 °) or near-freezing
            (dashed, +3 °) region, so the borders of adjacent cells join into one

@@ -27,7 +27,7 @@ const applyBand = () => {
 };
 
 // --- UI state ---------------------------------------------------
-// DR-7: the freshness line under the grid (#status) is the app's one
+// The freshness line under the grid (#status) is the app's one
 // place for all app-level state. It has two layers. The *resting* layer
 // (updateStatus) is its home state: model run + next update, or offline,
 // outdated, deep-stale, or no-data. The *transient* layer briefly
@@ -197,7 +197,7 @@ const staleStamp = ms => {
     return `${WEEKDAY_3[dowOf(p.date)]} ${timeLabel(p.h, p.m)}`;
 };
 
-// DR-7 resting layer: updateStatus computes the line's home state and is
+// Resting layer: updateStatus computes the line's home state and is
 // the tie-break when several conditions are true. Priority, highest
 // first: (1) no-data error (nothing can render, so it holds until a
 // fetch succeeds); (2) offline with a forecast on screen (name the
@@ -208,7 +208,7 @@ const staleStamp = ms => {
 // are set directly; they clear when their process ends, which re-runs
 // updateStatus on success or drops to the relevant resting state.
 // Staleness is measured against the model's own cadence, not a wall
-// clock (owner-directed): the forecast is "overdue" once the next
+// clock: the forecast is "overdue" once the next
 // expected model release has come and gone (by more than the grace),
 // i.e. a newer forecast should exist, whether or not we can reach it.
 // With no model metadata to reason about cadence, fall back to a 24h
@@ -547,11 +547,11 @@ const updateDisplay = (anim = null) => {
     }).join('');
 
     // The rain view is the sky base (skyBaseRGB, which classic pins to
-    // DR-14's conditionRGB via SKY_MODEL) plus the streak
+    // the weather-code conditionRGB via SKY_MODEL) plus the streak
     // overlay; temp and wind views draw their own scales.
     const rainView = view === 'rain';
 
-    // DR-17 frost contour needs each cell's four neighbours (hour above /
+    // The frost contour needs each cell's four neighbours (hour above /
     // below in the same day, same hour in the day either side), on ACTUAL
     // air temp. Null when the neighbour is off the shown window or missing
     // (an honest gap), which the outline treats as the region's edge.
@@ -570,7 +570,7 @@ const updateDisplay = (anim = null) => {
             const h = dayData.find(x => x.hour === hour);
             if (!h) { cells.push({ empty: true }); continue; } // honest gap
             const isCurrent = isToday && hour === currentHour;
-            // Temperature view (DR-17): comfort-band colour on feels-like
+            // Temperature view: comfort-band colour on feels-like
             // (raw temp only if apparent is missing). Wind view: wind
             // scale. Rain view: the WMO sky colour (tinted for rain,
             // cloud-spread, night after this hour's local sunset); rain
@@ -579,7 +579,7 @@ const updateDisplay = (anim = null) => {
                 : view === 'wind'
                     ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
                     : skyBaseRGB(h, nightFactor(hour, sun));
-            // Hazard icons (DR-10): every applicable hazard shows,
+            // Hazard icons: every applicable hazard shows,
             // packed into the bottom-right corner in a fixed order so
             // two never swap places: the weather-coded hazard first
             // (storm, fog, freeze, mutually exclusive), then heat, then
@@ -588,7 +588,7 @@ const updateDisplay = (anim = null) => {
             // UV, or a storm on a hot day). h.glyph is an MR_ICON key.
             const hot = h.temp >= settings.heatWarn;
             const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
-            // DR-17 danger glyph: temperature view only, on feels-like
+            // Danger glyph: temperature view only, on feels-like
             // (raw only if apparent is missing). Outside the rain view's
             // hazard vocabulary, so it never counts against its glyph cap.
             const dv = h.feels != null ? h.feels : h.temp;
@@ -605,7 +605,7 @@ const updateDisplay = (anim = null) => {
                 + (rainView && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
                 + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '')
                 + (dangerCold || dangerHot ? MR_ICON.danger : '');
-            // DR-17 frost contour (temperature view only), on ACTUAL air
+            // Frost contour (temperature view only), on ACTUAL air
             // temp, decoupled from the feels-like colour: ice, frost and
             // rain->snow are real-temperature events. The marker outlines
             // the whole region, not just a crossing: a cell inside the
@@ -686,19 +686,19 @@ const updateDisplay = (anim = null) => {
             const sunText = (sun.rise?.h === hour ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
                 + (sun.set?.h === hour ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
             const skyText = sky ? ` · ${sky.label}` : '';
-            // DR-6: a cell whose forecast meaningfully moved since the
+            // A cell whose forecast meaningfully moved since the
             // previous model run. The pulse is view-gated (a temp move
             // pulses in temp view, not rain view) and armed only while
             // pulsePending, so it fires once per new model run; the
             // was/now detail stays in the tooltip either way.
-            // DR-6: a cell whose forecast meaningfully moved since the
+            // A cell whose forecast meaningfully moved since the
             // previous model run drives the one-shot blink on a refresh
             // (view-gated: a temp move only blinks in temp view). The
             // was/now detail rides the tooltip either way.
             const ch = state.changed?.[`${dayMeta[dayIndex].date}|${h.hour}`];
             const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
             const chText = changeLines(ch).map(l => ` · ${l}`).join('');
-            // DR-17: name the comfort band in the temperature view so the
+            // Name the comfort band in the temperature view so the
             // colour is spoken, not just seen.
             const feelsVal = h.feels != null ? h.feels : h.temp;
             const comfortText = view === 'temp' && feelsVal != null
@@ -733,7 +733,7 @@ const updateDisplay = (anim = null) => {
     // view switch, background refresh) even when the mouse hasn't moved.
     refreshActiveTooltip();
 
-    // DR-6: the first render after a rotation consumes the pulse, so
+    // The first render after a rotation consumes the pulse, so
     // settings and view re-renders rebuild without .changed and the
     // animation can never re-fire on identical DOM.
     state.pulsePending = false;
@@ -776,18 +776,18 @@ const legendSteps = () => {
         }));
     }
     if (view === 'temp') {
-        // DR-17: the strip is the eight comfort bands, not a °C ramp;
+        // The strip is the eight comfort bands, not a °C ramp;
         // each swatch is its band colour, the block tooltip carries the
         // prep cue on tap.
         return TEMP_BANDS.map(b => ({ bg: `rgb(${b.rgb})`, label: b.name }));
     }
     // Rain view: the strip is the sky ramp (lighter = sunnier, darker
     // = cloudier, storm darkest) plus a blue-hatched "rain" swatch
-    // (DR-13, teaching "blue = rain") and a white-dot "snow" swatch.
+    // (teaching "blue = rain") and a white-dot "snow" swatch.
     // Block tooltips still name every condition on tap.
     //
     // Built in shared/colors.js, not here, so the key is sampled from
-    // whichever sky model is painting the grid (DR-38). Classic pins
+    // whichever sky model is painting the grid. Classic pins
     // SKY_MODEL='wmo', so this returns the same strip it always did.
     return skyLegend();
 };
@@ -905,7 +905,7 @@ const showTooltip = el => {
     // Block tooltip gets the capped-width, hero-line layout; legend and
     // freshness tooltips keep the plain single-line style.
     tooltip.classList.toggle('block', el.id !== 'statusInfo' && el.dataset.cond == null);
-    // DR-28: always interactive, not click-through. #tooltip lives
+    // Always interactive, not click-through. #tooltip lives
     // outside .chart in the DOM (a sibling, absolutely positioned),
     // so this can never be mistaken for a touch on the grid itself
     // or feed the chart's own swipe detection; it only ever reaches
@@ -1024,7 +1024,7 @@ const showTooltip = el => {
         const detailText = [activeDetail, ...shared].filter(Boolean).join(' · ');
         const detailLine = detailText ? `<div class="tip-ctx tip-detail">${detailText}</div>` : '';
 
-        // DR-6: was/now detail, as small muted lines under the detail line.
+        // Was/now detail, as small muted lines under the detail line.
         const chg = changeLines(state.changed?.[`${day.date}|${h.hour}`])
             .map(l => `<div class="tip-ctx">${l}</div>`).join('');
 
@@ -1039,7 +1039,7 @@ const showTooltip = el => {
             if (view === 'rain' && h.mm != null && h.mm > LN.warn) chips.push('heavy rain');
             if (h.temp >= settings.heatWarn) chips.push('extreme heat');
             if (h.uv != null && h.uv >= settings.uvWarn) chips.push(`very high UV (${Math.round(h.uv)})`);
-            // DR-17 danger glyph, temperature view only, on feels-like.
+            // Danger glyph, temperature view only, on feels-like.
             if (view === 'temp') {
                 const dv = h.feels != null ? h.feels : h.temp;
                 if (dv != null && dv <= TEMP_DANGER_COLD) chips.push('dangerous cold');
@@ -1059,7 +1059,7 @@ const showTooltip = el => {
     tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - tw - 8, rect.left + rect.width / 2 - tw / 2))}px`;
     tooltip.style.top = `${rect.top < th + 16 ? rect.bottom + 8 : rect.top - th - 8}px`;
 };
-let tappedBlock = null; // element whose tooltip was opened by a tap/click (DR-24: shared by mouse and touch again)
+let tappedBlock = null; // element whose tooltip was opened by a tap/click (shared by mouse and touch again)
 let activeBlock = null; // {day,hour} of the open block tooltip, for re-render on repaint
 const hideTooltip = () => {
     const t = $('tooltip');
@@ -1117,7 +1117,7 @@ const shareLink = async (url, title, what) => {
 const sharePlace = () => shareLink(shareURL(state.place), `Maybe Rain? · ${state.place.name}`, 'Place');
 const shareSite = () => shareLink(location.origin + location.pathname, 'Maybe Rain?', 'Website');
 
-// DR-6: paint state.place's cached forecast, if any. One code path
+// Paint state.place's cached forecast, if any. One code path
 // for startup and city switches alike. Returns true on a paint; a
 // corrupt entry resets state so the skeleton path takes over.
 const paintCachedForecast = (anim = null) => {
@@ -1145,14 +1145,14 @@ const changeCity = (place, remember = true, anim = null) => {
     saveJSON(LS_PLACE, place);
     if (remember) rememberCity(place);
     state.data = []; state.days = []; state.fetchedAt = 0;
-    // DR-6: change marks belong to the previous city; a cached paint
+    // Change marks belong to the previous city; a cached paint
     // or startup paint alone never pulses (no new model run to
     // announce). The next differing fetch rebuilds them.
     state.changed = null; state.pulsePending = false;
     renderLocation();
     syncURL(place);
     closeSearch();
-    // DR-6: paint this place's cached forecast in the same frame (the
+    // Paint this place's cached forecast in the same frame (the
     // status line labels its age honestly), then revalidate in the
     // background; "Updating…" replaces the skeleton path. A place
     // with no cache keeps the skeleton-then-fetch path unchanged.
@@ -1283,9 +1283,9 @@ document.addEventListener('focusout', e => {
     if (e.target.closest(TIP_SEL)) hideTooltip();
 });
 // Tap/click toggles the tooltip; the same block or anywhere else
-// dismisses. Shared by mouse and touch (DR-24: touch no longer
-// swallows its trailing synthetic click, reverting DR-18/19's
-// hold gesture, so this single handler is back to covering both).
+// dismisses. Shared by mouse and touch (touch no longer swallows
+// its trailing synthetic click, now that the hold gesture that did
+// so is gone, so this single handler covers both again).
 document.addEventListener('click', e => {
     const el = e.target.closest(TIP_SEL);
     if (el) {
@@ -1293,7 +1293,7 @@ document.addEventListener('click', e => {
         showTooltip(el);
         tappedBlock = el;
     } else {
-        // DR-28: also reached by tapping/clicking the open tooltip
+        // Also reached by tapping/clicking the open tooltip
         // itself, since it no longer click-through's (see the
         // pointerEvents assignment in showTooltip). e.target is
         // the tooltip or one of its children, which never matches
@@ -1568,27 +1568,25 @@ const stepView = dir => {
 // is left alone here: it falls through to the browser's own
 // trailing synthetic click, which the shared click handler above
 // already treats as tap-to-pin (same code path as a mouse click).
-// DR-24 (reverts DR-18 through DR-23): those decisions replaced
-// this plain tap with a press-and-hold gesture (dwell-gated
-// against this same swipe, live drag-to-scrub, a further hold
-// threshold to lock the tooltip open, haptic ticks on open/scrub/
-// lock). In daily use, hold-to-open turned out worse than the tap
-// it replaced: fiddly to trigger deliberately, and the thing it
-// was meant to fix (closing needed an exact re-tap on a small
-// block) is no longer a problem once tap-elsewhere-to-close (see
-// the click handler above) does that job instead of same-block
-// re-tap alone. See SPEC.md DR-24 for the full writeup.
+// An earlier iteration replaced this plain tap with a press-and-
+// hold gesture (dwell-gated against this same swipe, live drag-to-
+// scrub, a further hold threshold to lock the tooltip open, haptic
+// ticks on open/scrub/lock). In daily use, hold-to-open turned out
+// worse than the tap it replaced: fiddly to trigger deliberately,
+// and the thing it was meant to fix (closing needed an exact
+// re-tap on a small block) is no longer a problem once
+// tap-elsewhere-to-close (see the click handler above) does that
+// job instead of same-block re-tap alone.
 //
-// DR-25/26/27 (long-press-to-pin, its haptics, and drag-to-scrub
-// once pinned) were tried on top of this and then dropped, per
-// DR-28: an open (non-pinned) tooltip already survives a city/view
-// swipe on its own (activeBlock/refreshActiveTooltip below
-// re-targets the same grid position on every repaint, and a swipe
-// never fires the trailing click that would close it), which
-// turned out to be all the "compare across a swipe" behavior
-// actually needed; the separate pinned tier and its gestures were
-// extra complexity without a use it uniquely served. See SPEC.md
-// DR-28. What's left is exactly the DR-24 shape: swipe detection
+// Long-press-to-pin, its haptics, and drag-to-scrub once pinned
+// were tried on top of this and then dropped as well: an open
+// (non-pinned) tooltip already survives a city/view swipe on its
+// own (activeBlock/refreshActiveTooltip below re-targets the same
+// grid position on every repaint, and a swipe never fires the
+// trailing click that would close it), which turned out to be all
+// the "compare across a swipe" behavior actually needed; the
+// separate pinned tier and its gestures were extra complexity
+// without a use it uniquely served. What's left is swipe detection
 // only, no timers, no pin state, no haptics.
 let swipeStart = null;
 chart.addEventListener('touchstart', e => {
@@ -1731,7 +1729,7 @@ $('searchResults').addEventListener('click', e => {
         favorites = favorites.filter(c => placeKey(c) !== placeKey(gone));
         saveJSON(LS_CITIES, savedCities);
         saveJSON(LS_FAVORITES, favorites);
-        sweepForecasts(); // DR-6: a dismissed place's cache goes with it
+        sweepForecasts(); // a dismissed place's cache goes with it
         renderSuggestions($('searchInput').value);
         return;
     }
@@ -1786,7 +1784,7 @@ document.addEventListener('visibilitychange', () => {
     if (!document.hidden && !state.loading) fetchWeather();
 });
 
-// DR-7: connection state flows through the one status line. Going
+// Connection state flows through the one status line. Going
 // offline names the honest resting state and keeps the last forecast on
 // screen (never a blank grid). Coming back shows a brief "Back online"
 // acknowledgement, then a background refresh (its own "Updating…").
@@ -1912,7 +1910,7 @@ if (firstVisit) {
 } else {
     syncURL(state.place);
     renderLocation();
-    // DR-6: startup is just "paint the cache for state.place, then
+    // Startup is just "paint the cache for state.place, then
     // revalidate", the same path as a city switch. The cached grid blinks
     // in with the reveal so a reload has the same entrance as a first visit
     // (a background refresh then defers behind it and blinks only changes).
@@ -1924,11 +1922,11 @@ if (firstVisit) {
 // changeCity once the guessed city resolves, and every fetch re-arms
 // with the payload's timezone.
 scheduleDayRollover();
-// DR-6: cache lifecycle sweep, once per startup, off the critical
+// Cache lifecycle sweep, once per startup, off the critical
 // path so it never delays the first paint.
 setTimeout(sweepForecasts, 4000);
 
-// Service worker. DR-7: when a genuinely newer version is waiting, surface
+// Service worker. When a genuinely newer version is waiting, surface
 // the resting "↻ Update app" CTA in the status line (updateStatus reads
 // state.swUpdate) instead of a banner or a disruptive auto-reload. Tapping
 // it reloads into the new build, which then shows the "New version · see

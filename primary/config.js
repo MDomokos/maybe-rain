@@ -4,7 +4,7 @@
 // (shared/api.js builds the request URL from it, shared/cache.js stamps
 // and checks it). Everything else this variant declares lives in app.js.
 
-// DR-39: the day axis is elastic. The home week is what the screen rests
+// The day axis is elastic. The home week is what the screen rests
 // on; a sideways pull accordions further days in from the side they sit
 // on, and the home week squishes to pay for them. The frame therefore
 // holds every day the pull can reach, all the time, and what moves is the
@@ -26,7 +26,7 @@ const PAST_DAYS = 2;
 
 // Every column the elastic can hold at once: the two past days, the home
 // week, and the seven days beyond it. Built once per view or city change
-// and never rebuilt inside a gesture (DR-39).
+// and never rebuilt inside a gesture.
 const DAY_TOTAL = PAST_DAYS + DAY_SPAN + FUTURE_REACH; // 16
 // The fetch horizon is derived from the reach rather than set beside it,
 // so the two can never drift: everything the pull can reach, plus the
@@ -35,9 +35,9 @@ const DAY_TOTAL = PAST_DAYS + DAY_SPAN + FUTURE_REACH; // 16
 // waiting on the network).
 const FORECAST_DAYS = DAY_SPAN + FUTURE_REACH + 1; // 15
 
-// Which sky model paints the rain view's base (DR-38). 'radiance' is the
+// Which sky model paints the rain view's base. 'radiance' is the
 // two-axis model: clearness sets brightness, sunshine sets how gold.
-// 'wmo' is the DR-14 bucket palette, kept runnable in classic as the
+// 'wmo' is the earlier bucket palette, kept runnable in classic as the
 // reference implementation. Read at load by shared/colors.js, which is
 // why it lives here rather than in app.js.
 const SKY_MODEL = 'radiance';

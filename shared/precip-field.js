@@ -1,7 +1,7 @@
 // shared/precip-field.js: the precipitation overlay as a field of marks.
 //
-// PRIMARY ONLY. Classic carries shared/precip-pattern.js, the DR-12/15/16
-// pattern renderer, frozen. Both files define the same entry point:
+// PRIMARY ONLY. Classic carries shared/precip-pattern.js, the pattern
+// renderer, frozen. Both files define the same entry point:
 //
 //     precipOverlay(h, base, W, H) -> HTML string
 //
@@ -24,9 +24,6 @@
 // at render time: every mark in a block shares one colour and one weight,
 // so they emit as one <path> with many subpaths — the same single DOM node
 // the pattern was.
-//
-// Config locked 2026-07-24 (Maybe Rain Precipitation + Climatology), with
-// the mark field's own constants from Maybe Rain Line Refinements.
 const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              maxAngle: 55, windSat: 40,
              // Rain, snow and hail are marks ON one lattice, never
@@ -49,8 +46,8 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // and is told apart by being short, white and on its own
              // sites rather than by being fat.
              hailShare: 0.3,
-             // Mist. DR-12 reserved texture for precipitation and DR-31
-             // gives hazards to glyphs, so humidity, air quality, pressure
+             // Mist. Texture is reserved for precipitation and hazards
+             // are given to glyphs, so humidity, air quality, pressure
              // and CAPE stay out: none of them fall out of the sky. Low
              // visibility is a property of the falling water itself, and
              // it answers "is it murky out", which nothing else does.
@@ -152,7 +149,7 @@ const windLean = h => {
 // an angle: the block of grid leans, not each block in it.
 //
 // The 26deg cap is the p90 of the 5-year wet-hour wind record, which is
-// where DR-12's original fixed 28deg came from, so the resting look is
+// where the original fixed 28deg came from, so the resting look is
 // the one the mockups proved. Under the deadband the hour is drawn
 // vertical, because calm should read as calm rather than as a slight
 // preference.
@@ -164,8 +161,7 @@ const quantLean = h => {
     return Math.sign(a) * k * (cap / n);
 };
 // Hail is a WMO category, not a quantity: 96 and 99 are the only codes
-// that carry it, and per the 2026-07-27 hazard ruleset they only mean hail
-// in Central Europe at all.
+// that carry it, and they only mean hail in Central Europe at all.
 const HAIL_CODES = new Set([96, 99]);
 
 // --- the ordered dither ---------------------------------------------
@@ -268,8 +264,8 @@ const subDotAt = (cx, cy, r) =>
 //
 //   grain     below 0.3 mm. Short ticks whose length varies over the
 //             ordered cycle. The trace tier is not the drizzle tier: the
-//             amount there is essentially zero and only the chance is real
-//             (DR-16), so it takes a pure texture rather than a shape that
+//             amount there is essentially zero and only the chance is
+//             real, so it takes a pure texture rather than a shape that
 //             claims a size. It is also the figure that survives a narrow
 //             sliver, which is what a low-chance hour leaves.
 //   broken    0.3 to 1 mm. Each site is a dot, a short tick or a full
@@ -324,11 +320,11 @@ const figureFor = m => m.trace ? 'grain' : m.light ? 'broken' : 'straight';
 // --- the amount ramp -------------------------------------------------
 // How much rain is the mark's LENGTH and weight, not the count of marks.
 //
-// DR-12 spent intensity on spacing: 15 px at the light end down to 4.7 at
-// the heavy one. The arithmetic of that is what broke the drizzle band. At
-// the drizzle end a 46 px block held three lines and the trace tier held
-// two — while 61 to 67% of all wet hours are under 0.5 mm. The modal rain
-// hour was drawn with the least ink in the system.
+// The pattern spent intensity on spacing: 15 px at the light end down
+// to 4.7 at the heavy one. The arithmetic of that is what broke the
+// drizzle band. At the drizzle end a 46 px block held three lines and the
+// trace tier held two — while 61 to 67% of all wet hours are under
+// 0.5 mm. The modal rain hour was drawn with the least ink in the system.
 //
 // So the lattice barely moves and the mark carries the amount instead.
 // Drizzle is a fine mist of short round-capped ticks covering the whole
@@ -376,7 +372,7 @@ const amountFor = mm => {
 };
 
 // --- the block -------------------------------------------------------
-// The chance channel is DR-12's: the marks reach `pop` per cent of the way
+// The chance channel is inherited: the marks reach `pop` per cent of the way
 // across the block, anchored left, nothing below 8%. Unlike the pattern
 // version the fill edge is not a CSS width on the wrapper but a rect the
 // marks are clipped to, so a mark the edge crosses is drawn short with a
@@ -409,7 +405,7 @@ const emitMarks = (segs, figure, m, c, alpha, scale, weight) => {
 // than being tuned away.
 //
 // Sleet falls out for free. A flake gets a tail only while the hour is
-// mixed, so a pure snow hour is pure dots — the identity DR-12 gave snow
+// mixed, so a pure snow hour is pure dots — snow's established identity
 // — a mixed hour reads as a mix, and pure rain is streaks.
 const precipFieldSVG = (h, base, W, H) => {
     // The liquid part (rain + showers) and the frozen part. 1 cm of
@@ -426,7 +422,7 @@ const precipFieldSVG = (h, base, W, H) => {
     const liquid = Math.max(0, h.liquid ?? (COND[h.condition].group === 'snow' ? 0 : (h.mm ?? 0)));
     const total = liquid + snow;
     if (h.pop != null && h.pop < LN.popFloor) return '';
-    // DR-16: the trace tier is liquid-only. Below the floor the amount is
+    // The trace tier is liquid-only. Below the floor the amount is
     // noise and the chance is the whole story, and a chance of snow is not
     // a story this texture can tell.
     if (total < LN.floor && (COND[h.condition].group === 'snow'
@@ -473,7 +469,7 @@ const precipFieldSVG = (h, base, W, H) => {
         { sp, len, gap, sw: m.sw, fillW: reach * W, edge: point ? m.sw * 1.6 : 0 });
     if (!segs.length) return '';
 
-    // Snow and rain in the same block always draw straight (owner call).
+    // Snow and rain in the same block always draw straight.
     // The flakes are already a second kind of mark on the lattice; a
     // broken rain mark beside them gives the eye three figures to separate
     // in 46 px, and the mix stops reading as a mix.
@@ -506,8 +502,8 @@ const precipFieldSVG = (h, base, W, H) => {
             nil ? LN.nilScale : LN.ghostScale, nil ? LN.nilWeight : LN.ghostWeight);
 
     // Snow: a flake on the site, with a tail only while the hour is mixed.
-    // White, on DR-12's argument that frozen precipitation keeps a constant
-    // identity no sky can dilute.
+    // White, because frozen precipitation keeps a constant identity no
+    // sky can dilute.
     if (flakes.length) {
         const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
         const r = m.sw * LN.snowDot, tail = len * 0.5 * (1 - snowShare);
@@ -531,9 +527,8 @@ const precipFieldSVG = (h, base, W, H) => {
     // Hail: a short heavy white stub on the site, leaning with the rain.
     // Stub, not dot, so it is never snow; the open rings it replaces were
     // the only outline shape in a system made of round caps and filled
-    // dots, and per the 2026-07-27 hazard ruleset WMO 96/99 only mean hail
-    // in Central Europe, so the ring asserted a fact the data does not
-    // hold elsewhere.
+    // dots, and WMO 96/99 only mean hail in Central Europe, so the ring
+    // asserted a fact the data does not hold elsewhere.
     if (pellets.length) {
         const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
         const e = Math.min(len * 0.45, m.sw * 1.15);
@@ -558,7 +553,7 @@ const precipFieldSVG = (h, base, W, H) => {
 //
 // It is checked before it is drawn: `vis` is null on any payload cached
 // before the field was asked for, and on a provider that does not carry
-// it (DR-37 had to learn the same lesson).
+// it, which an earlier optional field had to learn the hard way.
 const mistSVG = (h, base, W, H) => {
     if (h.vis == null || h.vis > LN.mistVis) return '';
     const t = Math.max(0, Math.min(1, 1 - h.vis / LN.mistVis));

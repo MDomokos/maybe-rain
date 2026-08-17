@@ -38,7 +38,7 @@ const processData = payload => {
             // Metres. Null on a payload cached before the field was
             // asked for, which is why the texture checks before drawing.
             vis: visibility?.[i] ?? null,
-            code: weather_code[i],                    // raw WMO code (hail rings on 96/99)
+            code: weather_code[i],                    // raw WMO code (96 and 99 carry hail)
             cloud: cloud_cover?.[i] ?? null,          // %, for the lines-mode sky base
             uv: uv_index?.[i] ?? null,
             wind: wind_speed_10m?.[i] ?? null,        // km/h; converted at render
@@ -54,9 +54,9 @@ const processData = payload => {
     // Only days that actually have data; no fabricated columns.
     //
     // Past days are kept, back to PAST_DAYS before today, so the drawer
-    // can be stepped behind today. They used to be dropped here under
-    // DR-6, which required that a past day never appear relabeled as
-    // current. That requirement still holds; it is now met by labeling
+    // can be stepped behind today. They used to be dropped here, to hold
+    // the rule that a past day must never appear relabeled as the
+    // current one. That rule still holds; it is now met by labeling
     // instead of by deletion. Every day carries its own date and its own
     // isToday, state.todayIndex records which one is today, and the frame
     // is positioned from that index instead of from 0, so a past day

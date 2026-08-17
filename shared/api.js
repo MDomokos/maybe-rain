@@ -2,7 +2,7 @@
 const forecastURL = p =>
     'https://api.open-meteo.com/v1/forecast' +
     `?latitude=${p.latitude}&longitude=${p.longitude}` +
-    // `visibility` is the mist texture's field (DR-41). It rides the same
+    // `visibility` is the mist texture's field. It rides the same
     // request as everything else and costs nothing extra to ask for.
     '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,visibility,uv_index,wind_speed_10m,wind_direction_10m,wind_gusts_10m' +
     '&daily=sunrise,sunset' +
@@ -14,13 +14,13 @@ const forecastURL = p =>
     //
     // Every day is fetched hourly, on the same request and the same
     // fields as the shipped week, so a revealed column is an ordinary
-    // column. DR-29 planned to coarsen the far days to a daily aggregate
-    // on the grounds that hourly data past day 7 does not exist; DR-34
-    // measured that and found it false (Open-Meteo returns an
-    // hourly-shaped value out to the ceiling, interpolated past a model's
-    // native cadence). The coarsening may still be right, but it is a
-    // resolution and confidence question, not a data-availability one,
-    // and it waits on the confidence pass with the rest of DR-33/35.
+    // column. Coarsening the far days to a daily aggregate was considered
+    // on the grounds that hourly data past day 7 does not exist; measuring
+    // it found that false (Open-Meteo returns an hourly-shaped value out
+    // to the ceiling, interpolated past a model's native cadence). The
+    // coarsening may still be right, but it is a resolution and
+    // confidence question, not a data-availability one, and it waits on
+    // the confidence pass.
     //
     // past_days extends the same request backward. It is a parameter,
     // not a second call, and the hourly fields and the daily
@@ -32,7 +32,7 @@ const forecastURL = p =>
     // in place of a pure forecast, which is what makes overnight rain
     // totals worth reading. ERA5 via the archive API is the better
     // record but lags about five days, so it cannot answer anything
-    // about last night. See Maybe Rain Climatology for where it fits.
+    // about last night.
     `&timezone=auto&forecast_days=${FORECAST_DAYS}&past_days=${PAST_DAYS}`;
 
 // Parse the metadata payload (Unix seconds) into ms state. The next
@@ -154,7 +154,7 @@ const fetchWeather = async (force = false) => {
         state.fetchedAt = Date.now();
         state.lastError = '';   // a good fetch clears any held error
         state.online = true;    // it reached the network, so we're online
-        // DR-6 layer 2: compare against the cached payload. Identical
+        // Change detection: compare against the cached payload. Identical
         // (most 30-min polls, the models update ~6-hourly): the fetch
         // was real so freshness advances, but the render is skipped
         // entirely; that removes the render burst from no-change polls

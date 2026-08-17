@@ -51,7 +51,7 @@ const rememberCity = place => {
                    ...savedCities.filter(c => placeKey(c) !== placeKey(place))]
         .slice(0, MAX_CITIES);
     saveJSON(LS_CITIES, savedCities);
-    // DR-6: an MRU eviction can orphan the evicted place's cache.
+    // An MRU eviction can orphan the evicted place's cache.
     if (before >= MAX_CITIES) sweepForecasts();
 };
 const isFav = p => favorites.some(f => placeKey(f) === placeKey(p));
@@ -64,7 +64,7 @@ const toggleFavorite = place => {
     if (isFav(place)) {
         favorites = favorites.filter(f => placeKey(f) !== placeKey(place));
         saveJSON(LS_FAVORITES, favorites);
-        // DR-6: unfavoriting can orphan the place's cache (when it is
+        // Unfavoriting can orphan the place's cache (when it is
         // not also a recent or the place on screen).
         sweepForecasts();
     } else {

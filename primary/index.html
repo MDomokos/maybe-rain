@@ -254,7 +254,7 @@
             margin-right: var(--overhang);
         }
         .view-toggle .seg { flex: none; position: relative; }
-        /* DR-30: while a horizontal scrub is live the grid says what the data
+        /* While a horizontal scrub is live the grid says what the data
            looks like but not what it is called, so the underline slides toward
            the view being pulled toward and names it. Drawn only once it has
            been measured onto a laid-out button (`has-bar`); until then the
@@ -410,8 +410,8 @@
         html.reduce-motion .day-label.tiny .day-date { transition: none; }
 
         /* The control row. Stacked under the status line inside the existing
-           .view-toggle block, so the bottom zone keeps one owner and DR-7's
-           state channel keeps its home. */
+           .view-toggle block, so the bottom zone keeps one owner and the
+           single state channel keeps its home. */
         .view-toggle { flex-direction: column; align-items: stretch; gap: 6px; }
         .control-row {
             display: flex;
@@ -862,7 +862,7 @@
         /* The calendar strip: weekday over date, one column per grid column. */
         /* The gap between columns is a margin on each column rather than
            the flex `gap`, because the elastic writes both the widths and
-           the gaps from JS (DR-39) and a container gap would be counted
+           the gaps from JS and a container gap would be counted
            twice. The variable stays the single source of the number. */
         .day-labels {
             display: flex;
@@ -986,7 +986,7 @@
            box-shadow, which a filter on the same element would dull. */
         .weather-block.past:focus-visible { opacity: 1; filter: none; }
 
-        /* --- The hour rail (DR-29) --------------------------------------
+        /* --- The hour rail ----------------------------------------------
            One transparent, never-rebuilt gesture layer. Nothing is drawn at
            rest, so the resting screen is unchanged: the rails are pure hit
            boxes. Each covers the origin that arms its reveal, and `touch-action:
@@ -1077,7 +1077,7 @@
         .chart {
             position: relative;
             /* pan-y keeps one-finger vertical scroll while the day elastic
-               (DR-39) reads horizontal ones; it also blocks an accidental
+               reads horizontal ones; it also blocks an accidental
                browser pinch on the grid itself. */
             touch-action: pan-y;
             height: clamp(280px, 56vh, 720px);
@@ -1125,7 +1125,7 @@
         }
         /* Past the end of the days the columns freeze and the whole grid
            slides toward the pull, its trailing edge clipping into black
-           (DR-39). The clip is switched on for exactly that: at rest the
+           The clip is switched on for exactly that: at rest the
            current-hour marker deliberately overhangs the field's left
            edge, and a clip that was always on would eat it. The transform
            itself rides the COLUMNS, not this box, or the clip would
@@ -1187,7 +1187,7 @@
         }
         .block-mark svg { width: 1em; height: 1em; display: block; }
         .block-mark.sky { right: auto; left: 2px; }
-        /* DR-17 frost contour: a region-level outline on ACTUAL air temp. An
+        /* Frost contour: a region-level outline on ACTUAL air temp. An
            overlay inset over the block; the render sets a border only on the
            sides that face out of the frozen (solid, 0 °) or near-freezing
            (dashed, +3 °) region, so the borders of adjacent cells join into one
@@ -1285,14 +1285,14 @@
             cursor: default;
         }
 
-        /* --- Far days, at the data's own cadence (DR-39) ---------------
+        /* --- Far days, at the data's own cadence -----------------------
            A block that stands for three or six hours is simply taller;
            its height is written inline from the slots it covers, so
            nothing is needed here. The DAILY bar is the one that also
            changes shape: inset from the column's sides and outlined with
            a hairline, so a single value for a whole day cannot be
-           mistaken for an hour that happens to be very tall. DR-29's
-           geometry, unchanged.
+           mistaken for an hour that happens to be very tall. The
+           existing geometry, unchanged.
 
            `width: auto` rather than the block's usual 100%: a margin does
            not shrink a definite width, so 100% plus an 18% margin would
@@ -1306,7 +1306,7 @@
             border: 1px solid rgba(255, 255, 255, 0.22);
         }
 
-        /* --- The lock mark (DR-39) ------------------------------------
+        /* --- The lock mark --------------------------------------------
            A hairline BESIDE the grid, never on it: the grid surface is
            data and stays data. It sits in the chart's own side padding,
            outside the clip, so the slide never carries it off. It grows
@@ -2250,7 +2250,7 @@
     <p id="statusLive" class="sr-only" role="status" aria-live="polite"></p>
     <div class="container">
         <div id="content">
-            <!-- hourRail (below) is the hour peek's touch target (DR-29). It is
+            <!-- hourRail (below) is the hour peek's touch target. It is
                  transparent, created once here, and never rebuilt: touch
                  dispatches every touchmove/touchend to whatever element was
                  under the finger at touchstart, so a listener living on markup
@@ -2284,7 +2284,7 @@
             </div>
             <!-- The control row. One row, in thumb reach: the city name (which
                  IS the city switcher, tap or swipe up) and the three view
-                 buttons. The status line keeps the line above it, so DR-7's
+                 buttons. The status line keeps the line above it, so the app's
                  single state channel costs no new layout. -->
             <div class="view-toggle" id="viewToggle">
                 <div class="control-row" id="controlRow">
@@ -2297,7 +2297,7 @@
                         <button data-view="rain"><span class="seg-val"></span><span class="seg-lb">rain</span></button>
                         <button data-view="temp"><span class="seg-val"></span><span class="seg-lb">temp</span></button>
                         <button data-view="wind"><span class="seg-val"></span><span class="seg-lb">wind</span></button>
-                        <!-- DR-30: the active underline as a movable element, so
+                        <!-- The active underline as a movable element, so
                              it can slide toward the view a transition is heading
                              for. At rest it is measured onto the active button
                              and is the same 1px gold line the words carried. -->

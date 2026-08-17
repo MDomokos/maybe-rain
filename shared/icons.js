@@ -4,9 +4,8 @@
 // currentColor so each icon inherits its context: the block's
 // luminance-picked contrast colour, gold for now/saved, grey for
 // chrome. One source of truth; keys map to the render slots below.
-// Full reference: "Maybe Rain/Design/Maybe Rain Icons.md". A few marks
-// (snow, solar, sunrise, sunset) are kept for features not built yet
-// and need no wiring today. mrIcon(key) returns the SVG or ''.
+// A few marks (snow, solar, sunrise, sunset) are kept for features not
+// built yet and need no wiring today. mrIcon(key) returns the SVG or ''.
 const MR_ICON = {
     storm: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M13.5 2.5 9 11.5 15 11.5 10.5 20.5\"/></svg>",
     fog: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 8h12\"/><path vector-effect=\"non-scaling-stroke\" d=\"M6.5 12h13\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.5 16h11\"/></svg>",

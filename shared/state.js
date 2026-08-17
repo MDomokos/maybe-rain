@@ -10,12 +10,12 @@ let state = {
     localRun: null, // regional high-res model run (or null): { init, interval, nextUpdate, slug, label }
     loading: false,
     controller: null,
-    online: navigator.onLine, // tracked via online/offline events (DR-7)
-    swUpdate: false, // a newer app version is waiting a reload (DR-7 CTA); only a genuine mid-session deploy, never the load-time cache catch-up
+    online: navigator.onLine, // tracked via online/offline events
+    swUpdate: false, // a newer app version is waiting a reload, surfaced on the status line; only a genuine mid-session deploy, never the load-time cache catch-up
     updateNote: false, // the brief "New version" note is up (tap opens the changelog), vs the resting reload CTA
     whatsNewPending: false, // we're running a build not seen before: owe a one-time "see what's new" note, shown once the line first rests
     lastError: '',   // last no-data error text, so updateStatus can restate it
-    changed: null,   // DR-6: "date|hour" → {pop|temp|wind: [was, now]} vs the previous model run
-    pulsePending: false, // DR-6: the next render pulses changed cells, then consumes this
+    changed: null,   // "date|hour" → {pop|temp|wind: [was, now]} vs the previous model run
+    pulsePending: false, // the next render pulses changed cells, then consumes this
     suggestions: [] // saved cities + geocoding hits, in display order
 };

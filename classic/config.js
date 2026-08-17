@@ -32,10 +32,10 @@ const FORECAST_DAYS = 15;
 // `off`, which starts the frame at state.todayIndex instead of 0.
 const PAST_DAYS = 2;
 
-// Classic is the frozen variant, so it keeps the DR-14 bucket palette:
-// eight sky colours picked by weather code, cloud-spread and night-
-// blended. Primary moved to 'radiance' in DR-38; holding 'wmo' here is
-// what keeps the old system runnable side by side instead of only
-// readable in git. research/test-lines.mjs pins this variant's exact
-// output, so a change to conditionRGB fails a test rather than drifting.
+// Classic is the frozen variant, so it keeps the bucket palette: eight
+// sky colours picked by weather code, cloud-spread and night-blended.
+// Primary has since moved to 'radiance'; holding 'wmo' here is what
+// keeps the old system runnable side by side instead of only readable
+// in git. A test pins this variant's exact output, so a change to
+// conditionRGB fails a test rather than drifting.
 const SKY_MODEL = 'wmo';

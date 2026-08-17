@@ -11,15 +11,15 @@ const scaleRGB = (stops, t) => {
     }
     return stops[stops.length - 1][1];
 };
-// DR-17 temperature view: colour by apparent temperature (feels-like,
+// Temperature view: colour by apparent temperature (feels-like,
 // Open-Meteo's apparent_temperature) into eight absolute human comfort
 // bands, the same edges in every city, so the grid orients across cities
 // and weeks instead of self-scaling. Comfort-diverging palette: palest at
 // Comfortable, deepening both ways so darkness reads as distance from
 // comfortable. Each band carries one prep cue. Danger stays an escalation
 // glyph (dangerGlyph), not a band, so a normal Minneapolis winter or
-// Florida summer never cries wolf. Edges, colours and cues are locked in
-// Maybe Rain/Design/Maybe Rain Temperature.md (5y ERA5, four cities).
+// Florida summer never cries wolf. Edges, colours and cues are fixed,
+// derived from 5y ERA5 across four cities.
 const TEMP_BANDS = [
     { max: -8,       rgb: [58, 45, 107],   name: 'Bitter',   cue: 'bundle up - gloves and hat, skip the run' },
     { max: 0,        rgb: [70, 110, 196],  name: 'Freezing', cue: 'below freezing - coat, watch for ice' },
@@ -57,13 +57,13 @@ const bandRGB = feels => {
     const f = Math.abs(s) * TEMP_BLEND;
     return b.rgb.map((c, j) => Math.round(c + (target[j] - c) * f));
 };
-// DR-17: danger is an escalation glyph, not a band (rain-parity with the
+// Danger is an escalation glyph, not a band (rain-parity with the
 // heavy-rain warning). On feels-like: frostbite at <= -20 (about 430 h/yr
 // in Minneapolis, near-never elsewhere), heat-stress at >= 38 (the real
 // heat-index line; ERA5 smooths the tail, live models fire it). The
 // first-pass -10 / 32 edges cried wolf on the record and were dropped.
 const TEMP_DANGER_COLD = -20, TEMP_DANGER_HOT = 38;
-// DR-17 possible-frost buffer: frost and black ice form at reported air
+// Possible-frost buffer: frost and black ice form at reported air
 // temps a couple of degrees above zero (surfaces radiate below the 2 m
 // air on clear calm nights; advisories fire there, not at 0 °), and the
 // buffer also honours the forecast's own uncertainty. Solid line at true
@@ -101,15 +101,14 @@ const CONDITIONS = [
 const COND = Object.fromEntries(CONDITIONS.map(c => [c.key, c]));
 const PRECIP = new Set(['rain', 'storm', 'snow']); // probability fade applies
 
-// --- Default grid palette: the sky, by WMO code (Maybe Rain Sky
-// Palette Explorer) --------------------------------------------------
+// --- Default grid palette: the sky, by WMO code -------------------
 // Every block is a picture of the sky. Each of the 28 WMO codes maps
 // to one of eight sky levels, each with a fixed day colour and a
 // warm-neutral night colour: night dims and desaturates the sky rather
 // than recolouring it, so no night is blue and blue reads only as rain.
 // Three modifiers then run per hour:
 //   1. rain codes get a slight blue tint, so the block reads "wet"
-//      even before the streak overlay (DR-12/DR-13) is drawn on top,
+//      even before the streak overlay is drawn on top,
 //   2. cloud cover spreads the brightness around the swatch (clear
 //      hours lift, overcast hours ease down), so neighbouring hours
 //      read as visibly different without the grid trending dark,
@@ -145,7 +144,7 @@ const SKY_NIGHT = {
 // overcast sky; ordinary showers (80/81) from a brighter broken sky;
 // violent showers (82) from overcast; snow codes take the grey they
 // fall from (see skyLevelFor, the white lattice is the snow); thunder
-// is the violet. Code 3 splits by cover (below), like DR-12. The snow
+// is the violet. Code 3 splits by cover (below). The snow
 // level below is kept for reference but the base uses the grey.
 const SKY_LEVEL = {
     0: 'clear', 1: 'mclear', 2: 'partly',
@@ -170,8 +169,8 @@ const RAIN_TINT_W = 0.12;          // how far toward it (slight)
 const CLOUD_DARKEN = 0.06;         // 100% cloud sits this far below the swatch
 const CLOUD_LIGHTEN = 0.14;        // 0% cloud sits this far above it
 // Snow codes take the grey sky the snow falls from, not a white block:
-// the white dot lattice (DR-12) is the snow, and it needs a grey base
-// to read. ~97% of snow hours are overcast (Climatology note).
+// the white dot lattice is the snow, and it needs a grey base to
+// read. ~97% of snow hours are overcast.
 const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
 const skyLevelFor = (code, cloud) => {
     if (code === 3) return (cloud ?? 0) > 90 ? 'overcast' : 'cloudy';
@@ -210,9 +209,9 @@ const conditionRGB = (h, nf) => {
     return c.map(v => clamp255(v * f));
 };
 
-// --- Sky model B: the sky as seen overhead (DR-38) -----------------
-// Everything above this line is model A (DR-14) and is frozen: classic
-// selects it, and research/test-lines.mjs pins its exact output.
+// --- Sky model B: the sky as seen overhead -------------------------
+// Everything above this line is model A and is frozen: classic selects
+// it, and a regression test pins its exact output.
 //
 // Model A asks the weather code which of eight colours to use. Model B
 // asks two questions with two different answers, and gives each its own
@@ -233,10 +232,9 @@ const conditionRGB = (h, nf) => {
 // the same failure as a straight gold-to-grey ramp, which passes through
 // olive for the same reason.
 //
-// Constants tuned by eye against live data (Maybe Rain Live Palette
-// Comparison, 2026-08-13) and re-checked numerically: monotonic in Kt,
-// zero muddy results across 157k condition combinations, worst streak
-// contrast 3.5:1 against DR-13's 3.0 floor.
+// Constants tuned by eye against live data and re-checked numerically:
+// monotonic in Kt, zero muddy results across 157k condition
+// combinations, worst streak contrast 3.5:1 against the 3.0 floor.
 const SKY = {
     gold: 1.00,          // how gold a fully sunlit hour goes
     sunContrast: 1.80,   // S-curve on the sunshine axis; 1 = linear
@@ -340,7 +338,7 @@ const skyRGB = (h, nf) => {
     const night = mix3(NIGHT_THICK, NIGHT_CLEAR, clamp01(kt / 0.78));
     let c = mix3(day, night, nf);
     // Storms do not override the colour: the base stays physical and the
-    // hazard rides the glyph (DR-31). The cap exists only so a distant or
+    // hazard rides the glyph. The cap exists only so a distant or
     // high-based cell in an otherwise bright sky cannot read as a nice
     // day. Chroma is shed first, or capping a golden sky yields brown.
     if (STORM_CODES.has(h.code) && SKY.stormCap < 1) {
@@ -370,14 +368,14 @@ const skySample = (kt, sun) =>
 // --- The one dispatch point ---------------------------------------
 // SKY_MODEL comes from the variant's config.js, which loads ahead of
 // shared/ for exactly this reason (the same inversion api.js relies on
-// for FORECAST_DAYS). 'radiance' is DR-38; 'wmo' is DR-14, kept
+// for FORECAST_DAYS). 'radiance' is model B; 'wmo' is model A, kept
 // runnable in classic as the reference implementation.
 const skyBaseRGB = SKY_MODEL === 'radiance' ? skyRGB : conditionRGB;
 
 // The rain-view legend strip, derived from whichever model is active, so
 // the key can never teach a palette the grid is not painting. Both
 // variants' legendSteps() call this rather than building the strip
-// themselves. The wmo branch reproduces the pre-DR-38 strip exactly.
+// themselves. The wmo branch reproduces the model-A strip exactly.
 // lnBlue picks the hatch blue by the swatch's own luminance, which is
 // the same rule the streaks follow on the grid.
 const skyLegend = () => {
@@ -407,7 +405,7 @@ const skyLegend = () => {
 };
 
 // Hazard markers: redundant non-color icons for hazards only, never
-// ordinary data. Vocabulary of five (DR-10): storm (lightning, incl.
+// ordinary data. Vocabulary of five: storm (lightning, incl.
 // hail), fog, and freeze (freezing rain/drizzle) are weather-coded
 // below; heat (extreme heat) and uv (very-high UV) are threshold
 // hazards applied at render time by value, not code. Every applicable
@@ -448,7 +446,7 @@ const fadeRGB = (hex, pop) => {
     return hexRGB(hex).map((c, i) => Math.round(NAVY[i] + (c - NAVY[i]) * w));
 };
 
-// --- DR-13 rain blues ---------------------------------------------
+// --- Rain blues ---------------------------------------------------
 // The precipitation renderer itself lives in shared/precip-pattern.js
 // (classic) or shared/precip-field.js (primary); only the colour it
 // draws in stays here, because skyLegend() above hatches its rain
@@ -456,7 +454,7 @@ const fadeRGB = (hex, pop) => {
 // grid is not painting.
 const lnLum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
 const lnMix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * t));
-// DR-13: rain lines are blue, contrast-tuned to the background by
+// Rain lines are blue, contrast-tuned to the background by
 // luminance band. Deep steel-blue on light skies (gold, the light
 // greys), pale steel-blue on the dark ones (dark greys, storm violet,
 // the night palette), so the streaks stay legible everywhere and read

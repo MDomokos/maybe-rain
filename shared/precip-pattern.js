@@ -1,4 +1,4 @@
-// shared/precip-pattern.js: the DR-12/15/16 precipitation overlay, the
+// shared/precip-pattern.js: the original precipitation overlay, the
 // pattern renderer, exactly as it shipped.
 //
 // CLASSIC ONLY, and frozen. It moved out of colors.js unedited so that
@@ -17,7 +17,7 @@
 // them — a pattern tiles to whatever box it is given — so it ignores
 // them; the mark field does, which is why they are in the signature.
 
-// --- Rain view: sky base + rain-streak overlay (DR-12/DR-13/DR-14) --
+// --- Rain view: sky base + rain-streak overlay ---------------------
 // The block colour is the sky (conditionRGB above: the WMO sky palette,
 // rain-tinted, cloud-spread, night after local sunset), and rain lives
 // entirely in a streak overlay drawn on top. Chance = left-to-right
@@ -26,8 +26,8 @@
 // trace tick when the chance clears 8% (a likely light sprinkle the
 // amount misses, since chance is the ensemble and amount the
 // deterministic run), then ticks to 1, broken runs to 2, solid above;
-// line colour = a luminance-tuned blue (DR-13), so "blue = rain" reads.
-// No base escalation (owner call): heavy rain saturates the density and
+// line colour = a luminance-tuned blue, so "blue = rain" reads.
+// No base escalation: heavy rain saturates the density and
 // adds a warning mark above 20 mm, and a genuine storm is already the
 // violet by weather code, so the base holds the sky. Lines lean with
 // the wind: angle = 55deg x clamp(E-W wind component / 40 km/h),
@@ -38,13 +38,12 @@
 // IS sleet; hail (WMO 96/99, category only) = sparse open rings, full
 // width. Fog and freezing rain stay corner glyphs; uncertainty hatch is
 // earmarked and owns no texture.
-// Config locked 2026-07-24 (Maybe Rain Precipitation + Climatology).
 const LN = { sp0: 15, sp1: 4.7, sw0: 0.85, sw1: 2.6, gamma: 0.4, cap: 8,
              floor: 0.3, b1: 1, tlen: 3.7, tgap: 5.1, b2: 2, blen: 14, bgap: 6,
              shade: 0.5, alpha: 0.6, popFloor: 8, warn: 20,
              traceSp: 16, traceLen: 2.5, traceGap: 7, traceSw: 0.7, traceAlpha: 0.55,
              maxAngle: 55, windSat: 40,
-             snowCap: 2 }; // cm/h; the 5y Budapest max (Climatology note)
+             snowCap: 2 }; // cm/h; the 5-year Budapest maximum
 // Hail rings borrow a neutral adaptive shade of the base (frozen, not
 // rain, so not blue): darken a bright base, lighten a dark one.
 const lnShade = b => lnLum(b) > 135 ? lnMix(b, [0, 0, 0], LN.shade) : lnMix(b, [255, 255, 255], LN.shade);
@@ -68,7 +67,7 @@ const rainLinesSVG = (h, base) => {
     // hours where drawing rain lines would misrepresent.
     const liquid = h.liquid ?? (COND[h.condition].group === 'snow' ? null : h.mm);
     if (liquid == null) return '';
-    const c = lnBlue(base); // DR-13: blue, tuned to the base luminance
+    const c = lnBlue(base); // blue, tuned to the base luminance
     const ang = windLean(h).toFixed(1);
     const id = 'mrln' + (lnId++);
     let pat, wp;
@@ -111,12 +110,12 @@ const rainLinesSVG = (h, base) => {
     return `<span class="rain-ov" style="width:${wp}%"><svg xmlns="http://www.w3.org/2000/svg"><defs>${pat}</defs><rect width="100%" height="100%" fill="url(#${id})"/></svg></span>`;
 };
 // Snow: a staggered lattice of constant-white dots (snow is white,
-// and it lands on the overcast grey in ~97% of snow hours, per the
-// Climatology note). No amount floor: any snowfall draws. Density
-// and dot size ramp on cm/h (same gamma, cap 2 cm/h = the 5y max);
-// fill = chance as for rain; wind lean at half strength (flakes
-// drift, lines fall). A rainy-and-snowy hour stacks both overlays:
-// that IS the sleet encoding, no extra vocabulary.
+// and it lands on the overcast grey in ~97% of snow hours). No
+// amount floor: any snowfall draws. Density and dot size ramp on
+// cm/h (same gamma, cap 2 cm/h = the 5y max); fill = chance as for
+// rain; wind lean at half strength (flakes drift, lines fall). A
+// rainy-and-snowy hour stacks both overlays: that IS the sleet
+// encoding, no extra vocabulary.
 const snowLatticeSVG = h => {
     if (h.snow == null || h.snow <= 0) return '';
     if (h.pop != null && h.pop < LN.popFloor) return '';

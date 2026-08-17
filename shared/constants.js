@@ -39,7 +39,7 @@ const localModelFor = (lat, lon) => {
 // current run's own publish lag. Once that estimate passes by more than
 // this grace, the update is genuinely overdue → warn amber.
 const NEXT_UPDATE_GRACE = 60 * 60 * 1000;
-// DR-7: the status line is the app's single state channel. A transient
+// The status line is the app's single state channel. A transient
 // message (a copy confirmation, a geolocation error, "Back online")
 // lives this long, then the line reverts to its resting freshness job.
 const STATUS_TRANSIENT_MS = 2200;
@@ -55,13 +55,13 @@ const WHATS_NEW_MS = 4000;
 const SW_SETTLE_MS = 10 * 1000;
 // Don't re-check sw.js more often than this on refocus.
 const SW_CHECK_THROTTLE = 15 * 60 * 1000;
-// DR-6/DR-7: staleness escalation is normally tied to the model's
+// Staleness escalation is normally tied to the model's
 // cadence (a missed next-release, see forecastOverdue). This 24h age is
 // only the fallback used when no model metadata is available to reason
 // about cadence, so a day-old forecast still escalates to the amber
 // dated warning instead of the calm grey "outdated".
 const DEEP_STALE_TIME = 24 * 60 * 60 * 1000;
-// DR-6 layer 2: per-view "meaningfully moved" thresholds. A cell
+// Change detection: per-view "meaningfully moved" thresholds. A cell
 // whose forecast moved at least this much since the previous model
 // run pulses once in the matching view; the was/now detail rides
 // the tooltip. Per-view because a single pop-based rule would leave
@@ -74,7 +74,7 @@ const DEFAULT_PLACE = {
     latitude: -37.9586, longitude: 176.9854
 };
 const LS_PLACE = 'mr-place';
-// DR-6: per-place cache prefix. Entries live at mr-forecast:<placeKey>
+// Per-place cache prefix. Entries live at mr-forecast:<placeKey>
 // → {timestamp, payload}, so switching cities paints instantly.
 const LS_FORECAST = 'mr-forecast';
 const LS_CITIES = 'mr-cities';   // saved search shortcuts, MRU, max 12
@@ -91,7 +91,7 @@ const LS_VERSION = 'mr-version';     // build id last seen on this device (drive
 const APP_VERSION = '__APP_VERSION__';
 const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
 // Cap on ★ favorites — the pinned tier in primary's switcher. Nine was
-// DR-32's figure, set when the switcher held favorites and nothing else;
+// the old figure, set when the switcher held favorites and nothing else;
 // primary's sheet now carries a transient tier and two anchor rows on top
 // of them, and nine pinned would put it at fourteen rows, well past the
 // one thumb sweep the gesture is built around. Five pinned plus three

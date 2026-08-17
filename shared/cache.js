@@ -7,7 +7,7 @@ const saveJSON = (key, value) => {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* full/blocked: non-fatal */ }
 };
 
-// --- DR-6: per-place forecast cache -------------------------------
+// --- Per-place forecast cache -------------------------------------
 // One entry per place, keyed by placeKey. An entry leaves the cache
 // three ways only, never by wall-clock age: superseded (a fetch
 // overwrites it), orphaned (its place leaves favorites ∪ recents ∪
@@ -74,7 +74,7 @@ const sweepForecasts = () => {
         }
     } catch { /* blocked storage: non-fatal */ }
 };
-// DR-6 layer 2: history is keyed by model run, not by poll. Two
+// Change history is keyed by model run, not by poll. Two
 // payloads count as the same run when the hourly arrays that drive
 // the grid are identical; string equality on ~9 KB is microseconds,
 // so no hash function (principle 5: less code).

@@ -3,16 +3,16 @@
 // Data: Open-Meteo (keyless, true hourly, 7 days, city-local time).
 // ---------------------------------------------------------------
 
-// --- The two reveals (DR-29, and DR-39 for the day axis) ----------
+// --- The two reveals ----------------------------------------------
 // The grid frame never changes size. The hour peek slides a fixed
 // window over more hours; the day axis is elastic and makes room inside
 // the same frame. Neither grows the grid: the viewport is already full
 // at 7x16, so more rows could only come out of block size, and shrinking
-// the resting glance to pay for a temporary look is the trade DR-29
-// refused. An hour block still holds exactly one hour, never a blend of
-// two. A day pulled in from past the model's native hourly horizon is
-// the one departure, and it is honest about it: those blocks are wider
-// in TIME and say so (DR-39).
+// the resting glance to pay for a temporary look is the trade this
+// design refused. An hour block still holds exactly one hour, never a
+// blend of two. A day pulled in from past the model's native hourly
+// horizon is the one departure, and it is honest about it: those blocks
+// are wider in TIME and say so.
 // DAY_SPAN, FUTURE_REACH, DAY_TOTAL and FORECAST_DAYS live in config.js:
 // the shared core reads the horizon, so it has to be declared before
 // shared/ loads.
@@ -41,7 +41,7 @@ let hourOff = 0;  // whole hours the hour window has slid; springs back
 // instead of fighting whatever set it next.
 let hourHomeGen = 0;
 
-// --- How far the elastic may stretch, either way (DR-39) ----------
+// --- How far the elastic may stretch, either way ------------------
 // The frame holds DAY_TOTAL columns. Column 0 is PAST_DAYS before today,
 // so today sits at PAST_DAYS and the home week is the seven columns from
 // there. `dayBase` is column 0's absolute index into state.data /
@@ -87,7 +87,7 @@ const visibleWindow = () => {
 };
 
 // The idle timer the day drawer used to go home on is gone with the
-// drawer (DR-39: a peek is held, and a lock is a place you leave on
+// drawer (a peek is held, and a lock is a place you leave on
 // purpose). The hour peek still springs back on release and still has to
 // wait for an open tooltip, so the timer itself stays, for that one axis.
 let revealTimer = null;
@@ -124,8 +124,8 @@ const applyBand = () => {
 };
 
 // --- UI state ---------------------------------------------------
-// DR-7: the freshness line under the grid (#status) is the app's one
-// place for all app-level state. It has two layers. The *resting* layer
+// The freshness line under the grid (#status) is the app's one place
+// for all app-level state. It has two layers. The *resting* layer
 // (updateStatus) is its home state: model run + next update, or offline,
 // outdated, deep-stale, or no-data. The *transient* layer briefly
 // overlays it (a copy confirmation, a geolocation error, "Back online")
@@ -137,8 +137,8 @@ let statusTimer = null;
 // repaint inside this window (so a fetch/paint can't clobber it), then
 // clears. A shared transient timer can't express "re-show while active".
 let whatsNewTimer = null;
-// The status line is the app's only state channel (DR-7), and until now it
-// was a purely visual one: a screen reader was told nothing about loading,
+// The status line is the app's only state channel, and until now it was
+// a purely visual one: a screen reader was told nothing about loading,
 // going offline, stale data or a waiting update.
 //
 // It announces the states, not the resting line. The resting line carries a
@@ -319,7 +319,7 @@ const staleStamp = ms => {
     return `${WEEKDAY_3[dowOf(p.date)]} ${timeLabel(p.h, p.m)}`;
 };
 
-// DR-7 resting layer: updateStatus computes the line's home state and is
+// The resting layer: updateStatus computes the line's home state and is
 // the tie-break when several conditions are true. Priority, highest
 // first: (1) no-data error (nothing can render, so it holds until a
 // fetch succeeds); (2) offline with a forecast on screen (name the
@@ -330,9 +330,9 @@ const staleStamp = ms => {
 // are set directly; they clear when their process ends, which re-runs
 // updateStatus on success or drops to the relevant resting state.
 // Staleness is measured against the model's own cadence, not a wall
-// clock (owner-directed): the forecast is "overdue" once the next
-// expected model release has come and gone (by more than the grace),
-// i.e. a newer forecast should exist, whether or not we can reach it.
+// clock: the forecast is "overdue" once the next expected model
+// release has come and gone (by more than the grace), i.e. a newer
+// forecast should exist, whether or not we can reach it.
 // With no model metadata to reason about cadence, fall back to a 24h
 // age. stampMs dates the forecast we're showing: the model run when
 // known, else our fetch time.
@@ -584,16 +584,16 @@ const conditionClause = () => {
 //   {type:'refresh'}         only changed cells blink, scattered (poll)
 // A random per-cell jitter is added so repeats never reveal identically.
 //
-// DR-32 (2026-07-28): the schedule used to be fire-and-forget, one
-// setTimeout per cell handing the rest to a CSS background-color
-// transition. That cannot express the two things the detented city
-// selector needs, because once the timeouts are queued the timeline
-// belongs to CSS and there is nothing left to read: a sweep must be
-// RETARGETABLE mid-flight (the finger crosses another detent, so cells
-// already flipped repaint to the newer city while cells the sweep has
-// not reached carry on toward the old one) and it must RUN BACKWARDS
-// (the finger reverses, so the sweep rewinds to the city on screen
-// before setting off the other way with the stagger flipped).
+// The schedule used to be fire-and-forget, one setTimeout per cell
+// handing the rest to a CSS background-color transition. That cannot
+// express the two things the detented city selector needs, because
+// once the timeouts are queued the timeline belongs to CSS and there
+// is nothing left to read: a sweep must be RETARGETABLE mid-flight
+// (the finger crosses another detent, so cells already flipped repaint
+// to the newer city while cells the sweep has not reached carry on
+// toward the old one) and it must RUN BACKWARDS (the finger reverses,
+// so the sweep rewinds to the city on screen before setting off the
+// other way with the stagger flipped).
 //
 // So the schedule is now a PLAYHEAD: per-cell delays are computed once
 // into an array and a single rAF ticker advances one clock `t` across
@@ -608,7 +608,7 @@ let gridTimers = [];       // pending blink timeouts, all cancelled on the next 
 let pendingRefresh = null; // a refresh deferred until a running sweep settles
 const GRID_BLACK_MS = 45, GRID_HOLD_MS = 45, GRID_COLOR_MS = 110;
 const CELL_MS = GRID_HOLD_MS + GRID_COLOR_MS;  // one cell's whole blink; see cellPhase
-const REWIND_RATE = 1.7;  // a rewind is quicker than a completion (DR-30)
+const REWIND_RATE = 1.7;  // a rewind is quicker than a completion
 const rankStep = n => Math.min(23, 160 / Math.max(1, n - 1));
 
 const cellDelay = (anim, c, r, nCols, nRows, desc) => {
@@ -640,8 +640,8 @@ const cellDelay = (anim, c, r, nCols, nRows, desc) => {
 // A block is as tall as the hours it stands for. One hour is the CSS
 // default and writes no inline height at all, so the common case stays
 // exactly what it was; a coarse block spans its slots' bands and the gap
-// between them. The daily bar is the one that also changes shape (DR-29:
-// inset, hairline), and says so with a class rather than more inline
+// between them. The daily bar is the one that also changes shape
+// (inset, hairline), and says so with a class rather than more inline
 // style.
 const cellClass = desc => 'weather-block'
     + (desc.current ? ' current' : '') + (desc.past ? ' past' : '')
@@ -655,7 +655,7 @@ const buildCell = desc => desc.empty
 // A cell the sweep has not reached yet, or a destination with no data to
 // paint. Black is the page background rather than a value in any
 // palette, so it reads as ABSENT and never as a wrong number, which is
-// what lets an uncached favourite be swept to honestly (DR-32: every
+// what lets an uncached favourite be swept to honestly (every
 // rung is reachable, but only the ones with a cached forecast have
 // colours to arrive at; the rest land black and fill in on fetch).
 const blankDesc = { blank: true, rgb: [0, 0, 0], textColor: '#fff', marks: '', info: '', current: false, past: false, dayIndex: 0, hour: 0, slots: 1 };
@@ -741,7 +741,7 @@ const cellPhase = (t, delay) => {
 // `from` is the grid as painted, `to` is where it is heading, `t` is the
 // clock between them. When `t` completes, `to` becomes `from` and the
 // clock resets, so a sweep that is retargeted again simply carries on
-// from wherever it is, which is DR-32's "retargets rather than restarts"
+// from wherever it is, which is "retargets rather than restarts"
 // falling out of the model rather than being special-cased.
 const FRAME_MS = 16;
 
@@ -793,7 +793,7 @@ const waveSweeping = w => w.to !== w.from || w.t > 0.001;
 
 // The delay table is indexed `c * stride + r`, where the stride is the
 // tallest column rather than every column's height: the columns are
-// ragged (DR-39) and a per-column offset table would buy a few hundred
+// ragged and a per-column offset table would buy a few hundred
 // bytes at the cost of every reader having to know about it.
 const strideOf = cols => cols.reduce((m, col) => Math.max(m, col.length), 0);
 const buildDelays = (anim, from, to, nCols, stride) => {
@@ -836,16 +836,16 @@ const waveFrame = () => {
                 : `rgb(${cr},${cg},${cb})`;
         }
     }
-    // DR-28: an open tooltip survives a city change and reads out the
+    // An open tooltip survives a city change and reads out the
     // new city's value for the same grid position. Only worth doing on
     // a frame where a cell actually changed hands, not on every frame
     // of the colour ramp.
     //
-    // DR-30 is the one case where it must NOT happen: throughout a
+    // There is one case where it must NOT happen: throughout a
     // horizontal scrub the tooltip keeps reading the COMMITTED view.
     // The two axes differ in what a half-transitioned cell means. A
     // city sweep swaps one city's number for another city's number for
-    // the same reading, so either is a true value and DR-28's re-read
+    // the same reading, so either is a true value and the re-read
     // is right. A view scrub swaps the READING itself, so a cell the
     // playhead has flipped is a colour belonging to a scale the legend
     // is not showing, and printing a number for it would invent data.
@@ -853,7 +853,7 @@ const waveFrame = () => {
     // answer to report.
     if (flipped && !w.scrub) refreshActiveTooltip();
 
-    // DR-30: the view underline is driven off the playhead, not off the
+    // The view underline is driven off the playhead, not off the
     // finger, so the scrub, the completion and the rewind all move it by
     // the same rule. `destView` is cleared the instant the sweep lands,
     // which leaves the bar parked on the destination for `setView` to
@@ -897,15 +897,15 @@ const waveTick = now => {
     // The two modes must never both advance `t`. While a scrubbed drag
     // is live the finger owns the clock outright, so the paced ticker
     // stops dead here rather than running on underneath the hand. This is the
-    // structural rule carried over from DR-30's prototype, whose ticker
+    // structural rule the view scrub has always followed: its ticker
     // returns early for exactly this reason. `hold` is NOT this: it
     // freezes a PACED sweep where it is and leaves the ticker running.
     if (w.scrub) return;
     const dt = Math.min(64, Math.max(0, now - waveLast));
     waveLast = now;
-    // DR-30's rewind: the destination is KEPT and the clock runs down,
+    // The rewind: the destination is KEPT and the clock runs down,
     // so cells un-flip in reverse stagger order and the transition
-    // plays backwards. Distinct from DR-32's reversal below, which
+    // plays backwards. Distinct from the reversal below, which
     // points `to` at `from` and therefore snaps the content back and
     // only unwinds the darkness, right there, because that sweep is
     // about to set off the other way with the stagger flipped, and
@@ -916,7 +916,7 @@ const waveTick = now => {
         w.t = Math.max(0, w.t - dt * (w.rate || REWIND_RATE));
         if (w.t <= 0) { w.to = w.from; w.rewind = false; w.destView = null; }
     }
-    // The paced half (DR-32): the wave runs at the shipped tempo no
+    // The paced half: the wave runs at the shipped tempo no
     // matter how fast the finger arrived, which is what stops four
     // detents crossed in one sweep from cramming four waves into a few
     // milliseconds and strobing.
@@ -1044,7 +1044,7 @@ const paintGrid = (grid, cols, anim) => {
 
 // Retarget a running sweep, or start one, without restarting the clock.
 // This is the entry point the city gesture drives: `cols` is the grid it
-// is now heading for and `dir` is the sweep direction, which under DR-32
+// is now heading for and `dir` is the sweep direction, which
 // is the sign of the FINGER's travel rather than of the list step.
 // A destination on the same side retargets in flight; one on the
 // opposite side is queued, so the running sweep rewinds to the grid on
@@ -1052,9 +1052,9 @@ const paintGrid = (grid, cols, anim) => {
 // flipped. Mirroring the stagger under a running playhead would make
 // already-flipped cells un-flip in place, which reads as a glitch.
 //
-// The axis is a parameter (DR-32 left it hardcoded to 'y', because the
+// The axis is a parameter (it used to be hardcoded to 'y', because the
 // city gesture was the only caller). The city sweep staggers by row and
-// DR-30's view scrub staggers by column, and nothing fails loudly if
+// the view scrub staggers by column, and nothing fails loudly if
 // the wrong one is passed (the sweep simply runs the wrong way across
 // the grid), so it is passed explicitly at both call sites rather than
 // defaulted silently. The queued-reversal rebuild in `waveTick` spreads
@@ -1088,7 +1088,7 @@ const waveTo = (grid, cols, dir, opts = {}) => {
     kickWave();
 };
 
-// DR-30: hand the playhead to the finger. `p` is 0..1 along the wave's
+// Hand the playhead to the finger. `p` is 0..1 along the wave's
 // own timeline, taken straight from how far the drag has travelled, so
 // the transition IS the gesture rather than an animation the gesture
 // triggers. Nothing here advances `t` by time.
@@ -1116,17 +1116,17 @@ const scrubWave = (grid, cols, dir, p, destView) => {
 // Let a held sweep finish and settle on its own clock.
 const waveRelease = () => { if (wave) { wave.hold = false; kickWave(); } };
 
-// --- Far days at the data's own cadence (DR-39) -------------------
+// --- Far days at the data's own cadence ---------------------------
 // The elastic makes days 7 to 13 reachable, and a day that far out is
 // not hourly data: past a model's native cadence the hourly series is
-// interpolated between coarser steps (DR-34), so drawing sixteen
-// separate blocks there states a resolution the forecast does not have.
+// interpolated between coarser steps, so drawing sixteen separate
+// blocks there states a resolution the forecast does not have.
 // Revealed far days therefore draw at the granularity the data actually
-// carries: fewer, taller blocks as lead time grows, down to DR-29's
+// carries: fewer, taller blocks as lead time grows, down to a
 // single inset daily bar.
 //
 // Phase A (this): one fixed table, applied from lead 7 so the home week
-// is untouched. Phase B is DR-35's response-detected cadence, and every
+// is untouched. Phase B is a response-detected cadence, and every
 // boundary lives in this one function so that is a one-function change.
 const cadenceForLead = lead =>
     lead <= 6 ? 1 : lead <= 8 ? 3 : lead <= 10 ? 6 : 24;
@@ -1209,7 +1209,7 @@ const spanHour = (hours, startHour) => {
 // Columns are ragged now: a home-week column holds one block per hour,
 // a far column holds fewer and taller ones, and a column whose day is
 // outside the parsed payload holds empties. Split out of updateDisplay
-// for DR-32: a city sweep needs the OUTGOING and INCOMING grids at the
+// because a city sweep needs the OUTGOING and INCOMING grids at the
 // same time, so the painter can hold one on the cells the playhead has
 // not reached yet. `colsForPlace` below builds one for a city that is
 // not the current one.
@@ -1224,7 +1224,7 @@ const spanHour = (hours, startHour) => {
 // reference block.
 //
 // One consequence to name. The columns are rebuilt on a view or city
-// change and never inside a gesture (DR-39), so during a pull the field is
+// change and never inside a gesture, so during a pull the field is
 // the one laid out for the width the columns had when they were built. The
 // pull only ever narrows a column, so the block clips the field rather than
 // exposing bare space, and the chance edge sits a little further right than
@@ -1247,12 +1247,12 @@ const buildCols = () => {
     const currentHour = cityNow().hour;
     const { bw, bh } = blockPx(rows);
 
-// The rain view is the sky base (skyBaseRGB, which is DR-38's radiance
-// model here and DR-14's palette in classic) plus the streak
+// The rain view is the sky base (skyBaseRGB, which is the radiance
+// model here and the classic build's palette) plus the streak
 // overlay; temp and wind views draw their own scales.
 const rainView = view === 'rain';
 
-// DR-17 frost contour needs each cell's four neighbours (hour above /
+// The frost contour needs each cell's four neighbours (hour above /
 // below in the same day, same hour in the day either side), on ACTUAL
 // air temp. Null when the neighbour is off the shown window or missing
 // (an honest gap), which the outline treats as the region's edge.
@@ -1310,7 +1310,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // one. Nor can it pulse on a model change, which is recorded
         // per hour and would be claiming the whole span moved.
         const isCurrent = isToday && slots === 1 && hour === currentHour;
-        // Temperature view (DR-17): comfort-band colour on feels-like
+        // Temperature view: comfort-band colour on feels-like
         // (raw temp only if apparent is missing). Wind view: wind
         // scale. Rain view: the WMO sky colour (tinted for rain,
         // cloud-spread, night after this hour's local sunset); rain
@@ -1319,8 +1319,8 @@ return Array.from({ length: days }, (_, dayIndex) => {
             : view === 'wind'
                 ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
                 : skyBaseRGB(h, nightFactor(hour, sun));
-        // Hazard icons (DR-10): every applicable hazard shows,
-        // packed into the bottom-right corner in a fixed order so
+        // Hazard icons: every applicable hazard shows, packed
+        // into the bottom-right corner in a fixed order so
         // two never swap places: the weather-coded hazard first
         // (storm, fog, freeze, mutually exclusive), then heat, then
         // UV (the two threshold hazards, from the ⚙-menu
@@ -1328,7 +1328,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // UV, or a storm on a hot day). h.glyph is an MR_ICON key.
         const hot = h.temp >= settings.heatWarn;
         const uvHigh = h.uv != null && h.uv >= settings.uvWarn;
-        // DR-17 danger glyph: temperature view only, on feels-like
+        // The danger glyph: temperature view only, on feels-like
         // (raw only if apparent is missing). Outside the rain view's
         // hazard vocabulary, so it never counts against its glyph cap.
         const dv = h.feels != null ? h.feels : h.temp;
@@ -1345,7 +1345,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
             + (rainView && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
             + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '')
             + (dangerCold || dangerHot ? MR_ICON.danger : '');
-        // DR-17 frost contour (temperature view only), on ACTUAL air
+        // The frost contour (temperature view only), on ACTUAL air
         // temp, decoupled from the feels-like colour: ice, frost and
         // rain->snow are real-temperature events. The marker outlines
         // the whole region, not just a crossing: a cell inside the
@@ -1443,12 +1443,12 @@ return Array.from({ length: days }, (_, dayIndex) => {
         const sunText = (sun.rise && covers(sun.rise.h) ? ` · sunrise ${timeLabel(sun.rise.h, sun.rise.m)}` : '')
             + (sun.set && covers(sun.set.h) ? ` · sunset ${timeLabel(sun.set.h, sun.set.m)}` : '');
         const skyText = sky ? ` · ${sky.label}` : '';
-        // DR-6: a cell whose forecast meaningfully moved since the
+        // A cell whose forecast meaningfully moved since the
         // previous model run. The pulse is view-gated (a temp move
         // pulses in temp view, not rain view) and armed only while
         // pulsePending, so it fires once per new model run; the
         // was/now detail stays in the tooltip either way.
-        // DR-6: a cell whose forecast meaningfully moved since the
+        // A cell whose forecast meaningfully moved since the
         // previous model run drives the one-shot blink on a refresh
         // (view-gated: a temp move only blinks in temp view). The
         // was/now detail rides the tooltip either way.
@@ -1460,7 +1460,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
         if (isPast && ch?.pop) { ch = { ...ch }; delete ch.pop; }
         const movedInView = ch && (view === 'temp' ? ch.temp : view === 'wind' ? ch.wind : ch.pop);
         const chText = changeLines(ch).map(l => ` · ${l}`).join('');
-        // DR-17: name the comfort band in the temperature view so the
+        // Name the comfort band in the temperature view so the
         // colour is spoken, not just seen.
         const feelsVal = h.feels != null ? h.feels : h.temp;
         const comfortText = view === 'temp' && feelsVal != null
@@ -1469,7 +1469,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // block names its hour, a coarse one names the hours it covers,
         // how wide it is, and that the data behind it is no longer
         // hourly. A reading with no span on it would be read as an
-        // hour's reading, which past lead 7 it is not (DR-34).
+        // hour's reading, which past lead 7 it is not.
         // End-exclusive, the same way the tooltip's header states it: a
         // three-hour block from 18:00 covers up to 21:00, not through it.
         const spanLabel = slots === 1 ? hourLabel(h.hour)
@@ -1512,7 +1512,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
 };
 
 // The grid for a city that is NOT the current one, built without
-// disturbing the app's state: the DR-32 selector has to sweep toward a
+// disturbing the app's state: the city selector has to sweep toward a
 // destination long before it has committed to going there, and may
 // never commit at all. Only the cached forecast is used; no fetch is
 // triggered by a drag passing over a rung.
@@ -1576,7 +1576,7 @@ const fitCols = (cols, ref) => ref.map((refCol, c) => {
 // what the app would draw if nothing is yet.
 const refCols = () => (wave ? wave.to : lastCols) || buildCols();
 
-// --- The elastic, as geometry (DR-39) ------------------------------
+// --- The elastic, as geometry --------------------------------------
 // One signed number says where the day axis is. `dayN` is how many days
 // have been pulled in, continuous and signed: positive reaches forward,
 // negative reaches back, zero is the home week. `dayOv` is how far the
@@ -1587,7 +1587,7 @@ const refCols = () => (wave ? wave.to : lastCols) || buildCols();
 // Nothing here rebuilds the grid. Every column already exists; what
 // moves is their widths, so a frame of the pull costs sixteen style
 // writes rather than a repaint of the whole field. That is the only
-// reason this can track a finger at all: the DR-12 rain patterns make
+// reason this can track a finger at all: the rain patterns make
 // the BUILD expensive, so the build happens on a view or city change
 // and never inside a gesture.
 let dayN = 0;
@@ -1866,7 +1866,7 @@ const updateDisplay = (anim = null) => {
     // view switch, background refresh) even when the mouse hasn't moved.
     refreshActiveTooltip();
 
-    // DR-6: the first render after a rotation consumes the pulse, so
+    // The first render after a rotation consumes the pulse, so
     // settings and view re-renders rebuild without .changed and the
     // animation can never re-fire on identical DOM.
     state.pulsePending = false;
@@ -1910,19 +1910,19 @@ const legendSteps = () => {
         }));
     }
     if (view === 'temp') {
-        // DR-17: the strip is the eight comfort bands, not a °C ramp;
+        // The strip is the eight comfort bands, not a °C ramp;
         // each swatch is its band colour, the block tooltip carries the
         // prep cue on tap.
         return TEMP_BANDS.map(b => ({ bg: `rgb(${b.rgb})`, label: b.name }));
     }
     // Rain view: the strip is the sky ramp (lighter = sunnier, darker
     // = cloudier, storm darkest) plus a blue-hatched "rain" swatch
-    // (DR-13, teaching "blue = rain") and a white-dot "snow" swatch.
+    // (teaching "blue = rain") and a white-dot "snow" swatch.
     // Block tooltips still name every condition on tap.
     //
     // Built in shared/colors.js, not here, so the key is sampled from
-    // whichever sky model is painting the grid (DR-38). Swapping
-    // SKY_MODEL swaps the legend with it; the two cannot drift apart.
+    // whichever sky model is painting the grid. Swapping SKY_MODEL
+    // swaps the legend with it; the two cannot drift apart.
     return skyLegend();
 };
 // Whether the key is currently the caption slot's occupant. It is not a
@@ -2032,13 +2032,13 @@ const renderLegend = () => {
 
 // Toggle shows only the views enabled in ⚙; hidden entirely when
 // just one view is left, since there is nothing to switch to.
-// DR-30: the underline as a measured element rather than a border, so a
+// The underline is a measured element rather than a border, so a
 // scrub can slide it. `p` is the scrub's progress and `dest` the view it
 // is heading for; with neither, it simply parks on the active button and
 // the toolbar looks exactly as it did before.
 //
 // It interpolates straight onto the destination BUTTON, and deliberately
-// not by the prototype's one-slot-in-list-order rule. That rule sends the
+// not by the obvious one-slot-in-list-order rule. That rule sends the
 // bar off the end of the row whenever the step wraps, which with three
 // views is a third of all gestures, and a bar that has left the row names
 // nothing, which is the one job the DR gives it.
@@ -2086,7 +2086,7 @@ const setView = (v, anim) => {
     // it. A LOCKED day stretch does not: the same nine days in rain and
     // then in wind is one of the two things a lock is for, and dropping
     // it here made the user set it up again for every view. Any unlocked
-    // stretch still goes (DR-29's ways home now mean the peek, not the
+    // stretch still goes (the ways home now mean the peek, not the
     // decision).
     resetReveal();
     saveJSON(LS_VIEW, v);
@@ -2097,7 +2097,7 @@ const setView = (v, anim) => {
     // from the view's position relative to the previous one. paintGrid
     // falls back to an instant repaint under reduced motion.
     let a = anim;
-    // DR-30: a scrub has already played the whole wave under the finger,
+    // A scrub has already played the whole wave under the finger,
     // so the commit repaints instantly onto exactly the grid the sweep
     // just landed on and the commit itself is invisible. Distinct from
     // `undefined`, which still means "derive a direction" for a tap.
@@ -2264,7 +2264,7 @@ const showTooltip = el => {
     // Block tooltip gets the capped-width, hero-line layout; legend and
     // freshness tooltips keep the plain single-line style.
     tooltip.classList.toggle('block', el.id !== 'statusInfo' && el.dataset.cond == null);
-    // DR-28: always interactive, not click-through. #tooltip lives
+    // Always interactive, not click-through. #tooltip lives
     // outside .chart in the DOM (a sibling, absolutely positioned),
     // so this can never be mistaken for a touch on the grid itself
     // or feed the chart's own swipe detection; it only ever reaches
@@ -2298,7 +2298,7 @@ const showTooltip = el => {
     } else { // grid block: view-ordered main lines, one detail line, hazard chips
         const di = +el.dataset.day;
         const day = state.days[di];
-        // A far-day block stands for several hours (DR-39), and the
+        // A far-day block stands for several hours, and the
         // tooltip is where the block says so. It is rebuilt from the
         // same hours the block was built from, through the same
         // reduction, so what the tooltip reports and what the block is
@@ -2419,14 +2419,14 @@ const showTooltip = el => {
 
         // What the block IS, said in its own line rather than folded in
         // with the weather: past the model's native hourly horizon the
-        // series is interpolated (DR-34), so a block covering six hours
+        // series is interpolated, so a block covering six hours
         // has to say that it does and that the data behind it is no
         // longer hourly. Silence there would let a coarse reading be
         // read as an hour's reading.
         const provenance = span === 1 ? ''
             : `<div class="tip-ctx">${wholeDay ? 'daily value' : `${span}-hour block`} · beyond native hourly</div>`;
 
-        // DR-6: was/now detail, as small muted lines under the detail
+        // The was/now detail, as small muted lines under the detail
         // line. Recorded per hour, so a span has nothing to report.
         const chg = span > 1 ? ''
             : changeLines(state.changed?.[`${day.date}|${h.hour}`])
@@ -2443,7 +2443,7 @@ const showTooltip = el => {
             if (view === 'rain' && h.mm != null && h.mm > LN.warn) chips.push(span === 1 ? 'heavy rain' : 'heavy rain in this block');
             if (h.temp >= settings.heatWarn) chips.push('extreme heat');
             if (h.uv != null && h.uv >= settings.uvWarn) chips.push(`very high UV (${Math.round(h.uv)})`);
-            // DR-17 danger glyph, temperature view only, on feels-like.
+            // The danger glyph, temperature view only, on feels-like.
             if (view === 'temp') {
                 const dv = h.feels != null ? h.feels : h.temp;
                 if (dv != null && dv <= TEMP_DANGER_COLD) chips.push('dangerous cold');
@@ -2478,7 +2478,7 @@ const showTooltip = el => {
     // and this element moves on every block the pointer visits.
     tooltip.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
 };
-let tappedBlock = null; // element whose tooltip was opened by a tap/click (DR-24: shared by mouse and touch again)
+let tappedBlock = null; // element whose tooltip was opened by a tap/click (shared by mouse and touch again)
 let activeBlock = null; // {day,hour} of the open block tooltip, for re-render on repaint
 const hideTooltip = () => {
     const t = $('tooltip');
@@ -2563,7 +2563,7 @@ const shareLink = async (url, title, what) => {
 const sharePlace = () => shareLink(shareURL(state.place), `Maybe Rain? · ${state.place.name}`, 'Place');
 const shareSite = () => shareLink(location.origin + location.pathname, 'Maybe Rain?', 'Website');
 
-// DR-6: paint state.place's cached forecast, if any. One code path
+// Paint state.place's cached forecast, if any. One code path
 // for startup and city switches alike. Returns true on a paint; a
 // corrupt entry resets state so the skeleton path takes over.
 const paintCachedForecast = (anim = null) => {
@@ -2589,25 +2589,25 @@ const paintCachedForecast = (anim = null) => {
 const changeCity = (place, remember = true, anim = null) => {
     state.place = place;
     // A new city arrives on the default hours, the same way the app
-    // opens (DR-29 "Entry and exit"). A locked day stretch comes with
-    // it, because "how does day 9 look THERE" is the question a city
-    // switch under an open stretch is asking, and closing it made that
-    // question two gestures every time. It is measured in days from
-    // today, so it means the same thing against the new payload; if that
-    // payload is shorter, `reconcileElastic` clamps it when it lands,
-    // and closes it if the new city has no reach at all.
+    // opens. A locked day stretch comes with it, because "how does day 9
+    // look THERE" is the question a city switch under an open stretch is
+    // asking, and closing it made that question two gestures every time.
+    // It is measured in days from today, so it means the same thing
+    // against the new payload; if that payload is shorter,
+    // `reconcileElastic` clamps it when it lands, and closes it if the
+    // new city has no reach at all.
     resetReveal();
     saveJSON(LS_PLACE, place);
     if (remember) rememberCity(place);
     state.data = []; state.days = []; state.fetchedAt = 0;
-    // DR-6: change marks belong to the previous city; a cached paint
+    // Change marks belong to the previous city; a cached paint
     // or startup paint alone never pulses (no new model run to
     // announce). The next differing fetch rebuilds them.
     state.changed = null; state.pulsePending = false;
     renderLocation();
     syncURL(place);
     closeSearch();
-    // DR-6: paint this place's cached forecast in the same frame (the
+    // Paint this place's cached forecast in the same frame (the
     // status line labels its age honestly), then revalidate in the
     // background; "Updating…" replaces the skeleton path. A place
     // with no cache keeps the skeleton-then-fetch path unchanged.
@@ -2772,7 +2772,7 @@ document.addEventListener('focusout', e => {
 // non-passive touchmove; a pointer gesture does not, and on a mouse the
 // click is guaranteed — so a pull whose press and release land on the
 // same block would open a tooltip on release, which is exactly the
-// DR-24 collision the slop exists to prevent.
+// collision the slop exists to prevent.
 //
 // One flag, and it lives only in the gap between a claimed release and
 // the very next input of any kind: this handler consumes it, and any
@@ -2786,9 +2786,9 @@ document.addEventListener('pointerdown', clearSwallow, true);
 document.addEventListener('keydown', clearSwallow, true);
 
 // Tap/click toggles the tooltip; the same block or anywhere else
-// dismisses. Shared by mouse and touch (DR-24: touch no longer
-// swallows its trailing synthetic click, reverting DR-18/19's
-// hold gesture, so this single handler is back to covering both).
+// dismisses. Shared by mouse and touch (touch no longer swallows its
+// trailing synthetic click now that the hold gesture is reverted, so
+// this single handler is back to covering both).
 document.addEventListener('click', e => {
     if (swallowClick) { swallowClick = false; return; }
     const el = e.target.closest(TIP_SEL);
@@ -2797,7 +2797,7 @@ document.addEventListener('click', e => {
         showTooltip(el);
         tappedBlock = el;
     } else {
-        // DR-28: also reached by tapping/clicking the open tooltip
+        // Also reached by tapping/clicking the open tooltip
         // itself, since it no longer click-through's (see the
         // pointerEvents assignment in showTooltip). e.target is
         // the tooltip or one of its children, which never matches
@@ -3077,7 +3077,7 @@ const closeHourly = () => {
 };
 registerModal('hourly', closeHourly);
 
-// --- Grid gestures: the elastic day axis (DR-39) ------------------
+// --- Grid gestures: the elastic day axis --------------------------
 // One axis, one meaning. The grid field is the calendar surface, so a
 // horizontal drag on it moves the dates, the convention every calendar
 // on the phone already teaches. What that drag DOES is what changed.
@@ -3135,8 +3135,8 @@ const stepView = dir => {
 // cached per gesture, since a drag that crosses the origin asks for the
 // same two views over and over.
 // The offsets go home with it, because a view change is one of the
-// drawer's ways home (DR-29) and `setView` will zero them on commit
-// whatever this builds. Building at the CURRENT offset instead left the
+// drawer's ways home and `setView` will zero them on commit whatever
+// this builds. Building at the CURRENT offset instead left the
 // release swapping a swept grid for a repainted one at a different day,
 // which is a hard cut in the one place the whole gesture exists to avoid
 // having one.
@@ -3150,13 +3150,13 @@ const viewColsFor = (v, cache) => {
     return built;
 };
 
-// --- The elastic's constants (owner-tuned, 2026-08-15) ------------
+// --- The elastic's constants, tuned by hand -----------------------
 // A touch is a TAP until it has moved this far. Below it nothing renders
 // and nothing is preventDefault-ed, so the touch falls through to the
 // browser's trailing synthetic click and tap-to-open-tooltip runs
 // untouched. The two paths stay mutually exclusive by construction
 // rather than by a race, which is the sharpest constraint on this
-// handler and the one thing that must not regress (DR-24).
+// handler and the one thing that must not regress.
 const PULL_SLOP = 10;
 // Travel per revealed day, in pixels. The past side charges more,
 // because the two ends are different lengths: seven days forward, two
@@ -3777,8 +3777,8 @@ const sheetColsFor = (idx, sh = sheet) => previewCols((sh?.rows || sheetRows())[
 // already prints its own current reading, applied one level out.
 //
 // A city with no cached forecast reads BLANK, never a guess and never a
-// zero. Same honesty rule DR-32 settled for the preview, where an
-// uncached city sweeps to black rather than to invented colours: the app
+// zero. Same honesty rule as the preview, where an uncached
+// city sweeps to black rather than to invented colours: the app
 // has one way of saying "not here yet" and it is to say nothing.
 const placeReading = place => withPlaceState(place, () => {
     const h = nowHour();
@@ -3786,8 +3786,8 @@ const placeReading = place => withPlaceState(place, () => {
 });
 
 // --- The comparison line in the tooltip ---------------------------------
-// DR-28 already keeps an open tooltip alive across a city switch and
-// re-targets the same grid position, and BEHAVIOR.md has called that "the
+// The app already keeps an open tooltip alive across a city switch and
+// re-targets the same grid position, and that has been called "the
 // comparison tool" ever since. Nothing on screen has ever said so, and
 // nothing about it read as a comparison: you got one city's numbers, then
 // the other city's numbers in the same box, and holding the first set in
@@ -4438,7 +4438,7 @@ controlRow.addEventListener('touchmove', e => {
     scrubView(dx);
 }, { passive: false });
 
-// --- The view switch, scrubbed (DR-30) --------------------------------
+// --- The view switch, scrubbed ----------------------------------------
 // The sideways drag used to do nothing at all until the finger came off,
 // and then jump a whole view. Every other gesture in the app answers under
 // the hand: the city list aims as the thumb moves, the day drag crossfades
@@ -4697,7 +4697,7 @@ const renderSwipeHint = () => {
 // to keep hold of it.
 //
 // It is said through `setStatus`, transient, like every other reply to
-// something just done (DR-7): the app has one state channel and this is a
+// something just done: the app has one state channel and this is a
 // message, not a fourth occupant of the caption slot. That also settles the
 // two collisions for free — a transient status outranks the key, so a
 // finger going back onto the grid cannot cover it, and it clears itself
@@ -4740,7 +4740,7 @@ const sayFlick = () => {
 // locked it there. Nothing more to say, this session or any other.
 const retireFlickSay = () => { if (readFlicks() < FLICK_SAYS) writeFlicks(FLICK_SAYS); };
 
-// --- The two reveals: more hours, more days (DR-29) ---------------
+// --- The two reveals: more hours, more days -----------------------
 // Both swipe axes were already taken: horizontal switches the view,
 // vertical switches the city. So "pull for more hours" lands exactly on
 // the city gesture and "pull for more days" lands on the view gesture,
@@ -4752,10 +4752,10 @@ const retireFlickSay = () => { if (readFlicks() < FLICK_SAYS) writeFlicks(FLICK_
 // grid field is a view or city swipe exactly as before. That makes the
 // two collision-free by construction, with no velocity threshold
 // anywhere and no second gesture recognizer competing with the one in
-// the handler above. DR-29 designed the hour peek as a velocity-gated
-// drag on the grid body instead; the rail was chosen over it (owner
-// call, 2026-07-28), which also removes the last tuned threshold the
-// design had left, the class of thing DR-18/19 were reverted for.
+// the handler above. An earlier design had the hour peek as a
+// velocity-gated drag on the grid body; the rail was chosen over it
+// instead, which also removes the last tuned threshold that design
+// had left, the class of thing that got the hold gesture reverted.
 //
 // Each rail reuses the same movement math as the swipe above: a drag is
 // nothing at all until it has travelled REVEAL_SLOP, and only then does
@@ -4811,7 +4811,7 @@ const mapRailNotches = (raw, unit) => {
 // `setHourOffState` split above (`setHourOff` still does exactly
 // what it always did, just built from that split). Reverting means
 // undoing all of those, not only this block. The day axis left this
-// scheme entirely with DR-39.
+// scheme entirely.
 // Known limitation: the day-label row and hour-rail times do not
 // themselves animate mid-drag (only the coloured grid does), so
 // they can lag a frame or two behind the blend until it settles.
@@ -4944,7 +4944,7 @@ const setHourOff = n => {
 //
 // This is the drag's own path with an eased clock in place of the finger:
 // the offsets stay whole (a block holds exactly one hour, never a blend of
-// two, DR-29), and what moves continuously is the crossfade between the
+// two), and what moves continuously is the crossfade between the
 // two notches either side of the playhead. The chrome that names the
 // window travels with it, and the grid is rebuilt once, at the end.
 const homeTween = ({ from, axis, gen, genOf, setOffset, colsFor, done }) => {
@@ -5010,8 +5010,8 @@ const springHours = () => {
 // The day axis had a latched drawer here: a paged window, a ⌂ chip that
 // meant "off today", and a four-second idle timer that took the screen
 // back on its own. All three are gone, and gone rather than disabled —
-// the elastic (DR-39) replaces the model, not the tuning. The chip
-// survives only as the locked state's way out, and it is drawn by
+// the elastic replaces the model, not the tuning. The chip survives
+// only as the locked state's way out, and it is drawn by
 // `applyDayWidths` because the state it reports is the elastic's.
 
 // --- Rail drag ----------------------------------------------------
@@ -5515,7 +5515,7 @@ document.addEventListener('visibilitychange', () => {
     if (!state.loading) fetchWeather();
 });
 
-// DR-7: connection state flows through the one status line. Going
+// Connection state flows through the one status line. Going
 // offline names the honest resting state and keeps the last forecast on
 // screen (never a blank grid). Coming back shows a brief "Back online"
 // acknowledgement, then a background refresh (its own "Updating…").
@@ -5558,13 +5558,13 @@ const resyncStandalone = () => {
 addEventListener('resize', resyncStandalone);
 addEventListener('orientationchange', resyncStandalone);
 addEventListener('pageshow', resyncStandalone);
-// The view underline is measured from real button geometry (DR-30), so
+// The view underline is measured from real button geometry, so
 // it has to be re-measured whenever that geometry can change: a rotation,
 // a resize, or the webfont landing after first paint.
 addEventListener('resize', () => renderViewBar());
 addEventListener('orientationchange', () => renderViewBar());
 document.fonts?.ready?.then(() => renderViewBar());
-// The columns' widths are measured from the frame (DR-39), so they have
+// The columns' widths are measured from the frame, so they have
 // to be re-measured for the same reasons.
 addEventListener('resize', () => { measureGap(); applyDayWidths(); });
 addEventListener('orientationchange', () => { measureGap(); applyDayWidths(); });
@@ -5651,7 +5651,7 @@ if (firstVisit) {
 } else {
     syncURL(state.place);
     renderLocation();
-    // DR-6: startup is just "paint the cache for state.place, then
+    // Startup is just "paint the cache for state.place, then
     // revalidate", the same path as a city switch. The cached grid blinks
     // in with the reveal so a reload has the same entrance as a first visit
     // (a background refresh then defers behind it and blinks only changes).
@@ -5665,11 +5665,11 @@ if (firstVisit) {
 // timezone.
 scheduleDayRollover();
 scheduleHourTick();
-// DR-6: cache lifecycle sweep, once per startup, off the critical
+// Cache lifecycle sweep, once per startup, off the critical
 // path so it never delays the first paint.
 setTimeout(sweepForecasts, 4000);
 
-// Service worker. DR-7: when a genuinely newer version is waiting, surface
+// Service worker: when a genuinely newer version is waiting, surface
 // the resting "↻ Update app" CTA in the status line (updateStatus reads
 // state.swUpdate) instead of a banner or a disruptive auto-reload. Tapping
 // it reloads into the new build, which then shows the "New version · see

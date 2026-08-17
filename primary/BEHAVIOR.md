@@ -3,9 +3,8 @@
 *What this variant does today. Updated when behaviour changes, not when code moves.*
 
 `primary/` is the active variant, published at the site root. It receives all new
-design work. For *why* any of this is the way it is, see the decision records in
-`SPEC.md`; for what shipped when, `CHANGELOG.md`; for how the code is split,
-`../shared/README.md`.
+design work. For what shipped when, see `CHANGELOG.md`; for how the code is
+split, `../shared/README.md`.
 
 ---
 
@@ -57,7 +56,7 @@ Three, cycled by the toggle row, a horizontal swipe, or ← →:
 
 | view | block colour | overlay |
 |---|---|---|
-| **rain** | the sky as seen overhead (DR-38): clearness sets brightness, sunshine sets how gold, per-hour night. Rain tints toward navy by amount × chance; storms are dark slate, not violet, and carry the hazard on the glyph | a field of falling marks (DR-40), plus a mist texture where visibility drops (DR-41) |
+| **rain** | the sky as seen overhead: clearness sets brightness, sunshine sets how gold, per-hour night. Rain tints toward navy by amount × chance; storms are dark slate, not violet, and carry the hazard on the glyph | a field of falling marks, plus a mist texture where visibility drops |
 | **temp** | apparent temperature in absolute comfort bands | — |
 | **wind** | speed ramp | centred direction arrow |
 
@@ -67,7 +66,7 @@ Any view can be turned off in ⚙; the switcher only cycles the enabled ones.
 
 Four facts, four independent properties of one lattice of marks. Nothing is
 overlaid on anything, so the three phases cannot disagree about where a mark
-belongs (DR-40).
+belongs.
 
 | fact | how it is drawn |
 |---|---|
@@ -90,7 +89,7 @@ and to the chance edge and finished with round caps, so nothing is severed by an
 edge. All the marks of one phase in a block are one path, so the overlay is the
 same single element the old pattern was.
 
-Classic still draws the DR-12 pattern overlay, deliberately: `shared/precip-pattern.js`
+Classic still draws the older pattern overlay, deliberately: `shared/precip-pattern.js`
 is named only by `classic/index.html` and `shared/precip-field.js` only by
 primary's, and both answer to the same `precipOverlay` call.
 
@@ -305,6 +304,5 @@ sheet, and no hourly current-marker keep-alive.
 
 ## Not built yet
 
-Recorded as `Designed` in the SPEC status index: the hazard ruleset rewrite
-(DR-31 / DR-31.5), the confidence falloff and resolution work (DR-33 / DR-34 /
-DR-35), and localization (DR-8).
+Designed but not shipped: the severe-weather rule rewrite, the confidence
+falloff and resolution work, and localization.

@@ -35,8 +35,8 @@ geometry lives in `config.js` instead of in `app.js` with the rest of it.
 
 The split was mapped by diffing the two variants region by region. Of the
 roughly 2,600 lines that differ between them, almost all belong to three
-gesture features (DR-29 reveal rails, DR-32 city selector and the playhead
-rewrite it forced, DR-30 view scrub) plus the current-hour marker
+gesture features (the reveal rails, the city selector and the playhead
+rewrite it forced, the view scrub) plus the current-hour marker
 keep-alive. The core came out **byte-identical**, which is why these files
 are shared directly instead of parameterised.
 
@@ -48,8 +48,8 @@ are shared directly instead of parameterised.
 | `cache.js` | `placeKey`, localStorage JSON, per-place forecast cache, sweep, change detection | see below |
 | `settings.js` | `settings`/`view` declaration, defaults, `VIEWS` | yes |
 | `format.js` | unit and clock formatting | yes |
-| `colors.js` | the whole colour/gradient system: temp bands, wind ramp, both sky models, conditions, the DR-13 rain blues, the legend strip | yes — the file is identical; which sky model it uses is picked by `SKY_MODEL` (see below) |
-| `precip-pattern.js` | the DR-12/15/16 precipitation overlay, the pattern renderer, frozen | **classic only** (see below) |
+| `colors.js` | the whole colour/gradient system: temp bands, wind ramp, both sky models, conditions, the rain blues, the legend strip | yes — the file is identical; which sky model it uses is picked by `SKY_MODEL` (see below) |
+| `precip-pattern.js` | the original precipitation overlay, the pattern renderer, frozen | **classic only** (see below) |
 | `icons.js` | `MR_ICON` | yes |
 | `astro.js` | moon phase, lunar eclipses | yes |
 | `wmo.js` | WMO code to condition, weekday and date labels | yes |
@@ -74,7 +74,7 @@ horizons is asymmetric in both directions.
 ### The second divergence: which precipitation renderer a variant names
 
 `colors.js` is shared, so editing the overlay in place changed classic
-too — and `research/test-lines.mjs` was re-pointed at classic by DR-38
+too — and the line-rendering regression test was re-pointed at classic
 precisely to hold the frozen system still. Rather than put two renderers
 behind a flag inside one function, the split is by **concern**, and the
 load-order machinery already supports it: each variant's `index.html`
@@ -84,7 +84,7 @@ carries.
 
 | file | what | carried by |
 |---|---|---|
-| `precip-pattern.js` | DR-12/15/16 verbatim: `rainLinesSVG`, `snowLatticeSVG`, `hailRingsSVG`, `LN` | classic |
+| `precip-pattern.js` | the frozen pattern renderer verbatim: `rainLinesSVG`, `snowLatticeSVG`, `hailRingsSVG`, `LN` | classic |
 | `precip-field.js` | the mark field: one lattice, discrete marks, round caps | primary |
 
 Both define the same entry point, so neither `app.js` knows which one it
@@ -106,9 +106,9 @@ pixel size to the call.
 ### The one deliberate divergence: `SKY_MODEL`
 
 `colors.js` carries **two** sky models and each variant picks one with a
-`SKY_MODEL` constant in its `config.js` (DR-38). Primary uses `'radiance'`,
+`SKY_MODEL` constant in its `config.js`. Primary uses `'radiance'`,
 where clearness sets a block's brightness and sunshine sets how gold it is;
-classic holds `'wmo'`, the DR-14 palette that picks one of eight fixed colours
+classic holds `'wmo'`, the earlier palette that picks one of eight fixed colours
 by weather code. The file itself stays byte-identical, which is why it is still
 shared — the divergence is one constant, in the file that already exists to
 hold per-variant constants.
@@ -116,10 +116,10 @@ hold per-variant constants.
 This is the opposite resolution from `cache.js` and `api.js` above, and
 deliberately so. Those two converged because holding two behaviours cost
 correctness in a shared cache. This one diverges because the *point* is to keep
-the superseded system runnable: classic is where DR-14 can still be opened,
-compared against primary on the same city and hour, and regression-tested.
-`research/test-lines.mjs` pins classic's exact output for that reason, so a
-change to `conditionRGB` fails a test instead of quietly drifting.
+the superseded system runnable: classic is where the `'wmo'` palette can still
+be opened, compared against primary on the same city and hour, and
+regression-tested. A regression test pins classic's exact output for that
+reason, so a change to `conditionRGB` fails a test instead of quietly drifting.
 
 Two things depend on the dispatch staying in `colors.js` rather than leaking
 into the variants:
