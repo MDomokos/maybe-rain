@@ -570,8 +570,15 @@ const precipFieldSVG = (h, base, W, H, opts) => {
                     if (t) tails += subStraight(t);
                 }
             });
-            if (tails) out += `<path d="${tails}" stroke="rgba(${c[0]},${c[1]},${c[2]},${m.alpha})" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
-            if (dots) out += `<path d="${dots}" fill="rgba(255,255,255,0.92)"/>`;
+            let snowOut = '';
+            if (tails) snowOut += `<path d="${tails}" stroke="rgba(${c[0]},${c[1]},${c[2]},${m.alpha})" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+            if (dots) snowOut += `<path d="${dots}" fill="rgba(255,255,255,0.92)"/>`;
+            // Snow does not fall straight down the way rain does, so it
+            // rides a damped wave inside its fall layer. Flake and tail
+            // are in the one group: they share an anchor and have to
+            // drift together.
+            out += snowOut && group != null
+                ? `<g class="pf-wave pf-snow">${snowOut}</g>` : snowOut;
         }
         // Hail: a short heavy white stub on the site, leaning with the rain.
         // Stub, not dot, so it is never snow; the open rings it replaces were

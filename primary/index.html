@@ -836,6 +836,10 @@
             .location:hover .location-caret,
             .control-row .location:hover .location-caret { transform: none; }
             .control-row .location:hover .location-caret { transform: rotate(180deg); }
+            /* The arrival. The gutter bar on the current block is the only
+               marker left here, which is why it is not optional. */
+            .pf-fall, .pf-mist, .pf-wave,
+            .fx-strike, .fx-glint i, .fx-cloud i, .fx-neutral i { animation: none; }
         }
         html.reduce-motion .weather-block.skeleton,
         html.reduce-motion .status.updating { animation: none; opacity: 0.7; }
@@ -856,6 +860,13 @@
         html.reduce-motion .sheet-row { transition: none; }
         html.reduce-motion .location:hover .location-caret { transform: none; }
         html.reduce-motion .control-row .location:hover .location-caret { transform: rotate(180deg); }
+        html.reduce-motion .pf-fall,
+        html.reduce-motion .pf-mist,
+        html.reduce-motion .pf-wave,
+        html.reduce-motion .fx-strike,
+        html.reduce-motion .fx-glint i,
+        html.reduce-motion .fx-cloud i,
+        html.reduce-motion .fx-neutral i { animation: none; }
         /* Day labels.
            The label row and the grid columns share the same left gutter, gap,
            and flex:1 items, so they stay column-aligned at every width. */
@@ -1269,6 +1280,72 @@
               radial-gradient(ellipse 22% 11% at 70% 52%, #000 0 99%, transparent 100%),
               radial-gradient(ellipse 15% 13% at 82% 60%, #000 0 99%, transparent 100%);
             filter: blur(5.6px); opacity: .35; }
+
+        /* The arrival. Everything here is gated on `.arrive`, which app.js
+           puts on the current block when the grid settles and never leaves
+           on: each animation is `both`, so the block rests on the frame it
+           has always drawn. The current hour plays its own weather once —
+           it marks where now is on arrival and stays out of the way after.
+
+           --pf-settle rides down from the overlay wrapper, where the
+           renderer decided it from the amount. */
+        .weather-block.current.arrive .pf-fall {
+            animation: pfFall var(--pf-settle, 3s) var(--pe) both; }
+        @keyframes pfFall {
+            from { transform: translate(var(--tx), var(--ty)); }
+            to   { transform: translate(0, 0); }
+        }
+
+        .weather-block.current.arrive .pf-mist {
+            animation: pfFall var(--pf-settle, 5.4s) cubic-bezier(.16,.72,.24,1) both; }
+        .weather-block.current.arrive .pf-wave {
+            animation: pfWave var(--pf-settle, 5.4s) ease-in-out both; }
+        .weather-block.current.arrive .rain-ov .pf-snow { --pf-wave-amp: 7px; }
+
+        /* damped: the amplitude decays to zero, so the field settles in place */
+        @keyframes pfWave {
+            0%   { transform: translateY(calc(var(--pf-wave-amp, 11px) * -1)); }
+            17%  { transform: translateY(calc(var(--pf-wave-amp, 11px) * .82)); }
+            34%  { transform: translateY(calc(var(--pf-wave-amp, 11px) * -.62)); }
+            51%  { transform: translateY(calc(var(--pf-wave-amp, 11px) * .44)); }
+            68%  { transform: translateY(calc(var(--pf-wave-amp, 11px) * -.27)); }
+            84%  { transform: translateY(calc(var(--pf-wave-amp, 11px) * .12)); }
+            100% { transform: translateY(0); }
+        }
+
+        /* 64ms strike, 43ms gap, 52ms weaker strike. These are durations in
+           the world, not a fraction of anything, so the 0.42s is fixed and
+           is never scaled with the settle. */
+        .weather-block.current.arrive .fx-strike {
+            animation: pfStrike .42s steps(1, end) both; }
+        @keyframes pfStrike {
+            0%     { opacity: 0; }
+            7.71%  { opacity: .34; }
+            23.14% { opacity: 0; }
+            33.43% { opacity: .18; }
+            46.29% { opacity: 0; }
+            100%   { opacity: 0; }
+        }
+
+        .weather-block.current.arrive .fx-glint i {
+            animation: pfGlint 3s ease-in-out both; }
+        @keyframes pfGlint {
+            from { transform: translateX(-140%) rotate(16deg); }
+            to   { transform: translateX(430%)  rotate(16deg); }
+        }
+
+        .weather-block.current.arrive .fx-cloud i {
+            animation: pfPass 4.6s cubic-bezier(.34,.06,.5,1) both; }
+        .weather-block.current.arrive .fx-neutral i {
+            animation: pfPass 4.4s cubic-bezier(.34,.06,.5,1) both; }
+        .weather-block.current.arrive .fx-cloud i.b,
+        .weather-block.current.arrive .fx-neutral i.b {
+            animation-timing-function: cubic-bezier(.42,.04,.62,1); }
+        /* 108% clears the mass and its blur completely, so the block ends bare */
+        @keyframes pfPass {
+            from { transform: translateX(0); }
+            to   { transform: translateX(108%); }
+        }
         /* Wind view: one SVG arrow centred in the block, rotated to the wind
            octant by an inline transform. Larger than a corner mark so the
            direction reads at a glance. */
