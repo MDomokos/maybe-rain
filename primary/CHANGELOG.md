@@ -2,7 +2,7 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
-## v2.6.2 (2026-08-18)
+## v2.6.2 (2026-08-18) — bugfix
 
 - rain draws lighter. a whole day of drizzle was carrying nearly three times the ink the old hatch did, and a week of it read as a busy screen rather than as light rain. the marks are thinner, fainter and a little further apart, and there are still twenty-odd of them in an hour, so nothing got harder to read
 
