@@ -202,11 +202,13 @@ const clipSeg = (x0, y0, x1, y1, xmin, ymin, xmax, ymax) => {
 // was read as chaos rather than as weather.
 //
 // Each site answers:
-//   [x1, y1, x2, y2, rank, alt, rank2, cx, cy, drawable]
+//   [x1, y1, x2, y2, rank, alt, rank2, cx, cy, drawable, col]
 // where x1..y2 is the CLIPPED segment, `rank` and `rank2` are two ordered
 // dither values, `alt` is the checkerboard parity, cx/cy is the site's own
-// centre BEFORE clipping, and `drawable` says whether the segment survived
-// the clip at all.
+// centre BEFORE clipping, `drawable` says whether the segment survived the
+// clip at all, and `col` is the lattice column the site sits in. The column
+// is what the fall layers partition on: a layer has to be a whole column of
+// the lattice or the marks within it would not share a travel direction.
 //
 // The centre matters more than it looks. A point mark placed at the end of
 // a clipped streak lands on the block boundary whenever the streak crosses
@@ -243,7 +245,7 @@ const markField = (W, H, angle, o) => {
             }
             const near = cx >= xmin - edge && cx <= xmax + edge && cy >= ymin - edge && cy <= ymax + edge;
             if (!ok && !near) continue;
-            segs.push([seg[0], seg[1], seg[2], seg[3], rank, alt, rank2, cx, cy, ok]);
+            segs.push([seg[0], seg[1], seg[2], seg[3], rank, alt, rank2, cx, cy, ok, col]);
         }
     }
     return segs;
@@ -389,7 +391,7 @@ const emitMarks = (segs, figure, m, c, alpha, scale, weight) => {
     if (!segs.length) return '';
     const use = scale === 1 ? segs : segs.map(s =>
         [s[0], s[1], s[0] + (s[2] - s[0]) * scale, s[1] + (s[3] - s[1]) * scale,
-         s[4], s[5], s[6], s[7], s[8], s[9]]);
+         s[4], s[5], s[6], s[7], s[8], s[9], s[10]]);
     const sw = m.sw * weight;
     const p = marksToPath(use, figure, { ...m, sw });
     const col = `rgba(${c[0]},${c[1]},${c[2]},${alpha.toFixed(3)})`;
