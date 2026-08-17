@@ -9,6 +9,12 @@
 // discrete marks has to know how big the box is before it can decide where
 // a mark begins and where it ends.
 //
+// Primary passes a fifth argument, `opts`, which classic does not have and
+// does not need. `{ layered: true }` splits the field into fall layers for
+// the current hour's arrival animation; anything else, including the
+// absent argument every other block calls with, emits the markup this file
+// has always emitted, byte for byte.
+//
 // Loads AFTER colors.js: it reads lnBlue and lnLum from there.
 //
 // Why it exists. The shipped overlay is an infinite hatch pattern clipped
@@ -163,6 +169,25 @@ const quantLean = h => {
 // Hail is a WMO category, not a quantity: 96 and 99 are the only codes
 // that carry it, and they only mean hail in Central Europe at all.
 const HAIL_CODES = new Set([96, 99]);
+
+// --- the fall layers -------------------------------------------------
+// Opt-in only, through `opts.layered`, and only the current hour asks for
+// it. The field is split into three interleaved sets of lattice COLUMNS,
+// each emitted in its own group with its own start offset and its own
+// ease, so an arriving block reads as rain falling rather than as one
+// sheet of marks sliding into place. Three is the fewest that reads as
+// out of step; more and neighbouring columns stop differing visibly.
+//
+// The distances are in LATTICE PERIODS, not pixels, and the animation
+// travels back to zero. A whole number of periods means every mark starts
+// on a site the lattice already owns, so the fall ends exactly on the
+// resting field. Any other distance lands the marks off the lattice and
+// the animation finishes on a visible slip.
+const FALL_GROUPS = 3;
+const FALL_BACK = [3.0, 4.6, 3.8];
+const FALL_EASE = ['cubic-bezier(.16,.72,.24,1)',
+                   'cubic-bezier(.28,.58,.32,1)',
+                   'cubic-bezier(.10,.80,.20,1)'];
 
 // --- the ordered dither ---------------------------------------------
 // Every per-site choice in the field reads this and nothing reads a
@@ -387,9 +412,11 @@ const chanceBand = h => h.pop == null ? 1
 // Emit one path per strength. Marks may be shortened toward their own
 // start and drawn at a lighter weight, which is how a ghost is told from
 // a committed mark by size as well as by opacity.
-const emitMarks = (segs, figure, m, c, alpha, scale, weight) => {
-    if (!segs.length) return '';
-    const use = scale === 1 ? segs : segs.map(s =>
+// `group` is the fall layer being emitted, or null for the whole field.
+const emitMarks = (segs, figure, m, c, alpha, scale, weight, group) => {
+    const src = group == null ? segs : segs.filter(s => s[10] % FALL_GROUPS === group);
+    if (!src.length) return '';
+    const use = scale === 1 ? src : src.map(s =>
         [s[0], s[1], s[0] + (s[2] - s[0]) * scale, s[1] + (s[3] - s[1]) * scale,
          s[4], s[5], s[6], s[7], s[8], s[9], s[10]]);
     const sw = m.sw * weight;
@@ -409,7 +436,7 @@ const emitMarks = (segs, figure, m, c, alpha, scale, weight) => {
 // Sleet falls out for free. A flake gets a tail only while the hour is
 // mixed, so a pure snow hour is pure dots — snow's established identity
 // — a mixed hour reads as a mix, and pure rain is streaks.
-const precipFieldSVG = (h, base, W, H) => {
+const precipFieldSVG = (h, base, W, H, opts) => {
     // The liquid part (rain + showers) and the frozen part. 1 cm of
     // snowfall is about 1 mm of water, which is what lets the two share a
     // ramp. Old cached payloads lack the rain/showers split: fall back to
@@ -431,6 +458,17 @@ const precipFieldSVG = (h, base, W, H) => {
         || h.pop == null || h.pop < LN.popFloor)) return '';
 
     const m = amountFor(total);
+    // How long the arrival takes to settle. It is decided HERE, where the
+    // total is already in scope, and written onto the wrapper to inherit
+    // down: the total is built from h.liquid, h.mm and the snow depth with
+    // a condition-group test, and a second copy of that arithmetic
+    // anywhere else would drift away from this one.
+    //
+    // Snow is slowest because it does not fall so much as arrive; heavy
+    // rain is quickest, because a downpour that eases in is not a
+    // downpour. The light end takes slightly longer than the middle so a
+    // drizzle hour has time to read as drizzle.
+    const settle = snow > 0 ? 5.0 : total >= 4 ? 2.4 : total < 1 ? 3.4 : 3.0;
     const c = lnBlue(base), dark = lnLum(base) <= 135;
     const band = chanceBand(h);
     // The ghost is the trace tier's alone. Above it the block already has
@@ -499,52 +537,86 @@ const precipFieldSVG = (h, base, W, H) => {
     const mm = { ...m, sp, len, gap };
     const gA = nil ? LN.nilAlpha * (dark ? LN.nilDark : 1)
                    : m.alpha * LN.ghostAlpha * (dark ? LN.ghostDark : 1);
-    let out = emitMarks(rain, figure, mm, c, m.alpha, 1, 1)
-        + emitMarks(ghost, figure, mm, c, gA,
-            nil ? LN.nilScale : LN.ghostScale, nil ? LN.nilWeight : LN.ghostWeight);
+    // Every phase of the field for ONE fall layer, or for the whole field
+    // when `group` is null. Layering is a filter over the same marks and
+    // nothing else: the roles, the geometry and the colours are all
+    // decided above, so a layered block draws exactly the field an
+    // unlayered one would, in three pieces.
+    const buildPaths = group => {
+        const pick = arr => group == null
+            ? arr : arr.filter(s => s[10] % FALL_GROUPS === group);
+        let out = emitMarks(rain, figure, mm, c, m.alpha, 1, 1, group)
+            + emitMarks(ghost, figure, mm, c, gA,
+                nil ? LN.nilScale : LN.ghostScale, nil ? LN.nilWeight : LN.ghostWeight, group);
 
-    // Snow: a flake on the site, with a tail only while the hour is mixed.
-    // White, because frozen precipitation keeps a constant identity no
-    // sky can dilute.
-    if (flakes.length) {
-        const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
-        const r = m.sw * LN.snowDot, tail = len * 0.5 * (1 - snowShare);
-        let dots = '', tails = '';
-        flakes.forEach(s => {
-            if (!onBlock(s, r)) return;
-            dots += subDotAt(s[7], s[8], r);
-            // The tail is drawn back FROM the flake rather than forward
-            // from the streak's start, so tail and dot share one anchor,
-            // and it is clipped like every other stroke in the file.
-            if (tail > 0.6) {
-                const t = clipSeg(s[7] - fx * tail, s[8] - fy * tail,
-                                  s[7] - fx * r * 0.8, s[8] - fy * r * 0.8,
+        // Snow: a flake on the site, with a tail only while the hour is
+        // mixed. White, because frozen precipitation keeps a constant
+        // identity no sky can dilute.
+        const gFlakes = pick(flakes);
+        if (gFlakes.length) {
+            const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
+            const r = m.sw * LN.snowDot, tail = len * 0.5 * (1 - snowShare);
+            let dots = '', tails = '';
+            gFlakes.forEach(s => {
+                if (!onBlock(s, r)) return;
+                dots += subDotAt(s[7], s[8], r);
+                // The tail is drawn back FROM the flake rather than forward
+                // from the streak's start, so tail and dot share one anchor,
+                // and it is clipped like every other stroke in the file.
+                if (tail > 0.6) {
+                    const t = clipSeg(s[7] - fx * tail, s[8] - fy * tail,
+                                      s[7] - fx * r * 0.8, s[8] - fy * r * 0.8,
+                                      0, 0, reach * W, H);
+                    if (t) tails += subStraight(t);
+                }
+            });
+            if (tails) out += `<path d="${tails}" stroke="rgba(${c[0]},${c[1]},${c[2]},${m.alpha})" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+            if (dots) out += `<path d="${dots}" fill="rgba(255,255,255,0.92)"/>`;
+        }
+        // Hail: a short heavy white stub on the site, leaning with the rain.
+        // Stub, not dot, so it is never snow; the open rings it replaces were
+        // the only outline shape in a system made of round caps and filled
+        // dots, and WMO 96/99 only mean hail in Central Europe, so the ring
+        // asserted a fact the data does not hold elsewhere.
+        const gPellets = pick(pellets);
+        if (gPellets.length) {
+            const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
+            const e = Math.min(len * 0.45, m.sw * 1.15);
+            let d = '';
+            gPellets.forEach(s => {
+                if (!onBlock(s, e)) return;
+                const p = clipSeg(s[7] - fx * e, s[8] - fy * e, s[7] + fx * e, s[8] + fy * e,
                                   0, 0, reach * W, H);
-                if (t) tails += subStraight(t);
-            }
-        });
-        if (tails) out += `<path d="${tails}" stroke="rgba(${c[0]},${c[1]},${c[2]},${m.alpha})" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
-        if (dots) out += `<path d="${dots}" fill="rgba(255,255,255,0.92)"/>`;
+                if (p) d += subStraight(p);
+            });
+            if (d) out += `<path d="${d}" stroke="rgba(255,255,255,0.95)" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+        }
+        return out;
+    };
+
+    if (!(opts && opts.layered)) {
+        const body = buildPaths(null);
+        if (!body) return '';
+        return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${body}</svg></span>`;
     }
-    // Hail: a short heavy white stub on the site, leaning with the rain.
-    // Stub, not dot, so it is never snow; the open rings it replaces were
-    // the only outline shape in a system made of round caps and filled
-    // dots, and WMO 96/99 only mean hail in Central Europe, so the ring
-    // asserted a fact the data does not hold elsewhere.
-    if (pellets.length) {
-        const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
-        const e = Math.min(len * 0.45, m.sw * 1.15);
-        let d = '';
-        pellets.forEach(s => {
-            if (!onBlock(s, e)) return;
-            const p = clipSeg(s[7] - fx * e, s[8] - fy * e, s[7] + fx * e, s[8] + fy * e,
-                              0, 0, reach * W, H);
-            if (p) d += subStraight(p);
-        });
-        if (d) out += `<path d="${d}" stroke="rgba(255,255,255,0.95)" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+
+    // Each layer is offset back along the fall direction by a whole number
+    // of periods, so the marks start on lattice sites and the animation
+    // ends on the resting field exactly.
+    const fa = quantLean(h) * Math.PI / 180;
+    const fdx = Math.sin(fa), fdy = Math.cos(fa);
+    const period = mm.len + mm.gap;
+    let body = '';
+    for (let g = 0; g < FALL_GROUPS; g++) {
+        const inner = buildPaths(g);
+        if (!inner) continue;
+        const tx = (-FALL_BACK[g] * period * fdx).toFixed(2);
+        const ty = (-FALL_BACK[g] * period * fdy).toFixed(2);
+        body += `<g class="pf-fall" style="--tx:${tx}px;--ty:${ty}px;--pe:${FALL_EASE[g]}">${inner}</g>`;
     }
-    if (!out) return '';
-    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${out}</svg></span>`;
+    if (!body) return '';
+    return `<span class="rain-ov" style="--pf-settle:${settle}s">`
+         + `<svg xmlns="http://www.w3.org/2000/svg">${body}</svg></span>`;
 };
 
 // Mist / low visibility. Short horizontal runs on the same lattice
@@ -556,23 +628,31 @@ const precipFieldSVG = (h, base, W, H) => {
 // It is checked before it is drawn: `vis` is null on any payload cached
 // before the field was asked for, and on a provider that does not carry
 // it, which an earlier optional field had to learn the hard way.
-const mistSVG = (h, base, W, H) => {
+const mistSVG = (h, base, W, H, opts) => {
     if (h.vis == null || h.vis > LN.mistVis) return '';
     const t = Math.max(0, Math.min(1, 1 - h.vis / LN.mistVis));
     const c = lnLum(base) > 135 ? [70, 78, 88] : [226, 232, 238];
+    const len = LN.mistLen + (LN.mistLenHi - LN.mistLen) * t;
     const segs = markField(W, H, 90, {
-        sp: LN.mistSp, sw: LN.mistSw, gap: LN.mistGap,
-        len: LN.mistLen + (LN.mistLenHi - LN.mistLen) * t, fillW: W
+        sp: LN.mistSp, sw: LN.mistSw, gap: LN.mistGap, len, fillW: W
     });
     const d = segs.filter(s => s[9]).map(subStraight).join('');
     if (!d) return '';
     const a = (LN.mistAlpha + (LN.mistAlphaHi - LN.mistAlpha) * t).toFixed(3);
-    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg"><path d="${d}" stroke="rgba(${c[0]},${c[1]},${c[2]},${a})" stroke-width="${LN.mistSw.toFixed(2)}" stroke-linecap="round" fill="none"/></svg></span>`;
+    const path = `<path d="${d}" stroke="rgba(${c[0]},${c[1]},${c[2]},${a})" stroke-width="${LN.mistSw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+    // One layer, not three: mist is a body of air moving past, not
+    // discrete marks falling at their own rates. Its lean is 90deg, so it
+    // travels horizontally and the wave that rides on it runs vertically.
+    const body = opts && opts.layered
+        ? `<g class="pf-mist" style="--tx:${(-3 * (len + LN.mistGap)).toFixed(2)}px">`
+          + `<g class="pf-wave">${path}</g></g>`
+        : path;
+    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${body}</svg></span>`;
 };
 
 // The overlay for one block, or ''. Same signature as the pattern
 // renderer's, so the call site does not know which one it got.
-const precipOverlay = (h, base, W, H) => {
+const precipOverlay = (h, base, W, H, opts) => {
     const w = W > 0 ? W : LN_BLOCK.W, hh = H > 0 ? H : LN_BLOCK.H;
-    return precipFieldSVG(h, base, w, hh) + mistSVG(h, base, w, hh);
+    return precipFieldSVG(h, base, w, hh, opts) + mistSVG(h, base, w, hh, opts);
 };
