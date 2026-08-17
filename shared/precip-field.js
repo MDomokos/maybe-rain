@@ -9,7 +9,7 @@
 // discrete marks has to know how big the box is before it can decide where
 // a mark begins and where it ends.
 //
-// Loads AFTER colors.js: it reads lnBlue, lnLum and lnMix from there.
+// Loads AFTER colors.js: it reads lnBlue and lnLum from there.
 //
 // Why it exists. The shipped overlay is an infinite hatch pattern clipped
 // by a box, and a box has no ends: the pattern deliberately overshoots its
@@ -27,10 +27,28 @@
 //
 // Config locked 2026-07-24 (Maybe Rain Precipitation + Climatology), with
 // the mark field's own constants from Maybe Rain Line Refinements.
-const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20, shade: 0.5,
+const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              maxAngle: 55, windSat: 40,
-             snowCap: 2,      // cm/h; the 5y Budapest max (Climatology note)
-             snowGamma: 0.4,  // DR-15's curve, until snow joins the lattice
+             // Rain, snow and hail are marks ON one lattice, never
+             // overlays stacked on top of each other, so the spacings
+             // cannot disagree and a pellet sits exactly where a raindrop
+             // would have. Snow takes its water-equivalent share of the
+             // sites, hail a fixed one, rain the rest, all spread by the
+             // ordered dither.
+             //
+             // As snow takes over the lattice OPENS OUT rather than
+             // tightening, and the flake shrinks with it: a block of
+             // falling snow should read lighter than the same block of
+             // rain at both ends of the amount scale, and the shipped
+             // lattice produced a solid polka wall at the top of it.
+             snowSpace: 1.65, snowDot: 0.70,
+             // Hail is a category with no quantity anywhere in Open-Meteo,
+             // so it takes a fixed share and never a ramp. A pellet is the
+             // same weight as the rain it falls with — it was drawn at
+             // max(1.5x weight, 2.2px), the heaviest ink on the screen —
+             // and is told apart by being short, white and on its own
+             // sites rather than by being fat.
+             hailShare: 0.3,
              // The lattice barely moves: 6.4 px at the light end, 4.7 at
              // the heavy one. Amount is no longer spent on COUNT, so the
              // drizzle end stops being drawn with three lines.
@@ -105,9 +123,6 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20, shade: 0.5,
 // paint, a hidden tab). 46 x 40 is the reference block every constant in
 // this file was tuned against.
 const LN_BLOCK = { W: 46, H: 40 };
-// Hail rings borrow a neutral adaptive shade of the base (frozen, not
-// rain, so not blue): darken a bright base, lighten a dark one.
-const lnShade = b => lnLum(b) > 135 ? lnMix(b, [0, 0, 0], LN.shade) : lnMix(b, [255, 255, 255], LN.shade);
 // Wind lean: signed E-W component of travel (wind blows toward dir+180),
 // linear to 55deg at a 40 km/h component. Positive SVG rotation =
 // drifting east. No wind data = vertical fall.
@@ -137,7 +152,10 @@ const quantLean = h => {
     const k = Math.min(n, Math.max(1, Math.round((Math.abs(a) - LN.leanDead) / ((cap - LN.leanDead) / n))));
     return Math.sign(a) * k * (cap / n);
 };
-let lnId = 0; // unique per-render pattern ids
+// Hail is a WMO category, not a quantity: 96 and 99 are the only codes
+// that carry it, and per the 2026-07-27 hazard ruleset they only mean hail
+// in Central Europe at all.
+const HAIL_CODES = new Set([96, 99]);
 
 // --- the ordered dither ---------------------------------------------
 // Every per-site choice in the field reads this and nothing reads a
@@ -231,8 +249,6 @@ const subStraight = ([x1, y1, x2, y2]) =>
     `M${x1.toFixed(2)} ${y1.toFixed(2)}L${x2.toFixed(2)} ${y2.toFixed(2)}`;
 const subDotAt = (cx, cy, r) =>
     `M${(cx - r).toFixed(2)} ${cy.toFixed(2)}a${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(2 * r).toFixed(2)} 0a${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(-2 * r).toFixed(2)} 0Z`;
-// A dot on the site's own centre, not on the clipped end. See markField.
-const subDot = (s, r) => subDotAt(s[7], s[8], r);
 
 // Build the path data for a set of clipped segments. Stroked figures go in
 // .stroke, filled ones in .fill; a figure may use both.
@@ -314,22 +330,16 @@ const figureFor = m => m.trace ? 'grain' : m.light ? 'broken' : 'straight';
 // 0.4 mm at 37% of the maximum length, which is most of the way to looking
 // like rain. This also retires the three dash bands: length IS the band
 // now, continuously within each segment and stepped between them.
-const amountFor = h => {
-    // Marks draw from the liquid part only (rain + showers); the white
-    // lattice carries the frozen part. Old cached payloads lack the split:
-    // fall back to total mm, except on snow-coded hours where drawing rain
-    // marks would misrepresent.
-    const mm = h.liquid ?? (COND[h.condition].group === 'snow' ? null : h.mm);
-    if (mm == null) return null;
-    if (h.pop != null && h.pop < LN.popFloor) return null;
-    const trace = mm < LN.floor;
-    if (trace) {
-        // The amount is below the 0.3 mm floor (often ~0), but the chance
-        // is real. Amount is the deterministic run, chance is the ensemble
-        // (P > 0.1 mm), so a high chance with ~0 mm is a likely light
-        // sprinkle the amount misses. Chance-driven, and liquid rain only.
-        if (COND[h.condition].group === 'snow') return null;
-        if (h.pop == null || h.pop < LN.popFloor) return null;
+//
+// It takes millimetres and nothing else. A snowy hour rides the same ramp
+// on the total water it is carrying, because the lattice under all three
+// phases is one lattice and a mixed hour has to be sized once.
+const amountFor = mm => {
+    if (mm < LN.floor) {
+        // The trace tier. The amount is below the 0.3 mm floor (often ~0),
+        // but the chance is real: amount is the deterministic run and
+        // chance is the ensemble (P > 0.1 mm), so a high chance with ~0 mm
+        // is a likely light sprinkle the amount misses.
         return { sp: LN.spLo, sw: Math.max(LN.swLo, LN.swFloor), alpha: LN.alphaTrace,
                  len: LN.lenTrace, gap: LN.gapTrace, trace: true, light: true };
     }
@@ -379,17 +389,41 @@ const emitMarks = (segs, figure, m, c, alpha, scale, weight) => {
     return (p.stroke ? `<path d="${p.stroke}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` : '')
         + (p.fill ? `<path d="${p.fill}" fill="${col}"/>` : '');
 };
-const rainFieldSVG = (h, base, W, H) => {
-    const m = amountFor(h);
-    if (!m) return '';
+
+// --- the block -------------------------------------------------------
+// One lattice, three kinds of mark. Rain, snow and hail are marks ON it,
+// never overlays stacked on top of each other: nothing is overlaid on
+// anything, so the spacings cannot disagree and a pellet sits exactly
+// where a raindrop would have. The alignment problem disappears rather
+// than being tuned away.
+//
+// Sleet falls out for free. A flake gets a tail only while the hour is
+// mixed, so a pure snow hour is pure dots — the identity DR-12 gave snow
+// — a mixed hour reads as a mix, and pure rain is streaks.
+const precipFieldSVG = (h, base, W, H) => {
+    // The liquid part (rain + showers) and the frozen part. 1 cm of
+    // snowfall is about 1 mm of water, which is what lets the two share a
+    // ramp. Old cached payloads lack the rain/showers split: fall back to
+    // total mm, except on snow-coded hours, where the total IS the snow
+    // and counting it twice would draw rain that is not falling.
+    const snow = h.snow > 0 ? h.snow : 0;
+    const liquid = Math.max(0, h.liquid ?? (COND[h.condition].group === 'snow' ? 0 : (h.mm ?? 0)));
+    const total = liquid + snow;
+    if (h.pop != null && h.pop < LN.popFloor) return '';
+    // DR-16: the trace tier is liquid-only. Below the floor the amount is
+    // noise and the chance is the whole story, and a chance of snow is not
+    // a story this texture can tell.
+    if (total < LN.floor && (COND[h.condition].group === 'snow'
+        || h.pop == null || h.pop < LN.popFloor)) return '';
+
+    const m = amountFor(total);
     const c = lnBlue(base), dark = lnLum(base) <= 135;
     const band = chanceBand(h);
     // The ghost is the trace tier's alone. Above it the block already has
     // committed marks to read, and the chance is not the only real fact.
     const ghosted = m.trace && h.pop != null;
     // An hour whose amount is literally zero draws entirely in the ghost.
-    const mm = h.liquid ?? h.mm ?? 0;
-    const nil = ghosted && mm <= LN.nilMax;
+    const nil = ghosted && total <= LN.nilMax;
     // The reach over-reports on purpose, and that is the accepted trade.
     // Drawing a 0 mm hour to its bare chance was tried and reverted: it is
     // more honest about extent and it puts the block straight back to the
@@ -399,53 +433,108 @@ const rainFieldSVG = (h, base, W, H) => {
     // saturates at the block width, so the top of the chance scale
     // resolves less than the bottom.
     const reach = ghosted ? Math.min(1, band * LN.ghostSpan) : band;
-    const figure = figureFor(m);
-    const segs = markField(W, H, quantLean(h), { ...m, fillW: reach * W });
+
+    // Role shares, known BEFORE the lattice is laid, because that is what
+    // the lattice's step depends on: a flake is a dot, and dots want a
+    // shorter step than streaks, or a heavy snow hour ends up with fewer
+    // marks than a light one.
+    const snowShare = total > 0 ? snow / total : 0;
+    const hailShare = HAIL_CODES.has(h.code) ? LN.hailShare : 0;
+    const mixed = snow > 0 && liquid > 0;
+    // As snow takes over the lattice opens out, and goes isotropic with
+    // it: the along-fall step is pulled toward the perpendicular one, so
+    // flakes sit on an even field instead of inheriting the long step a
+    // streak needs. Amount then rides the dot radius, exactly as the
+    // shipped snow lattice had it.
+    const sp = m.sp * (1 + (LN.snowSpace - 1) * snowShare);
+    const len = m.len + (sp * 0.55 - m.len) * snowShare;
+    const gap = Math.max(1.2, m.gap + (sp * 0.45 - m.gap) * snowShare);
+    // A site whose streak falls outside the box can still own a visible
+    // point mark, so when there are point marks to place the lattice keeps
+    // sites a mark's radius beyond the edge.
+    const point = snowShare > 0 || hailShare > 0;
+    const segs = markField(W, H, quantLean(h),
+        { sp, len, gap, sw: m.sw, fillW: reach * W, edge: point ? m.sw * 1.6 : 0 });
     if (!segs.length) return '';
-    // Which side of the committed edge a mark falls on is decided by its
-    // site, not by its clipped end, so a mark does not change strength
-    // because the block happened to cut it.
+
+    // Snow and rain in the same block always draw straight (owner call).
+    // The flakes are already a second kind of mark on the lattice; a
+    // broken rain mark beside them gives the eye three figures to separate
+    // in 46 px, and the mix stops reading as a mix.
+    const figure = mixed ? 'straight' : figureFor(m);
     const bandW = band * W;
-    const committed = [], ghost = [];
-    segs.forEach(s => ((nil || (ghosted && s[7] > bandW)) ? ghost : committed).push(s));
+    // Roles by ordered dither, never a hash: a 30% hail hour puts pellets
+    // on an even scatter of sites instead of doubling two up and leaving a
+    // hole, and a half-snow hour alternates cleanly.
+    const rain = [], ghost = [], flakes = [], pellets = [];
+    segs.forEach(s => {
+        const r = s[4];
+        if (r < hailShare) pellets.push(s);
+        else if (r < hailShare + snowShare * (1 - hailShare)) flakes.push(s);
+        else if (s[9]) ((nil || (ghosted && s[7] > bandW)) ? ghost : rain).push(s);
+    });
+
+    // A point mark is placed when its SITE is on the block, within the
+    // mark's own radius of it, so the field reaches every edge with
+    // partial marks rather than stopping short. A site further out than
+    // that can still have a drawable streak — the segment is long and the
+    // centre is its middle — but it is not a lattice position any more,
+    // and a flake drawn there would be entirely outside the block.
+    const onBlock = (s, r) =>
+        s[7] >= -r && s[7] <= reach * W + r && s[8] >= -r && s[8] <= H + r;
+    const mm = { ...m, sp, len, gap };
     const gA = nil ? LN.nilAlpha * (dark ? LN.nilDark : 1)
                    : m.alpha * LN.ghostAlpha * (dark ? LN.ghostDark : 1);
-    const paths = emitMarks(committed, figure, m, c, m.alpha, 1, 1)
-        + emitMarks(ghost, figure, m, c, gA,
+    let out = emitMarks(rain, figure, mm, c, m.alpha, 1, 1)
+        + emitMarks(ghost, figure, mm, c, gA,
             nil ? LN.nilScale : LN.ghostScale, nil ? LN.nilWeight : LN.ghostWeight);
-    if (!paths) return '';
-    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${paths}</svg></span>`;
-};
 
-// Snow and hail still ride their own overlays here, unchanged from DR-12
-// and DR-15. They join the rain's lattice in a later commit; until they do,
-// primary needs its own copy of them, because it no longer loads the
-// pattern file they used to live in.
-const snowLatticeSVG = h => {
-    if (h.snow == null || h.snow <= 0) return '';
-    if (h.pop != null && h.pop < LN.popFloor) return '';
-    const t = Math.pow(Math.min(h.snow, LN.snowCap) / LN.snowCap, LN.snowGamma);
-    const sp = (14 - (14 - 5.2) * t) / Math.SQRT2, r = 0.8 + 0.8 * t;
-    const ang = (windLean(h) * 0.5).toFixed(1);
-    const id = 'mrsn' + (lnId++);
-    const dot = (cx, cy) => `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" fill="rgba(255,255,255,0.92)"/>`;
-    const pat = `<pattern id="${id}" width="${(sp * 2).toFixed(2)}" height="${(sp * 2).toFixed(2)}" patternUnits="userSpaceOnUse" patternTransform="rotate(${ang})">${dot(sp * 0.5, sp * 0.5)}${dot(sp * 1.5, sp * 1.5)}</pattern>`;
-    const wp = h.pop == null ? 100 : Math.min(100, h.pop);
-    return `<span class="rain-ov" style="width:${wp}%"><svg xmlns="http://www.w3.org/2000/svg"><defs>${pat}</defs><rect width="100%" height="100%" fill="url(#${id})"/></svg></span>`;
-};
-const HAIL_CODES = new Set([96, 99]);
-const hailRingsSVG = (h, base) => {
-    if (!HAIL_CODES.has(h.code)) return '';
-    const c = lnShade(base);
-    const id = 'mrhl' + (lnId++);
-    const ring = (cx, cy) => `<circle cx="${cx}" cy="${cy}" r="2.2" fill="none" stroke="rgba(${c[0]},${c[1]},${c[2]},0.9)" stroke-width="0.9"/>`;
-    const pat = `<pattern id="${id}" width="18" height="18" patternUnits="userSpaceOnUse">${ring(4.5, 4.5)}${ring(13.5, 13.5)}</pattern>`;
-    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg"><defs>${pat}</defs><rect width="100%" height="100%" fill="url(#${id})"/></svg></span>`;
+    // Snow: a flake on the site, with a tail only while the hour is mixed.
+    // White, on DR-12's argument that frozen precipitation keeps a constant
+    // identity no sky can dilute.
+    if (flakes.length) {
+        const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
+        const r = m.sw * LN.snowDot, tail = len * 0.5 * (1 - snowShare);
+        let dots = '', tails = '';
+        flakes.forEach(s => {
+            if (!onBlock(s, r)) return;
+            dots += subDotAt(s[7], s[8], r);
+            // The tail is drawn back FROM the flake rather than forward
+            // from the streak's start, so tail and dot share one anchor,
+            // and it is clipped like every other stroke in the file.
+            if (tail > 0.6) {
+                const t = clipSeg(s[7] - fx * tail, s[8] - fy * tail,
+                                  s[7] - fx * r * 0.8, s[8] - fy * r * 0.8,
+                                  0, 0, reach * W, H);
+                if (t) tails += subStraight(t);
+            }
+        });
+        if (tails) out += `<path d="${tails}" stroke="rgba(${c[0]},${c[1]},${c[2]},${m.alpha})" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+        if (dots) out += `<path d="${dots}" fill="rgba(255,255,255,0.92)"/>`;
+    }
+    // Hail: a short heavy white stub on the site, leaning with the rain.
+    // Stub, not dot, so it is never snow; the open rings it replaces were
+    // the only outline shape in a system made of round caps and filled
+    // dots, and per the 2026-07-27 hazard ruleset WMO 96/99 only mean hail
+    // in Central Europe, so the ring asserted a fact the data does not
+    // hold elsewhere.
+    if (pellets.length) {
+        const a = quantLean(h) * Math.PI / 180, fx = Math.sin(a), fy = Math.cos(a);
+        const e = Math.min(len * 0.45, m.sw * 1.15);
+        let d = '';
+        pellets.forEach(s => {
+            if (!onBlock(s, e)) return;
+            const p = clipSeg(s[7] - fx * e, s[8] - fy * e, s[7] + fx * e, s[8] + fy * e,
+                              0, 0, reach * W, H);
+            if (p) d += subStraight(p);
+        });
+        if (d) out += `<path d="${d}" stroke="rgba(255,255,255,0.95)" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+    }
+    if (!out) return '';
+    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${out}</svg></span>`;
 };
 
 // The overlay for one block, or ''. Same signature as the pattern
 // renderer's, so the call site does not know which one it got.
-const precipOverlay = (h, base, W, H) => {
-    const w = W > 0 ? W : LN_BLOCK.W, hh = H > 0 ? H : LN_BLOCK.H;
-    return rainFieldSVG(h, base, w, hh) + snowLatticeSVG(h) + hailRingsSVG(h, base);
-};
+const precipOverlay = (h, base, W, H) =>
+    precipFieldSVG(h, base, W > 0 ? W : LN_BLOCK.W, H > 0 ? H : LN_BLOCK.H);
