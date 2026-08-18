@@ -1771,10 +1771,9 @@ const slideOf = px => SLIDE_MAX * (1 - Math.exp(-px / SLIDE_MAX));
 // week squishes to pay for whatever is coming in, and today never
 // leaves the screen because it is inside the home week.
 //
-// THE GAPS CARRY THE FRACTION TOO, and that is not a detail. A column
-// entering part-way is `frac` of a column, so it is also `frac` of a
-// gap; the gap budget is (DAY_SPAN − 1 + a) rather than a ceil of it,
-// and the one gap belonging to the entering column is GAP × frac.
+// THE GAPS CARRY THE ENTERING COLUMN TOO, and that is not a detail. The
+// gap budget is (DAY_SPAN − 1 + whole + gapOpen) rather than a ceil of
+// it, so the entering column's own gap is paid for as it opens.
 //
 // It used to be a whole gap from the instant a sliver existed, and the
 // asymmetry that hid is this: on the FUTURE side the entering column is
@@ -1787,19 +1786,29 @@ const slideOf = px => SLIDE_MAX * (1 - Math.exp(-px / SLIDE_MAX));
 // the easing; the past side had a step in its geometry that the future
 // side put somewhere nobody could see.
 //
+// The gap still starts at zero for that reason, but it does NOT open at
+// `frac`. GAP × frac is under a pixel for the whole first tenth of a
+// column, so a new day arrived touching the one beside it and read as
+// that column widening rather than as a day appearing. It opens on its
+// own ramp instead: zero at the instant the sliver exists, full by
+// GAP_OPEN of a column, which on a 90px column is about 11px of travel.
+//
 // `n` is clamped to the reach here as well as at the source: past the
 // end the columns FREEZE, and the opposite end must not go on squishing
 // to pay for a pull that is revealing nothing.
 //
 // Returns widths and left-margins together, because after the above they
 // are one calculation and splitting them is how they drifted apart.
+const GAP_OPEN = 0.12;
+const gapOpen = frac => Math.min(1, frac / GAP_OPEN);
 const dayGeom = (n, W) => {
     const w = new Array(DAY_TOTAL).fill(0);
     const m = new Array(DAY_TOTAL).fill(0);
     const side = Math.sign(n) || 1;
     const a = Math.min(Math.abs(n), reachOn(side));
     const whole = Math.floor(a), frac = a - whole;
-    const cw = (W - (DAY_SPAN - 1 + a) * GAP_PX) / (DAY_SPAN + a);
+    const gf = frac > 0 ? gapOpen(frac) : 0;
+    const cw = (W - (DAY_SPAN - 1 + whole + gf) * GAP_PX) / (DAY_SPAN + a);
     for (let k = 0; k < DAY_SPAN; k++) w[HOME_COL + k] = cw;
     for (let k = 0; k < whole; k++) {
         const i = side > 0 ? HOME_COL + DAY_SPAN + k : HOME_COL - 1 - k;
@@ -1811,12 +1820,12 @@ const dayGeom = (n, W) => {
         if (i >= 0 && i < DAY_TOTAL) { w[i] = cw * frac; fracCol = i; }
     }
     for (let i = 0; i < DAY_TOTAL; i++) if (w[i] > 0) m[i] = GAP_PX;
-    // Which gap shrinks with the entering column is which side it enters
+    // Which gap opens with the entering column is which side it enters
     // from: on the right it is the column's own leading gap, on the left
     // it is the gap between it and the column it is arriving beside.
     if (fracCol >= 0) {
         const g = side > 0 ? fracCol : fracCol + 1;
-        if (g < DAY_TOTAL) m[g] = GAP_PX * frac;
+        if (g < DAY_TOTAL) m[g] = GAP_PX * gf;
     }
     return { w, m };
 };
