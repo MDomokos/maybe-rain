@@ -184,11 +184,11 @@ Two surfaces, and which one a drag started on is what decides its meaning.
 - **Peek** — the same gesture, released on the row it started on. The grid
   previews each aimed city at its true colours, so swiping up and letting go
   where you were is "let me just check over there" and costs nothing.
-- **Switch view** — swipe sideways, one step per swipe. Scrubbed: the grid
-  crossfades under the finger and the active underline slides toward the view
-  being pulled toward, so the destination is named before the release. Past a
-  short dwell the pull maps to the sweep, and the release either completes it
-  or rewinds it.
+- **Switch view** — swipe sideways, one step per swipe. Nothing moves under the
+  finger: the travel is read at the release, and past 45px the grid plays one
+  whole sweep, the same one a tap on the view buttons plays. A view is one of
+  three rather than a position between two, so there is nothing for a
+  half-played sweep to mean.
 - **Search** — tap the city name. Every one of these is decided on release, so
   a tap that turns into a swipe is still a swipe, and a press that never
   travels is a tap however long it is held.

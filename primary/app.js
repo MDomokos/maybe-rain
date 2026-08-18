@@ -886,24 +886,14 @@ const waveFrame = () => {
     // a frame where a cell actually changed hands, not on every frame
     // of the colour ramp.
     //
-    // There is one case where it must NOT happen: throughout a
-    // horizontal scrub the tooltip keeps reading the COMMITTED view.
-    // The two axes differ in what a half-transitioned cell means. A
-    // city sweep swaps one city's number for another city's number for
-    // the same reading, so either is a true value and the re-read
-    // is right. A view scrub swaps the READING itself, so a cell the
-    // playhead has flipped is a colour belonging to a scale the legend
-    // is not showing, and printing a number for it would invent data.
-    // The scrub is reversible, so until release there is no committed
-    // answer to report.
+    // There is one case where it must NOT happen: a scrub is reversible,
+    // so a cell the playhead has flipped is not an answer yet. A city
+    // sweep swaps one city's number for another city's number for the
+    // same reading, so either is true and the re-read is right; the hour
+    // scrub can still be taken back, and a tooltip that had already
+    // moved to the peeked hour would be reporting a window nobody
+    // committed to.
     if (flipped && !w.scrub) refreshActiveTooltip();
-
-    // The view underline is driven off the playhead, not off the
-    // finger, so the scrub, the completion and the rewind all move it by
-    // the same rule. `destView` is cleared the instant the sweep lands,
-    // which leaves the bar parked on the destination for `setView` to
-    // take over from without a frame of it snapping back.
-    if (w.destView) renderViewBar(w.total ? w.t / w.total : 0, w.destView);
 };
 
 // What is on screen RIGHT NOW, cell by cell, which mid-sweep is a mix
@@ -949,10 +939,9 @@ const waveTick = now => {
     if (!w) return;
     // The two modes must never both advance `t`. While a scrubbed drag
     // is live the finger owns the clock outright, so the paced ticker
-    // stops dead here rather than running on underneath the hand. This is the
-    // structural rule the view scrub has always followed: its ticker
-    // returns early for exactly this reason. `hold` is NOT this: it
-    // freezes a PACED sweep where it is and leaves the ticker running.
+    // stops dead here rather than running on underneath the hand.
+    // `hold` is NOT this: it freezes a PACED sweep where it is and
+    // leaves the ticker running.
     if (w.scrub) return;
     const dt = Math.min(64, Math.max(0, now - waveLast));
     waveLast = now;
@@ -967,7 +956,7 @@ const waveTick = now => {
     // run-back so the wave settles the ordinary way.
     if (w.rewind) {
         w.t = Math.max(0, w.t - dt * (w.rate || REWIND_RATE));
-        if (w.t <= 0) { w.to = w.from; w.rewind = false; w.destView = null; }
+        if (w.t <= 0) { w.to = w.from; w.rewind = false; }
     }
     // The paced half: the wave runs at the shipped tempo no
     // matter how fast the finger arrived, which is what stops four
@@ -981,13 +970,13 @@ const waveTick = now => {
         // so there is little left. A toolbar tap arrives here with
         // `t` at 0 and therefore plays the whole shipped wave.
         w.t = Math.min(w.total, w.t + dt);
-        if (w.t >= w.total) { w.from = w.to; w.t = 0; w.destView = null; }
+        if (w.t >= w.total) { w.from = w.to; w.t = 0; }
     } else if (w.t > 0) {
         // A rewind is quicker than a completion, and `w.rate` is where
         // a release computes one from where the playhead was left
         // rather than taking the bare constant: an abandoned scrub is
         // floored to a visible run-back instead of snapping (see
-        // `endViewScrub`). Nothing sets it on the paced path.
+        // `endRailScrub`). Nothing sets it on the paced path.
         w.t = Math.max(0, w.t - dt * (w.rate || REWIND_RATE));
     }
     // The playhead is at rest, so the stagger can be flipped without a
@@ -1108,9 +1097,9 @@ const paintGrid = (grid, cols, anim) => {
 //
 // The axis is a parameter (it used to be hardcoded to 'y', because the
 // city gesture was the only caller). The city sweep staggers by row and
-// the view scrub staggers by column, and nothing fails loudly if
+// the view switch staggers by column, and nothing fails loudly if
 // the wrong one is passed (the sweep simply runs the wrong way across
-// the grid), so it is passed explicitly at both call sites rather than
+// the grid), so it is passed explicitly at every call site rather than
 // defaulted silently. The queued-reversal rebuild in `waveTick` spreads
 // `w.anim`, so keeping `wave.anim` in step below is what carries the
 // axis through a reversal.
@@ -1140,31 +1129,6 @@ const waveTo = (grid, cols, dir, opts = {}) => {
         wave.delays = built.delays; wave.total = built.total;
     }
     kickWave();
-};
-
-// Hand the playhead to the finger. `p` is 0..1 along the wave's
-// own timeline, taken straight from how far the drag has travelled, so
-// the transition IS the gesture rather than an animation the gesture
-// triggers. Nothing here advances `t` by time.
-const scrubWave = (grid, cols, dir, p, destView) => {
-    // The destination only ever changes at the origin, because the view
-    // scrub re-locks direction inside RELOCK_PX, so the sweep is rebuilt
-    // from zero rather than retargeted. `waveTo`'s queued-reversal path
-    // is a PACED behaviour: it would rewind on its own clock underneath
-    // a finger that is already back at the origin.
-    if (wave && wave.scrub && (cols !== wave.to || dir !== wave.dir)) {
-        wave.t = 0; wave.to = wave.from; wave.pending = null;
-    }
-    waveTo(grid, cols, dir, { axis: 'x', hold: true });
-    if (!wave) return;
-    wave.scrub = true;
-    wave.rewind = false;   // a new drag owns the playhead outright
-    wave.destView = destView;
-    // paintGrid/kickWave may have started a ticker a moment before the
-    // flag was set. Stop it here rather than leaving the two to race.
-    if (waveRaf) { cancelFrame(waveRaf); waveRaf = null; }
-    wave.t = Math.max(0, Math.min(wave.total, p * wave.total));
-    waveFrame();
 };
 
 // Let a held sweep finish and settle on its own clock.
@@ -2191,40 +2155,23 @@ const renderLegend = () => {
 
 // Toggle shows only the views enabled in ⚙; hidden entirely when
 // just one view is left, since there is nothing to switch to.
-// The underline is a measured element rather than a border, so a
-// scrub can slide it. `p` is the scrub's progress and `dest` the view it
-// is heading for; with neither, it simply parks on the active button and
-// the toolbar looks exactly as it did before.
-//
-// It interpolates straight onto the destination BUTTON, and deliberately
-// not by the obvious one-slot-in-list-order rule. That rule sends the
-// bar off the end of the row whenever the step wraps, which with three
-// views is a third of all gestures, and a bar that has left the row names
-// nothing, which is the one job the DR gives it.
+// The underline is a measured element rather than a border, so it slides
+// between the buttons on the stylesheet's own transition instead of
+// jumping. It parks on the active view, and a view change moves it.
 const viewBtn = v => $('viewSeg').querySelector(`button[data-view="${v}"]`);
-const renderViewBar = (p = 0, dest = null) => {
+const renderViewBar = () => {
     const seg = $('viewSeg'), bar = $('viewBar');
     const a = viewBtn(view);
     // No layout to measure (hidden toolbar, or a host that never lays
     // out): fall back to the button's own border-bottom, which is still
     // the underline until `has-bar` says otherwise.
     if (!a || !a.offsetWidth) { seg.classList.remove('has-bar'); bar.hidden = true; return; }
-    const b = dest && dest !== view ? viewBtn(dest) : null;
-    const k = b && b.offsetWidth ? Math.max(0, Math.min(1, p)) : 0;
-    const to = k ? b : a;
     seg.classList.add('has-bar');
     bar.hidden = false;
     // transform, not left/width: both of those are layout properties, and
     // the bar is a 1px block whose whole job is to move. The base is 1px
     // wide at x=0, so scaleX IS the width in pixels.
-    //
-    // A tap gets the CSS transition and slides; a scrub is already being
-    // driven frame by frame off the finger and must not have a second
-    // easing fighting it, so the transition comes off for the duration.
-    seg.classList.toggle('bar-scrub', k > 0);
-    const x = a.offsetLeft + (to.offsetLeft - a.offsetLeft) * k;
-    const w = a.offsetWidth + (to.offsetWidth - a.offsetWidth) * k;
-    bar.style.transform = `translateX(${x}px) scaleX(${w})`;
+    bar.style.transform = `translateX(${a.offsetLeft}px) scaleX(${a.offsetWidth})`;
 };
 
 const renderViewToggle = () => {
@@ -2256,12 +2203,7 @@ const setView = (v, anim) => {
     // from the view's position relative to the previous one. paintGrid
     // falls back to an instant repaint under reduced motion.
     let a = anim;
-    // A scrub has already played the whole wave under the finger,
-    // so the commit repaints instantly onto exactly the grid the sweep
-    // just landed on and the commit itself is invisible. Distinct from
-    // `undefined`, which still means "derive a direction" for a tap.
-    if (a === 'instant') a = null;
-    else if (!a) {
+    if (!a) {
         const en = enabledViews();
         const oi = en.indexOf(prev), ni = en.indexOf(v);
         a = (oi >= 0 && ni >= 0 && oi !== ni)
@@ -3394,26 +3336,6 @@ const stepView = dir => {
     // Horizontal wave: the new view enters from the side it sits on, so
     // next (right in the control row) fills right-to-left.
     setView(v, { type: 'wave', axis: 'x', dir: -Math.sign(dir) });
-};
-
-// The grid as some OTHER view would draw it, without disturbing the live
-// one. Same swap-call-restore `hourColsFor` and `sheetColsFor` use, and
-// cached per gesture, since a drag that crosses the origin asks for the
-// same two views over and over.
-// The offsets go home with it, because a view change is one of the
-// drawer's ways home and `setView` will zero them on commit whatever
-// this builds. Building at the CURRENT offset instead left the
-// release swapping a swept grid for a repainted one at a different day,
-// which is a hard cut in the one place the whole gesture exists to avoid
-// having one.
-const viewColsFor = (v, cache) => {
-    if (cache.has(v)) return cache.get(v);
-    const keepView = view, keepHour = hourOff;
-    let built;
-    try { view = v; hourOff = 0; built = buildCols(); }
-    finally { view = keepView; hourOff = keepHour; }
-    cache.set(v, built);
-    return built;
 };
 
 // --- The elastic's constants, tuned by hand -----------------------
@@ -4691,10 +4613,6 @@ controlRow.addEventListener('touchstart', e => {
     rowTouch = {
         x: t.clientX, y: t.clientY, dx: 0,
         axis: null, armed: false,
-        // The sideways scrub's own state: whether it ever ran, and the two
-        // neighbouring views it has built, kept for the life of the drag
-        // so crossing back over the origin costs nothing.
-        scrubbed: false, viewCache: new Map(),
         // Which tap this would be if it turns out to be one.
         onName: !!e.target.closest?.('#location')
     };
@@ -4729,70 +4647,26 @@ controlRow.addEventListener('touchmove', e => {
         rowTouch.axis = 'x';
     }
     e.preventDefault();
-    if (rowTouch.axis === 'y') { aimAtPoint(t.clientX, t.clientY); return; }
-    scrubView(dx);
+    // The sideways drag renders nothing on the way out. The travel is only
+    // read at the release, below.
+    if (rowTouch.axis === 'y') aimAtPoint(t.clientX, t.clientY);
 }, { passive: false });
 
-// --- The view switch, scrubbed ----------------------------------------
-// The sideways drag used to do nothing at all until the finger came off,
-// and then jump a whole view. Every other gesture in the app answers under
-// the hand: the city list aims as the thumb moves, the day drag crossfades
-// per notch. This one was the exception, and the machinery to fix it
-// (`scrubWave`, and `renderViewBar`'s destination interpolation) was
-// already written and simply had no caller.
-//
-// The travel maps to the sweep the same way the rails do: a dwell first,
-// so a drag that is really a tap with a wobble in it moves nothing, then a
-// ramp to a fully played sweep at the commit distance. Past that the sweep
-// is finished and the extra travel is slack, which is what makes a long
-// confident drag and a short exact one land identically.
-const VIEW_DWELL = 0.25;
-const scrubView = dx => {
-    if (!railScrubLive() || !state.data.length) return;
-    const dir = Math.sign(dx);
-    if (!dir) return;
-    const dest = viewStepTo(dx < 0 ? 1 : -1);
-    if (!dest || dest === view) return;
-    const raw = Math.min(1, Math.abs(dx) / VIEW_COMMIT_PX);
-    const p = raw <= VIEW_DWELL ? 0 : (raw - VIEW_DWELL) / (1 - VIEW_DWELL);
-    rowTouch.scrubbed = true;
-    scrubWave($('grid'), viewColsFor(dest, rowTouch.viewCache), dir, p, dest);
-    renderViewBar(p, dest);
-};
+// --- The view switch --------------------------------------------------
+// The sideways drag used to scrub: the grid crossfaded under the finger
+// and the release either completed the sweep or rewound it. A view is one
+// of three, not a position on a continuum, so a half-played sweep is a
+// grid painted in a scale the legend is not showing and the transition
+// went as fast or as slow as the hand did. It steps on release instead,
+// and the wave that follows is the same one a toolbar tap plays: one
+// direction, one tempo, start to finish.
 
-// Release. The commit threshold is unchanged, so a gesture that worked
-// before works the same now; what changed is that the grid has already
-// played the sweep, so committing is an instant repaint onto the frame
-// the finger left it on, and abandoning rewinds the sweep rather than
-// discarding an animation that never ran.
-const endViewScrub = (r, commit) => {
+// Release. Travel past the commit distance takes the step; anything
+// short of it takes nothing, and either way nothing on screen has moved
+// until now.
+const endViewSwipe = (r, commit) => {
     if (!r) return;
-    const take = commit && Math.abs(r.dx) > VIEW_COMMIT_PX;
-    if (!r.scrubbed || !wave || !wave.scrub) {
-        renderViewBar();
-        if (take) stepView(r.dx < 0 ? 1 : -1);
-        return;
-    }
-    const dest = viewStepTo(r.dx < 0 ? 1 : -1);
-    wave.scrub = false;
-    if (take) {
-        wave.rate = 0;
-        wave.onSettle = () => { renderViewBar(); };
-        // The view is taken now, not when the sweep lands: the buttons and
-        // the key name the destination the moment the finger says so, and
-        // `'instant'` keeps setView from replaying the sweep already on
-        // screen underneath them.
-        if (dest) setView(dest, 'instant');
-    } else {
-        wave.rewind = true;
-        wave.rate = wave.t / Math.max(REWIND_MIN_MS, wave.t / REWIND_RATE);
-        // The bar is not parked here. `waveFrame` still drives it off
-        // `destView` for the whole rewind, so putting it home now would
-        // snap it back and then let it rewind out from there. It lands
-        // when the sweep does.
-        wave.onSettle = () => { renderViewBar(); };
-    }
-    waveRelease();
+    if (commit && Math.abs(r.dx) > VIEW_COMMIT_PX) stepView(r.dx < 0 ? 1 : -1);
 };
 
 const endRowTouch = commit => {
@@ -4805,7 +4679,7 @@ const endRowTouch = commit => {
         // Drag left for the next view, right for the previous, the same
         // direction the control row reads in. Decided on release off the
         // travel, so a slow drag and a flick differ only in where they end.
-        endViewScrub(r, commit);
+        endViewSwipe(r, commit);
         // A sideways swipe usually ends on top of a view button, and that
         // button's own click would then set a view the swipe did not choose.
         return true;
@@ -5093,12 +4967,12 @@ const mapRailNotches = (raw, unit) => {
 
 // ==================================================================
 // EXPERIMENTAL (2026-07-29): continuous crossfade for the day/hour
-// rails, reusing the same wave engine the view switch already uses
-// (`waveTo`/`scrubWave`) instead of the instant per-notch repaint.
-// Diagnosis: the rails' swipe INPUT was already smooth and tuned
-// (dwell, sensitivity); the OUTPUT was a hard cut every notch, which
-// is what read as jittery next to the view switch's gradual colour
-// swap. Everything this pass touches is tagged EXPERIMENTAL. Grep
+// rails, reusing the same wave engine every transition runs on
+// (`waveTo`, scrubbed by `scrubReveal` below) instead of the instant
+// per-notch repaint. Diagnosis: the rails' swipe INPUT was already
+// smooth and tuned (dwell, sensitivity); the OUTPUT was a hard cut
+// every notch, which is what read as jittery next to the gradual
+// colour swap. Everything this pass touches is tagged EXPERIMENTAL. Grep
 // for it to find every spot: this block, the two `colsFor`/
 // `stateSetter` lines in each `railDrag(...)` call below, the
 // `railScrubLive` branch inside `railDrag`, `mapRailNotches`'
@@ -5135,12 +5009,16 @@ const hourColsFor = (offset, cache) => {
     return built;
 };
 
-// A scrubWave that also takes the axis; scrubWave itself is
-// hardcoded to 'x' for the view switch's own use and is left alone
-// rather than risk it. `p` is 0..1 within the CURRENT notch (0
-// through mapRailNotches' own dwell, ramping to 1 across the rest),
-// so the blend pair only retargets when a full notch is crossed,
-// not on every frame.
+// Hand the playhead to the finger: `p` is 0..1 along the wave's own
+// timeline rather than a duration, so the blend IS the drag. `p` is
+// measured within the CURRENT notch (0 through mapRailNotches' own
+// dwell, ramping to 1 across the rest), so the blend pair only
+// retargets when a full notch is crossed, not on every frame.
+// The destination only ever changes at the origin, because the rail
+// re-locks direction inside its dwell, so the sweep is rebuilt from
+// zero rather than retargeted: `waveTo`'s queued reversal is a PACED
+// behaviour and would rewind on its own clock underneath a finger
+// that is already back where it started.
 const scrubReveal = (cols, dir, p, axis) => {
     const grid = $('grid');
     if (wave && wave.scrub && (cols !== wave.to || dir !== wave.dir)) {
@@ -5155,7 +5033,7 @@ const scrubReveal = (cols, dir, p, axis) => {
     waveFrame();
 };
 
-// Mirrors `endViewScrub`: the last notch's blend either completes
+// The last notch's blend either completes
 // (≥50% of the way across, the same point the committed offset
 // already flips at) or rewinds to the notch it started from. Either
 // way `afterEnd` (the SAME `opts.end` the shipped path already
