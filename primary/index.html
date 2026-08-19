@@ -2348,12 +2348,12 @@
             background: var(--warn-bg-soft);
             border-bottom: 1px solid var(--line);
         }
-        /* One action per row now — ★ pins, ✕ unpins, and a row only ever
-           carries the one that applies to it — so the two reserved columns
-           and the empty spacer that kept them aligned are gone with the
-           toggle that needed them. What is left is a single 44px target
-           flush to the right edge: the minimum, which the old 30px and 34px
-           columns were both under. */
+        /* One action per row now — an outline ★ pins, a filled ★ unpins, and
+           a row only ever carries the one that applies to it — so the two
+           reserved columns and the empty spacer that kept them aligned are
+           gone with the toggle that needed them. What is left is a single
+           44px target flush to the right edge: the minimum, which the old
+           30px and 34px columns were both under. */
         .result-actions { display: flex; align-items: center; flex-shrink: 0; }
         .search-result .pin,
         .search-result .unpin {
@@ -2376,16 +2376,23 @@
            off, and an offer nobody can see is not one. One step up, and gold
            on the way in. */
         .search-result .pin { color: var(--text-dim); }
-        .search-result .pin:hover,
         .search-result .pin:focus-visible { color: var(--accent); }
-        /* The struck star is only ever on a row that IS pinned, so it is not
+        /* The filled star is only ever on a row that IS pinned, so it is not
            advertising an action so much as reporting a state, and it is drawn
            in the accent for the same reason the row's label is: gold is what
            this app uses for "chosen". Hovering takes the gold away, which is
            a fair picture of what pressing it does. */
         .search-result .unpin { color: var(--accent); }
-        .search-result .unpin:hover,
         .search-result .unpin:focus-visible { color: var(--text-muted); }
+        /* Hover-only recolor, gated to real pointers: ungated, iOS latches
+           the tapped row's star into the hover color until some other tap
+           clears it, so a pinned city's star could sit grey — visually the
+           same "off" grey as a row that isn't pinned — until the next tap
+           anywhere. Same fault as the block-hover latch above, same fix. */
+        @media (hover: hover) and (pointer: fine) {
+            .search-result .pin:hover { color: var(--accent); }
+            .search-result .unpin:hover { color: var(--text-muted); }
+        }
         /* Tier name, on the first row of its block beside the seam, in the
            same treatment as the switcher's. Live geocoding hits get none:
            they are what the list is for, and the two saved tiers are named

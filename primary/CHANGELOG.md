@@ -2,6 +2,12 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.5 (2026-08-19) — bugfix
+
+- the search list's unpin star is now filled instead of struck through, so a pinned city reads as "on" instead of "removed"
+- fixed a pinned city's star sometimes showing grey instead of gold after a tap, from a hover style that stuck on touch
+- the gold highlight on the first search result no longer shows on phones and tablets, where it had nothing to explain itself (it marks the Enter-key target, and touch has no Enter key)
+
 ## v2.6.4 (2026-08-19)
 
 - on phones and tablets, tapping a block now opens a full-width card under the dates instead of a box floating over the grid. the card never blocks a tap, so every block behind it is still reachable

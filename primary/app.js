@@ -3554,10 +3554,17 @@ const renderSuggestions = async query => {
             </div>`;
         }).join('');
     // Preselect the first result so pressing Enter has an obvious,
-    // visible target. Hover or arrow keys move it from here.
+    // visible target. Touch has no Enter key, so the gold highlight had
+    // nothing to explain itself there — just a row lit up for no reason a
+    // finger could find. Skip it on coarse pointers; hover or arrow keys
+    // still set it for mouse and keyboard.
     const firstRow = $('searchResults').querySelector('.search-result');
-    searchHighlight = firstRow ? 0 : -1;
-    if (firstRow) firstRow.classList.add('highlighted');
+    if (firstRow && !coarse()) {
+        searchHighlight = 0;
+        firstRow.classList.add('highlighted');
+    } else {
+        searchHighlight = -1;
+    }
 };
 
 // --- Events -------------------------------------------------------

@@ -37,14 +37,14 @@ const MR_ICON = {
     // same two strokes rotated 45°) — at 13px in dim grey, a plus and a
     // cross read as the same mark, so the two opposite actions were only
     // distinguished by rotation. These use an actual five-pointed star,
-    // pinned and struck through. `star` itself is left alone since classic
-    // still reads it.
+    // outline for "not pinned" and filled for "pinned" — the same
+    // empty/filled convention every other app uses for favoriting, so the
+    // state reads from the icon's shape and not just its color. A struck-
+    // through star was tried first and reads as "removed" even on the row
+    // that IS the favorite, which is backwards. `star` itself is left
+    // alone since classic still reads it.
     pin: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.2 14.7 9.1 21 9.9 16.4 14.3 17.6 20.6 12 17.5 6.4 20.6 7.6 14.3 3 9.9 9.3 9.1Z\"/></svg>",
-    // The slash is drawn twice: once in the background color at double
-    // width, then in the ink. That cuts a clean gap through the star's
-    // outline where the two cross, so at 17px the strike reads as one line
-    // over the star instead of an unreadable tangle.
-    unpin: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 3.2 14.7 9.1 21 9.9 16.4 14.3 17.6 20.6 12 17.5 6.4 20.6 7.6 14.3 3 9.9 9.3 9.1Z\"/><path vector-effect=\"non-scaling-stroke\" stroke=\"var(--bg)\" stroke-width=\"4\" d=\"M4.4 3.6 19.6 20.4\"/><path vector-effect=\"non-scaling-stroke\" d=\"M4.4 3.6 19.6 20.4\"/></svg>",
+    unpin: "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 3.2 14.7 9.1 21 9.9 16.4 14.3 17.6 20.6 12 17.5 6.4 20.6 7.6 14.3 3 9.9 9.3 9.1Z\"/></svg>",
 };
 // Saved favourite: the plus mark in gold with a heavier stroke.
 const MR_ICON_STAR_SAVED = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"><path vector-effect=\"non-scaling-stroke\" d=\"M12 5.5V18.5\"/><path vector-effect=\"non-scaling-stroke\" d=\"M5.5 12H18.5\"/></svg>";
