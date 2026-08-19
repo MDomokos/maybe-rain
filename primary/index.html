@@ -979,10 +979,15 @@
            .temp-item is no longer in this list: the min/max row it named
            is gone, and the day label and the blocks carry the recession
            between them. */
-        .weather-block.past {
-            opacity: 0.82;
-            filter: saturate(0.85);
-        }
+        /* A past block recedes in its own colour — `pastRGB` in colors.js
+           steps the background down before the block is painted — rather
+           than by dimming the whole block as a layer. The two look the
+           same on the base and are not the same for anything drawn on it:
+           dimming scales a mark and its background toward the page black
+           together, which compresses the ratio between them, and the rain
+           marks were losing up to a quarter of their contrast against the
+           very sky they sit on. Nothing is left to write here; the rule
+           stays as the place that says why. */
         /* The label recedes in colour rather than opacity. Its two lines
            are already achromatic, so stepping them down the app's own
            greys says "behind" without dimming the row the elastic is
@@ -990,12 +995,11 @@
            widths where it is about to fade for want of room anyway. */
         .day-label.past .day-date { color: var(--text-muted); }
         .day-label.past .day-wd { color: var(--text-faint); }
-        /* The current-hour marker never lands on a past column, so no
-           .current interaction to handle here. Focus is left at full
-           strength: a keyboard user tabbing into a past block should
-           see the same focus ring as anywhere else, and the ring is a
-           box-shadow, which a filter on the same element would dull. */
-        .weather-block.past:focus-visible { opacity: 1; filter: none; }
+        /* No `.past:focus-visible` or `.past.sel` rule needed either. Both
+           existed to undo the opacity and filter above so a focus ring or a
+           selection ring — box-shadows, which a filter on the same element
+           would dull — showed at full strength on a past block. There is
+           nothing left to undo. */
 
         /* --- The hour rail ----------------------------------------------
            One transparent, never-rebuilt gesture layer. Nothing is drawn at
@@ -1212,10 +1216,18 @@
             border-radius: var(--radius);
             pointer-events: none;
         }
-        /* Rain-streak overlay: the wrapper's width is the chance
-           channel (fill extent, anchored left, bare front edge); the SVG
-           pattern inside is the intensity channel. Sits under the corner
-           marks, clipped to the block's rounded corners. */
+        /* Rain-streak overlay. The wrapper is the full block; the chance
+           channel is the fill's extent INSIDE the SVG, because the field
+           clips its marks to that edge analytically and so gets round ends
+           on it. (Classic still carries the chance on the wrapper's own
+           percentage width — that renderer has no way to clip a mark.)
+           Sits under the corner marks, clipped to the block's rounded
+           corners.
+
+           The SVG declares a viewBox for the box it was laid out against,
+           so it maps onto whatever size the block currently is rather than
+           being clipped by it — see the long note in shared/precip-field.js
+           for what that is protecting and what it costs. */
         .rain-ov {
             position: absolute;
             inset: 0;
@@ -1380,8 +1392,33 @@
            112 cells and never cleared, which left the hover fade dead until
            some later unanimated rebuild happened to restore it. */
         .chart-grid.sweeping .weather-block { transition: none; }
-        .weather-block:hover {
-            opacity: 0.8;
+        /* Gated to real pointers. Ungated, iOS latches :hover onto the block
+           a tap landed on, so the block whose tooltip was open sat at 80%
+           for the whole reading, and the block's colour is the encoding.
+           The latch also fired mouseout when a later tap cleared it, closing
+           the tooltip on its own. Touch uses .sel below instead. */
+        @media (hover: hover) and (pointer: fine) {
+            .weather-block:hover {
+                opacity: 0.8;
+            }
+            /* On a mouse the tooltip opens on hover and closes on mouseout,
+               so the pointer sits on the block for the whole reading and the
+               dim would be up the entire time; same fault as the touch
+               latch. The ring below marks it instead. */
+            .weather-block.sel:hover { opacity: 1; }
+        }
+        /* The block whose tooltip is open. Inset, so it costs no layout and
+           lies over the block's colour instead of changing it. Written by
+           cellClass (survives every repaint) and by markSelection (for the
+           tap itself, which repaints nothing).
+           :not(:focus-visible) because focus opens the same tooltip and sets
+           the same class; only one box-shadow can win and the focus ring is
+           the stronger mark. */
+        .weather-block.sel:not(:focus-visible) {
+            /* currentColor, not --marker: the block's inline color is
+               already whichever of black or white textOn picked against its
+               own background, so the ring reads on any block. */
+            box-shadow: inset 0 0 0 2px currentColor;
         }
         /* Current hour: a gold accent bar in the gutter just left of the block.
            The current block is always in the first column (today), so the bar
@@ -1556,6 +1593,11 @@
             opacity: 0;
             transition: opacity 0.2s ease;
             z-index: 1000;
+            /* The lines below are nowrap on purpose (a fact is never broken
+               mid-fact), but nothing enforced the max-width, so on a narrow
+               phone a long line painted outside the border. This contains
+               it; the header wraps rather than being clipped. */
+            overflow: hidden;
         }
         /* Only while MOVING from one block to another. An opening tooltip has
            no previous position worth travelling from, so it fades up in place
@@ -1585,6 +1627,10 @@
            interactive so it can be clicked; see showTooltip). */
         .tooltip a { color: var(--accent); text-decoration: underline; }
         .tooltip a:hover { color: var(--text); }
+        /* The explainer's links are tabbable and the last sits against the
+           bottom padding, so with the box clipping its overflow an outline
+           drawn outside the link would be cut off. Drawn inside instead. */
+        .tooltip a:focus-visible { outline: 1px solid var(--marker); outline-offset: -1px; }
 
         /* Block hover tooltip: header, three view-ordered main lines (temp,
            rain, wind; always present, only the active view's line gets the
@@ -1593,8 +1639,13 @@
            the tooltip; the header and main lines keep the default nowrap and
            stay single-line. */
         .tooltip.block { width: max-content; max-width: min(240px, calc(100vw - 16px)); }
+        /* The one line that can outgrow the cap: a long day label plus an
+           hour range are two nowrap flex items that won't shrink. Wraps to
+           a second line instead of overflowing: the two halves are separate
+           facts, so a break between them is fine, unlike one inside either. */
         .tooltip .tip-when {
             display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+            flex-wrap: wrap;
             padding-bottom: 4px; margin-bottom: 5px; border-bottom: 1px solid var(--divider);
         }
         .tooltip .tip-when .d { color: var(--text-muted); font-weight: 600; }

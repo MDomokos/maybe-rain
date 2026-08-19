@@ -61,6 +61,11 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // Horizontal runs: the one direction nothing else in the
              // system uses, so it composes with drizzle rather than
              // replacing it.
+             //
+             // Two thresholds, not one: `fogVis` is fog outright, `mistVis`
+             // is the mist boundary, and what separates them is whether the
+             // sky code has to agree. See `misty` below.
+             fogVis: 1000,
              mistVis: 2000, mistSp: 4.5, mistSw: 1.0, mistLen: 7, mistLenHi: 12,
              mistGap: 5, mistAlpha: 0.14, mistAlphaHi: 0.44,
              // The lattice: 7.6 px at the light end, 4.7 at the heavy
@@ -82,6 +87,15 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // quietly cost. The category boundary is now a jump in size.
              light: 1,
              lenTrace: 2.2, lenLo: 3.0, lenLight: 6.5, lenMain: 12.5, lenHi: 26,
+             // The longest mark is held to this fraction of the block's
+             // height. A 26 px mark cannot fit a 15 px block at any lean,
+             // so on the smallest phone the top few steps of the amount
+             // ramp were all clipped to about the same drawn length and
+             // stopped telling each other apart. Every length scales by the
+             // same factor, so the ramp keeps its whole range and its shape
+             // inside whatever height it is given, and the tier boundaries
+             // stay in the same order.
+             lenFit: 0.65,
              // Weight steps with the amount, and the floor is 1.1 px.
              //
              // It was 1.5 for a while, on the argument that 0.9 px is
@@ -94,7 +108,14 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // screen density and paid for it with weight on all of them
              // — the trace tier alone came out at more than twice the
              // ink of the renderer it replaced.
-             swFloor: 1.1, swLo: 1.1, swLight: 1.1, swMain: 1.4, swHi: 2.6,
+             // swWarn is the top of a second, gentler segment running from
+             // the cap up to the warning. 8 mm and 20 mm used to emit
+             // identical markup: a 2.5x range of severe rain with nothing
+             // to tell one from the other, and no glyph either, since the
+             // glyph test was a strict >. Weight only, because at 26 px the
+             // marks already run most of the block and growing them further
+             // merges the field into a solid.
+             swFloor: 1.1, swLo: 1.1, swLight: 1.1, swMain: 1.4, swHi: 2.6, swWarn: 3.2,
              gapTrace: 5.4, gapLo: 3.4, gapHi: 3.0,
              gamma: 0.55, lightGamma: 0.8,
              // Opacity, and the light band no longer gets extra of it.
@@ -103,7 +124,14 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // the mark does not need the help, and the band sat a
              // quarter brighter than the rain above it for no reason a
              // reader could see.
-             alpha: 0.55, alphaLight: 0.58, alphaTrace: 0.30,
+             // The trace tier's opacity is 0.36 rather than 0.30. At 0.30
+             // it composited to 1.65:1 against the palest sky it is drawn
+             // on, which is under any floor worth naming — the tier is
+             // meant to be quiet, not absent, and it is the tier that
+             // carries the commonest wet hour there is. 0.36 takes it to
+             // 1.83:1 and costs about a fifth more ink on trace hours
+             // alone; nothing above the floor moves.
+             alpha: 0.55, alphaLight: 0.58, alphaTrace: 0.36,
              // The chance channel: how far across the block the committed
              // marks reach. A floor and a gamma, because at 12% the bare
              // reading is about 5 px of a 46 px block and no texture
@@ -112,13 +140,32 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // grid by about a fifth on its way to rescuing the lowest
              // ones, and 0.78 still takes a 12% hour to 11 px.
              popFill: 0.06, popGamma: 0.78,
-             // Past the committed edge, on the TRACE TIER ONLY, the same
-             // marks continue at reduced strength out to 1.9x the chance:
-             // "possibly a bit more than this". Scoped twice on purpose.
-             // Ghosting the whole block was too much ink everywhere, and
-             // the cells that needed help were only ever the near-empty
-             // ones; reaching the whole cell read as a second fill rather
-             // than as the block's own uncertainty.
+             // Past the committed edge the same marks continue at reduced
+             // strength, out to 1.9x the chance: "possibly a bit more than
+             // this". Scoped on purpose — ghosting the whole block was too
+             // much ink everywhere, and the cells that needed help were
+             // only ever the near-empty ones; reaching the whole cell read
+             // as a second fill rather than as the block's own uncertainty.
+             //
+             // The over-reach FADES with the amount rather than switching
+             // off with the tier, and that is the whole point of these
+             // four numbers. The ghost used to belong to the trace tier
+             // alone, and a tier boundary is a threshold in the AMOUNT
+             // channel: crossing the 0.3 mm floor turned the ghost off, so
+             // the drawn WIDTH roughly halved because the amount rose by
+             // one hundredth of a millimetre. Width is the chance channel.
+             // Two hours at the same 40% chance, one either side of the
+             // floor, read as 83% and 23%. A tier is allowed to step the
+             // figure and the length, which is where the category is meant
+             // to be read; it is not allowed to step a different fact.
+             //
+             // So the span rides the amount: full while the amount is
+             // still noise, gone by the time it is a drizzle reading worth
+             // believing, and continuous through the floor. The ghost
+             // outlives the trace tier by a little because it has to fade
+             // out SOMEWHERE, and fading it out inside the tier would take
+             // it away while the amount is still under the floor and still
+             // says nothing — which is the hour that needs it most.
              //
              // Opacity alone cannot make a ghost read as a ghost on every
              // sky: the same fraction that whispers on gold reads as a
@@ -127,7 +174,19 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // bases and the mark is drawn SHORTER as well as fainter — a
              // size difference holds up wherever an opacity difference
              // does not.
-             ghostSpan: 1.9, ghostAlpha: 0.30, ghostDark: 0.5,
+             //
+             // `ghostDark` cuts the ghost again where the pale blue is
+             // already high-contrast — true slate — because there a ghost
+             // at full fraction reads as a second mark rather than as a
+             // doubt. That headroom is not a step, though: it shrinks
+             // steadily as the sky brightens toward the switch, and by the
+             // time the sky is just below it the pale blue has nothing left
+             // to give away. The cut was taking the same half regardless,
+             // hardest exactly where the mark could least afford it. It is
+             // now proportional to the room there is, reaching its full
+             // depth `cutSpan` below the switch and nothing at it.
+             ghostSpan: 1.9, ghostSpanEnd: 1.0, ghostFull: 0.2, ghostTo: 0.45,
+             ghostAlpha: 0.30, ghostDark: 0.5, cutSpan: 55,
              ghostScale: 0.62, ghostWeight: 0.78,
              // An hour at 0 mm with a real chance is the commonest trace
              // case, not a rare one: the deterministic run says nothing
@@ -145,6 +204,27 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // near 0.07 and vanish.
              nilMax: 0.05, nilAlpha: 0.17, nilDark: 0.62,
              nilScale: 0.50, nilWeight: 0.58,
+             // Legibility, not data. The two blues swap polarity at one
+             // luminance, and however well that crossing is placed there
+             // is still a narrow band of sky where a light mark and a dark
+             // mark are both near their worst. Pigment alone cannot lift
+             // it: even pure white against pure black tops out at 2.6:1
+             // there, and a mark that has to read as blue sits below that.
+             //
+             // So the marks are painted a little more strongly on exactly
+             // those skies and nowhere else. It is the same kind of
+             // correction the blue switch already is — the sky changing
+             // how the mark is drawn so the mark keeps saying the same
+             // thing — and it is deliberately NOT a global lift, because
+             // the field was quietened on purpose and a week of drizzle
+             // that came back brighter everywhere would undo that for the
+             // sake of a band most hours never sit in.
+             //
+             // A ramp rather than a band test, because opacity blends
+             // safely where colour does not: every value between the two
+             // is a real opacity, so there is no midpoint that is worse
+             // than both ends.
+             valleyLift: 0.15, valleyLo: 96, valleyMid: 119, valleyHi: 152,
              // The field's own two: how far a mark is held off the block's
              // edge, and how much of a mark has to survive the clip to be
              // worth drawing. The cull floor is 0 on purpose — a mark cut
@@ -299,6 +379,53 @@ const markField = (W, H, angle, o) => {
     return segs;
 };
 
+// --- the box, declared -----------------------------------------------
+// The field is laid out in pixels against a block of a known size, and is
+// then displayed in a block that may no longer be that size. Three ways
+// that happens: the day elastic squishes every column to pay for the one
+// it is revealing and never rebuilds mid-gesture; a repaint taken while
+// the elastic is LOCKED bakes the squished width, and going home does not
+// rebuild; and a window resize re-runs the widths without rebuilding at
+// all. In every case the block moves and the marks do not.
+//
+// Without a viewBox an SVG has no coordinate mapping — one user unit is
+// one CSS pixel, anchored top left — so the field was simply CLIPPED by
+// the narrower box. That is not a cosmetic loss. The chance channel IS
+// the fill's extent, anchored left, so clipping it into a narrower block
+// makes a fixed fill cover MORE of what is visible: at full pull an 80%
+// hour reads as certain and a 20% hour reads as 63%. The one channel the
+// pull exists to compare across days was the first one the pull spoiled.
+//
+// Declaring the box fixes it. The extents then track the block at every
+// width, so the chance edge sits at its true fraction whatever the
+// elastic is doing, and a stale build is corrected by the browser rather
+// than by luck. `preserveAspectRatio="none"` because the two axes move
+// independently — a pull changes width alone — and a uniform fit would
+// answer a width change by shrinking the field vertically too, leaving
+// bare space along the bottom.
+//
+// What a non-uniform map costs is stated rather than hidden: the lean
+// flattens as the block narrows (26deg reads about 13deg at full pull)
+// and a snow flake squashes to an ellipse. Stroke WEIGHT is exempt, via
+// `vector-effect="non-scaling-stroke"` on every stroked path, because
+// weight is half the amount channel and a downpour that thinned out as
+// you peeked would be the same class of lie this comment is about.
+//
+// The distortion is meant to be transient, so it is bounded: the grid
+// rebuilds on settle and on resize (`settleFields` in primary/app.js),
+// which re-bakes exact geometry for anything that persists. What
+// stretches is a gesture in flight, and nothing else.
+//
+// Classic never had this problem. The pattern renderer carries chance as
+// a percentage width on the wrapper and fills with a 100%-by-100% rect,
+// so it tracks the box for free; the field lost that when it moved the
+// fill inside the SVG to get round ends on the chance edge. This is the
+// property being restored, not a new one.
+const svgOpen = (W, H) => `<svg xmlns="http://www.w3.org/2000/svg"`
+    + ` viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" preserveAspectRatio="none">`;
+// Every stroked path in this file carries it, so the rule is one string.
+const STROKE_FX = ' vector-effect="non-scaling-stroke"';
+
 // --- the primitives --------------------------------------------------
 // Every figure in the system is built from these two, so the lattice, the
 // lean and the clipping are shared and only the drawn shape changes.
@@ -391,7 +518,26 @@ const figureFor = m => m.trace ? 'grain' : m.light ? 'broken' : 'straight';
 // It takes millimetres and nothing else. A snowy hour rides the same ramp
 // on the total water it is carrying, because the lattice under all three
 // phases is one lattice and a mixed hour has to be sized once.
-const amountFor = mm => {
+// `H` is the block's height, and only the length ramp reads it: the
+// longest mark has to fit the box or the top of the ramp flattens out
+// against it. Omitted, the reference block's height is assumed, which is
+// what the callers that only want the tier and the figure pass.
+const amountFor = (mm, H) => {
+    // One factor for the whole ramp, so the two tier boundaries keep their
+    // order and their relative sizes. Never above 1: a tall block does not
+    // get longer marks, it just stops clipping them.
+    // Only the main segment is fitted. It is the only one a real block
+    // is ever too short for: 26 px does not go into 15, while the light
+    // band's 6.5 always has. Fitting the tiers below as well was measured
+    // and moves their lattice for no gain, which shows up as a step at the
+    // 0.3 mm boundary on the shortest block.
+    //
+    // The floor keeps the jump at 1 mm a jump UP. Squeezing the main
+    // segment far enough would otherwise put its shortest mark below the
+    // light band's longest, and the category boundary would read backwards.
+    const fit = Math.min(1, ((H > 0 ? H : LN_BLOCK.H) * LN.lenFit) / LN.lenHi);
+    const mainLo = Math.max(LN.lenLight * 1.2, LN.lenMain * fit);
+    const mainHi = Math.max(mainLo * 1.15, LN.lenHi * fit);
     if (mm < LN.floor) {
         // The trace tier. The amount is below the 0.3 mm floor (often ~0),
         // but the chance is real: amount is the deterministic run and
@@ -414,10 +560,14 @@ const amountFor = mm => {
                  gap: LN.gapLo, trace: false, light: true };
     }
     const t = Math.pow(clamp01((Math.min(mm, LN.cap) - LN.light) / (LN.cap - LN.light)), LN.gamma);
+    // Past the cap, weight alone keeps rising to the warning. Everything
+    // else is held, so the block darkens without the marks merging.
+    const over = clamp01((Math.min(mm, LN.warn) - LN.cap) / (LN.warn - LN.cap));
     return { sp: LN.spLo + (LN.spHi - LN.spLo) * t,
-             sw: Math.max(LN.swMain + (LN.swHi - LN.swMain) * t, LN.swFloor),
+             sw: Math.max(LN.swMain + (LN.swHi - LN.swMain) * t
+                          + (LN.swWarn - LN.swHi) * over, LN.swFloor),
              alpha: LN.alpha,
-             len: LN.lenMain + (LN.lenHi - LN.lenMain) * t,
+             len: mainLo + (mainHi - mainLo) * t,
              gap: LN.gapLo + (LN.gapHi - LN.gapLo) * t, trace: false, light: false };
 };
 
@@ -432,11 +582,33 @@ const amountFor = mm => {
 // about 5 px of a 46 px block and no texture survives 5 px.
 const chanceBand = h => h.pop == null ? 1
     : LN.popFill + (1 - LN.popFill) * Math.pow(Math.min(100, h.pop) / 100, LN.popGamma);
+// How far past the committed edge the ghost reaches, as a multiple of the
+// chance. It is a ramp and not a tier test on purpose: a step here would
+// be the amount moving the width, and the width is the chance. 1.0 is no
+// over-reach at all, so the ghost has retired itself by the time the ramp
+// ends and the block goes back to answering with its bare chance.
+const ghostSpanFor = mm => LN.ghostSpan + (LN.ghostSpanEnd - LN.ghostSpan)
+    * Math.max(0, Math.min(1, (mm - LN.ghostFull) / (LN.ghostTo - LN.ghostFull)));
+// How much extra opacity this sky needs. Nothing on the dark skies most
+// rain falls under, nothing on bright ones, and the full lift where the
+// two blues cross and neither has any room. Peaks at the crossing rather
+// than in the middle of the band, because that is where the floor is.
+const lnLift = base => {
+    const L = lnLum(base);
+    const t = L <= LN.valleyMid ? (L - LN.valleyLo) / (LN.valleyMid - LN.valleyLo)
+                                : (LN.valleyHi - L) / (LN.valleyHi - LN.valleyMid);
+    return LN.valleyLift * Math.max(0, Math.min(1, t));
+};
 // Emit one path per strength. Marks may be shortened toward their own
 // start and drawn at a lighter weight, which is how a ghost is told from
 // a committed mark by size as well as by opacity.
 // `group` is the fall layer being emitted, or null for the whole field.
-const emitMarks = (segs, figure, m, c, alpha, scale, weight, group) => {
+// `cls` names the phase on the element. Every phase already differs in
+// colour or opacity, but a phase is not the same thing as an opacity: the
+// sky can move an alpha, and once it can, reading the alpha back to work
+// out which phase drew a mark gives the wrong answer. Naming it costs a
+// dozen bytes a block and makes the DOM say what it is.
+const emitMarks = (segs, figure, m, c, alpha, scale, weight, group, cls) => {
     const src = group == null ? segs : segs.filter(s => s[10] % FALL_GROUPS === group);
     if (!src.length) return '';
     const use = scale === 1 ? src : src.map(s =>
@@ -450,8 +622,8 @@ const emitMarks = (segs, figure, m, c, alpha, scale, weight, group) => {
     const sw = Math.max(m.sw * weight, LN.swFloor);
     const p = marksToPath(use, figure, { ...m, sw });
     const col = `rgba(${c[0]},${c[1]},${c[2]},${alpha.toFixed(3)})`;
-    return (p.stroke ? `<path d="${p.stroke}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` : '')
-        + (p.fill ? `<path d="${p.fill}" fill="${col}"/>` : '');
+    return (p.stroke ? `<path d="${p.stroke}" class="${cls}" stroke="${col}" stroke-width="${sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none"${STROKE_FX}/>` : '')
+        + (p.fill ? `<path d="${p.fill}" class="${cls}" fill="${col}"/>` : '');
 };
 
 // --- the block -------------------------------------------------------
@@ -478,14 +650,30 @@ const precipFieldSVG = (h, base, W, H, opts) => {
     if (h.mm == null && h.liquid == null && snow === 0) return '';
     const liquid = Math.max(0, h.liquid ?? (COND[h.condition].group === 'snow' ? 0 : (h.mm ?? 0)));
     const total = liquid + snow;
-    if (h.pop != null && h.pop < LN.popFloor) return '';
+    // The chance floor applies to the CHANCE, not to the block. It used to
+    // sit here as an early return, so an hour carrying 0.5 mm at 7% drew an
+    // empty block and the same hour at 8% drew normally — and an hour at
+    // 20 mm and 7% drew nothing at all. A deterministic amount with a
+    // near-zero ensemble chance is contradictory data, but the block was
+    // saying "nothing is falling" when what the data says is "the runs
+    // disagree". `chanceBand` already has a floor and a gamma of its own,
+    // so letting it run gives those hours a narrow committed fill that
+    // joins up continuously with the hours just above the floor. An hour
+    // with no amount either is still an empty block, from the guard below.
     // The trace tier is liquid-only. Below the floor the amount is
     // noise and the chance is the whole story, and a chance of snow is not
     // a story this texture can tell.
     if (total < LN.floor && (COND[h.condition].group === 'snow'
         || h.pop == null || h.pop < LN.popFloor)) return '';
 
-    const m = amountFor(total);
+    // The ramp decides the mark's opacity from the amount; the sky then
+    // adds whatever this base needs to stay legible. Folded in here, once,
+    // so everything downstream — the committed marks, the ghost derived
+    // from them, a snow tail — is lifted by the same amount without any of
+    // them having to know the correction exists.
+    const m0 = amountFor(total, H);
+    const lift = lnLift(base);
+    const m = lift ? { ...m0, alpha: Math.min(0.95, m0.alpha + lift) } : m0;
     // How long the arrival takes to settle. It is decided HERE, where the
     // total is already in scope, and written onto the wrapper to inherit
     // down: the total is built from h.liquid, h.mm and the snow depth with
@@ -497,11 +685,20 @@ const precipFieldSVG = (h, base, W, H, opts) => {
     // downpour. The light end takes slightly longer than the middle so a
     // drizzle hour has time to read as drizzle.
     const settle = snow > 0 ? 5.0 : total >= 4 ? 2.4 : total < 1 ? 3.4 : 3.0;
-    const c = lnBlue(base), dark = lnLum(base) <= 135;
+    // `dark` means "the pale blue is the one in use", so it reads the same
+    // threshold `lnBlue` switches on rather than a copy of it. The two were
+    // the same number until the switch moved; leaving a literal here would
+    // have cut the ghost hardest on the very skies the switch had just
+    // handed to the deep blue.
+    const c = lnBlue(base), dark = lnLum(base) <= LN_BLUE_SW;
     const band = chanceBand(h);
-    // The ghost is the trace tier's alone. Above it the block already has
-    // committed marks to read, and the chance is not the only real fact.
-    const ghosted = m.trace && h.pop != null;
+    // The ghost belongs to the amount, not to the tier. It runs a little
+    // past the floor so that its reach can fall to nothing on the far
+    // side, which is what keeps the drawn width answering the chance and
+    // only the chance across the boundary. Well above the floor the block
+    // has committed marks to read and the chance is not the only real
+    // fact, so there is nothing left to ghost.
+    const ghosted = total < LN.ghostTo && h.pop != null;
     // An hour whose amount is literally zero draws entirely in the ghost.
     const nil = ghosted && total <= LN.nilMax;
     // The reach over-reports on purpose, and that is the accepted trade.
@@ -512,7 +709,7 @@ const precipFieldSVG = (h, base, W, H, opts) => {
     // recorded rather than hidden: above about 30% chance the reach
     // saturates at the block width, so the top of the chance scale
     // resolves less than the bottom.
-    const reach = ghosted ? Math.min(1, band * LN.ghostSpan) : band;
+    const reach = ghosted ? Math.min(1, band * ghostSpanFor(total)) : band;
 
     // Role shares, known BEFORE the lattice is laid, because that is what
     // the lattice's step depends on: a flake is a dot, and dots want a
@@ -563,8 +760,18 @@ const precipFieldSVG = (h, base, W, H, opts) => {
     const onBlock = (s, r) =>
         s[7] >= -r && s[7] <= reach * W + r && s[8] >= -r && s[8] <= H + r;
     const mm = { ...m, sp, len, gap };
-    const gA = nil ? LN.nilAlpha * (dark ? LN.nilDark : 1)
-                   : m.alpha * LN.ghostAlpha * (dark ? LN.ghostDark : 1);
+    // The nil field carries an absolute alpha rather than a fraction of
+    // the mark's, so the sky's correction has to be added to it by hand —
+    // it is the faintest thing drawn and the valley is the last place it
+    // can afford to be left behind.
+    // How much of the dark cut this sky earns: all of it well below the
+    // switch, none of it at the switch. One-sided, because above the
+    // switch the deep blue is the one in use and the ghost was never cut
+    // there.
+    const near = Math.max(0, Math.min(1, (LN_BLUE_SW - lnLum(base)) / LN.cutSpan));
+    const cut = f => dark ? 1 + (f - 1) * near : 1;
+    const gA = nil ? LN.nilAlpha * cut(LN.nilDark) + lift
+                   : m.alpha * LN.ghostAlpha * cut(LN.ghostDark);
     // Every phase of the field for ONE fall layer, or for the whole field
     // when `group` is null. Layering is a filter over the same marks and
     // nothing else: the roles, the geometry and the colours are all
@@ -573,9 +780,10 @@ const precipFieldSVG = (h, base, W, H, opts) => {
     const buildPaths = group => {
         const pick = arr => group == null
             ? arr : arr.filter(s => s[10] % FALL_GROUPS === group);
-        let out = emitMarks(rain, figure, mm, c, m.alpha, 1, 1, group)
+        let out = emitMarks(rain, figure, mm, c, m.alpha, 1, 1, group, 'pf-rain')
             + emitMarks(ghost, figure, mm, c, gA,
-                nil ? LN.nilScale : LN.ghostScale, nil ? LN.nilWeight : LN.ghostWeight, group);
+                nil ? LN.nilScale : LN.ghostScale, nil ? LN.nilWeight : LN.ghostWeight,
+                group, nil ? 'pf-nil' : 'pf-ghost');
 
         // Snow: a flake on the site, with a tail only while the hour is
         // mixed. White, because frozen precipitation keeps a constant
@@ -599,8 +807,8 @@ const precipFieldSVG = (h, base, W, H, opts) => {
                 }
             });
             let snowOut = '';
-            if (tails) snowOut += `<path d="${tails}" stroke="rgba(${c[0]},${c[1]},${c[2]},${m.alpha})" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
-            if (dots) snowOut += `<path d="${dots}" fill="rgba(255,255,255,0.92)"/>`;
+            if (tails) snowOut += `<path d="${tails}" class="pf-tail" stroke="rgba(${c[0]},${c[1]},${c[2]},${m.alpha})" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"${STROKE_FX}/>`;
+            if (dots) snowOut += `<path d="${dots}" class="pf-flake" fill="rgba(255,255,255,0.92)"/>`;
             // Snow does not fall straight down the way rain does, so it
             // rides a damped wave inside its fall layer. Flake and tail
             // are in the one group: they share an anchor and have to
@@ -624,7 +832,7 @@ const precipFieldSVG = (h, base, W, H, opts) => {
                                   0, 0, reach * W, H);
                 if (p) d += subStraight(p);
             });
-            if (d) out += `<path d="${d}" stroke="rgba(255,255,255,0.95)" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+            if (d) out += `<path d="${d}" class="pf-hail" stroke="rgba(255,255,255,0.95)" stroke-width="${m.sw.toFixed(2)}" stroke-linecap="round" fill="none"${STROKE_FX}/>`;
         }
         return out;
     };
@@ -632,7 +840,7 @@ const precipFieldSVG = (h, base, W, H, opts) => {
     if (!(opts && opts.layered)) {
         const body = buildPaths(null);
         if (!body) return '';
-        return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${body}</svg></span>`;
+        return `<span class="rain-ov">${svgOpen(W, H)}${body}</svg></span>`;
     }
 
     // Each layer is offset back along the fall direction by a whole number
@@ -651,7 +859,7 @@ const precipFieldSVG = (h, base, W, H, opts) => {
     }
     if (!body) return '';
     return `<span class="rain-ov" style="--pf-settle:${settle}s">`
-         + `<svg xmlns="http://www.w3.org/2000/svg">${body}</svg></span>`;
+         + `${svgOpen(W, H)}${body}</svg></span>`;
 };
 
 // Mist / low visibility. Short horizontal runs on the same lattice
@@ -663,8 +871,26 @@ const precipFieldSVG = (h, base, W, H, opts) => {
 // It is checked before it is drawn: `vis` is null on any payload cached
 // before the field was asked for, and on a provider that does not carry
 // it, which an earlier optional field had to learn the hard way.
+
+// The WMO codes that say fog outright: the same two the ≡ hazard glyph is
+// keyed to (HAZARD_GLYPH in colors.js). Sharing one list is what stops the
+// texture and the glyph disagreeing on the same block.
+const FOG_CODE = { 45: 1, 48: 1 };
+
+// Visibility alone was the test, at the 2 km mist boundary, and it answered
+// the wrong question. Model visibility drops through that band during any
+// decent shower — falling water is what it measures — so a plain wet
+// afternoon drew a murk texture over a block already covered in rain marks,
+// while the block beside it, a shade drier, drew none. It was reporting the
+// rain, and the rain was drawn already.
+//
+// From 1 to 2 km the sky code now has to agree that it is fog. Below 1 km it
+// does not: that is fog whatever the code calls it.
+const misty = h => h.vis != null && h.vis <= LN.mistVis
+    && (h.vis <= LN.fogVis || !!FOG_CODE[h.code]);
+
 const mistSVG = (h, base, W, H, opts) => {
-    if (h.vis == null || h.vis > LN.mistVis) return '';
+    if (!misty(h)) return '';
     const t = Math.max(0, Math.min(1, 1 - h.vis / LN.mistVis));
     const c = lnLum(base) > 135 ? [70, 78, 88] : [226, 232, 238];
     const len = LN.mistLen + (LN.mistLenHi - LN.mistLen) * t;
@@ -674,7 +900,7 @@ const mistSVG = (h, base, W, H, opts) => {
     const d = segs.filter(s => s[9]).map(subStraight).join('');
     if (!d) return '';
     const a = (LN.mistAlpha + (LN.mistAlphaHi - LN.mistAlpha) * t).toFixed(3);
-    const path = `<path d="${d}" stroke="rgba(${c[0]},${c[1]},${c[2]},${a})" stroke-width="${LN.mistSw.toFixed(2)}" stroke-linecap="round" fill="none"/>`;
+    const path = `<path d="${d}" class="pf-murk" stroke="rgba(${c[0]},${c[1]},${c[2]},${a})" stroke-width="${LN.mistSw.toFixed(2)}" stroke-linecap="round" fill="none"${STROKE_FX}/>`;
     // One layer, not three: mist is a body of air moving past, not
     // discrete marks falling at their own rates. Its lean is 90deg, so it
     // travels horizontally and the wave that rides on it runs vertically.
@@ -682,7 +908,7 @@ const mistSVG = (h, base, W, H, opts) => {
         ? `<g class="pf-mist" style="--tx:${(-3 * (len + LN.mistGap)).toFixed(2)}px">`
           + `<g class="pf-wave">${path}</g></g>`
         : path;
-    return `<span class="rain-ov"><svg xmlns="http://www.w3.org/2000/svg">${body}</svg></span>`;
+    return `<span class="rain-ov">${svgOpen(W, H)}${body}</svg></span>`;
 };
 
 // The overlay for one block, or ''. Same signature as the pattern

@@ -56,7 +56,7 @@ Three, cycled by the toggle row, a horizontal swipe, or ← →:
 
 | view | block colour | overlay |
 |---|---|---|
-| **rain** | the sky as seen overhead: clearness sets brightness, sunshine sets how gold, per-hour night. Rain tints toward navy by amount × chance; storms are dark slate, not violet, and carry the hazard on the glyph | a field of falling marks, plus a mist texture where visibility drops |
+| **rain** | the sky as seen overhead: clearness sets brightness, sunshine sets how gold, per-hour night. Rain tints toward navy by amount × chance; storms are dark slate, not violet, and carry the hazard on the glyph | a field of falling marks, plus a mist texture where it is foggy |
 | **temp** | apparent temperature in absolute comfort bands | — |
 | **wind** | speed ramp | centred direction arrow |
 
@@ -70,24 +70,39 @@ belongs.
 
 | fact | how it is drawn |
 |---|---|
-| **how much** | the mark's length and weight. Under 0.3 mm, grain — short ticks of varying length. From 0.3 to 1 mm, broken — each site a dot, a tick or a dash. Above 1 mm, a plain run that grows, from 12.5 px to 26. The jump between the drizzle band and rain is deliberate: it is the jacket question answered as a change of size |
-| **how likely** | how far across the block the marks reach, anchored left, nothing below 8% |
+| **how much** | the mark's length and weight. Under 0.3 mm, grain — short ticks of varying length. From 0.3 to 1 mm, broken — each site a dot, a tick or a dash. Above 1 mm, a plain run that grows, from 12.5 px to 26, then thickens alone from 8 mm up to the 20 mm warning the glyph fires at. The jump between the drizzle band and rain is deliberate: it is the jacket question answered as a change of size. On a block too short for a full-length mark the run scales to fit, so the top of the scale still tells its steps apart instead of clipping flat |
+| **how likely** | how far across the block the marks reach, anchored left. Below 8% the fill is narrow but present: a forecast amount is a fact, and an empty block would say nothing is falling when what the data says is that the runs disagree |
 | **which way** | the lean, in five steps — straight down, and 13° or 26° either side. Hours in the same airflow share an angle, so a windy afternoon leans as one block of grid |
-| **what kind** | which mark a site carries. A blue streak is rain, a white dot is a flake, a short white stub is hail. A flake grows a tail only while the hour is mixed, so a sleet hour reads as a mix and a pure snow hour is pure dots |
+| **what kind** | which mark a site carries. A blue streak is rain, a white dot is a flake, a short white stub is hail. A flake grows a tail only while the hour is mixed, so a sleet hour reads as a mix and a pure snow hour is pure dots. Frozen marks are always white, so a snow sky is capped in brightness the way a storm sky is — otherwise a sunlit shower puts white on a near-golden base |
 
-Two readings sit outside that. An hour under 0.3 mm keeps a **ghost** past the
-edge its chance commits to: the same marks at reduced strength, out to about
-twice as far, meaning "possibly a bit more than this". An hour with a real
-chance but **nothing forecast** is drawn entirely in that ghost — no committed
-mark at all — which is a thing you can see rather than something only the
-tooltip knows. Below 2 km visibility the block also draws short **horizontal**
-runs, which is the one direction nothing else uses, so a murky drizzle hour
-draws both and neither reads as the other.
+Two readings sit outside that. A near-dry hour keeps a **ghost** past the edge
+its chance commits to: the same marks at reduced strength, meaning "possibly a
+bit more than this". How far it reaches follows the amount rather than a band —
+about twice the chance while the amount is still noise, fading to no over-reach
+at all by 0.45 mm — so the width of a block answers how likely rain is and
+nothing else, at every amount. An hour with a real chance but **nothing
+forecast** is drawn entirely in that ghost — no committed mark at all — which is
+a thing you can see rather than something only the tooltip knows. A **foggy** block also draws short **horizontal** runs, which is
+the one direction nothing else uses, so a murky drizzle hour draws both and
+neither reads as the other. Foggy means under 1 km visibility, or under 2 km
+with a sky code that says fog — the same two codes the `≡` glyph is keyed to,
+so the texture and the glyph cannot disagree on a block. Where the texture
+shows, the tooltip prints the visibility behind it.
+
+The blue is chosen against the sky the mark sits on: pale on dark skies, deep on
+bright ones. The changeover is a polarity flip — a light mark becomes a dark one —
+so there is one sky brightness where both are near their weakest, and it is placed
+where the two are strongest together rather than in the middle of the range.
+Blending the two across it is worse than the seam, because a blend runs through a
+mid blue and a mid blue on a mid grey has no contrast at all. On the narrow band of
+sky either side of the changeover, and nowhere else, the marks are painted a little
+more strongly. Both are legibility corrections: the colour and the opacity of a mark
+carry no data, only its size, extent, angle and figure do.
 
 Every mark begins and finishes where it means to: marks are clipped to the block
 and to the chance edge and finished with round caps, so nothing is severed by an
-edge. All the marks of one phase in a block are one path, so the overlay is the
-same single element the old pattern was.
+edge. All the marks of one phase in a block are one path, named for its phase, so
+the overlay is the same handful of elements the old pattern was.
 
 Classic still draws the older pattern overlay, deliberately: `shared/precip-pattern.js`
 is named only by `classic/index.html` and `shared/precip-field.js` only by
@@ -116,6 +131,13 @@ Two surfaces, and which one a drag started on is what decides its meaning.
     between the two sides and anything past it would reveal a day from the end
     the pull was leaving. There is no scroll position, so there is nothing to
     lose.
+  - **The rain stretches with the column rather than being cut off by it**, so
+    a chance of rain means the same thing at every width — which matters most
+    here, since comparing days out is what the pull is for. While a pull is
+    moving, the lean lies down a little and a flake goes oval; the weight of
+    the marks never changes, because that is how hard it is raining. The grid
+    re-draws exact geometry whenever a block settles at a different size, so
+    what stretches is a gesture in flight and nothing that stays.
   - **At the end the columns freeze** and the whole grid slides toward the pull
     instead, its trailing edge clipping into black. A little way into that
     slide a hairline beside the grid grows and brightens, then goes solid with
@@ -187,9 +209,23 @@ Two surfaces, and which one a drag started on is what decides its meaning.
 ## Tooltip
 
 A single tap on a block opens it; tapping the same block, the tooltip itself, or
-anywhere else closes it. There is no pinned tier and no long press. An open
-tooltip survives a city or view swipe and re-targets the same grid position, so
-it doubles as the comparison tool.
+anywhere else closes it. There is no pinned tier and no long press.
+
+The block being read is marked with a hairline ring drawn inside it, so the
+block's own colour — which is the encoding — is never altered to say it is
+selected. On a mouse, hovering a block opens its tooltip and the ring replaces
+the usual hover dim for as long as the reading is up. Touch has no hover state
+at all: the ring is the only thing that says which block is being read.
+
+An open tooltip survives a city switch, a view switch, an hour peek, a day pull
+and a change of cadence, so it doubles as the comparison tool. What it holds on
+to is the **hour** it was opened on, not the block. A block is a slice of the
+hour window, and the window moves: past the hourly horizon the blocks stand for
+three, six or twenty-four hours, cut from the top of whatever window is showing,
+so one notch of hour peek redraws every one of them a little earlier or later.
+The reading follows its hour into whichever block covers it, at whatever size
+that block is now drawn — widening to a three-hour block, and saying so, rather
+than closing. It closes only when the hour is no longer on screen at all.
 
 While a switcher preview is aimed, an open tooltip prints **both** cities on
 one line — same date, same hour, the current reading and the aimed one, in the
@@ -285,6 +321,12 @@ Thresholds apply at render time, so changing one repaints without a refetch.
   model run pulse once, with the was/now detail in the tooltip.
 - Stale data is labelled, never hidden or faked. Days fully in the past are
   dropped at render rather than relabelled.
+- A day behind today recedes by stepping its blocks' own colour down, not by
+  dimming them as a layer. The two look the same on the block and are not the
+  same for anything drawn on it: dimming takes the marks and their background
+  toward black together, which flattens the difference between them, and the
+  rain in a past block was losing up to a quarter of its contrast against the
+  very sky it sits on. The day labels have always receded this way.
 
 ## Offline and install
 

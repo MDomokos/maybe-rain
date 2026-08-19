@@ -341,7 +341,17 @@ const skyRGB = (h, nf) => {
     // hazard rides the glyph. The cap exists only so a distant or
     // high-based cell in an otherwise bright sky cannot read as a nice
     // day. Chroma is shed first, or capping a golden sky yields brown.
-    if (STORM_CODES.has(h.code) && SKY.stormCap < 1) {
+    //
+    // Snow codes take the same cap, for a different reason. A flake is
+    // drawn white and nothing else, so unlike rain it has no darker
+    // variant to switch to on a bright sky. `ktFor` reads measured
+    // radiation before it falls back to the snow constant, so a snow
+    // shower with broken sun gets a bright, near-golden base and the white
+    // flake lands on white: 1.39:1 at worst, against 7.16:1 for hail on
+    // the same sweep. Hail was safe only because its codes are storm
+    // codes. Capping snow too makes "frozen is always white" hold on every
+    // sky instead of on most of them.
+    if ((STORM_CODES.has(h.code) || SNOW_CODES.has(h.code)) && SKY.stormCap < 1) {
         const maxL = SKY.stormCap * 255, l = skyLum(c);
         if (l > maxL) {
             c = desat(c, (1 - maxL / l) * SKY.desatLead);
@@ -454,11 +464,56 @@ const fadeRGB = (hex, pop) => {
 // grid is not painting.
 const lnLum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
 const lnMix = (a, b, t) => [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * t));
+// A past block's colour, receded.
+//
+// It used to be dimmed as a LAYER — `opacity` over the page black plus a
+// slight desaturation, both on the block. On the base alone that is the
+// same picture; on anything drawn over the base it is not. Scaling a mark
+// and its background toward black together compresses the ratio between
+// them, and the precipitation marks lost up to a quarter of their contrast
+// that way, on exactly the dark skies most rain falls under.
+//
+// Applied to the colour instead, the base recedes by the same amount and
+// the overlay is then built against the receded base, so it chooses its
+// blue and its opacity for the sky it will actually be seen on and keeps
+// all of its contrast. The day labels already recede this way.
+//
+// The two numbers are the ones the layer rule used, so the resting look
+// does not move, and the coefficients are the ones CSS `saturate()` uses
+// so the desaturation matches to the level. That part is kept for the look
+// rather than for the reading: measured, it moves contrast by under half a
+// percent, and all of the loss was the opacity.
+const PAST_SAT = 0.85, PAST_DIM = 0.82;
+const pastRGB = rgb => {
+    const l = 0.213 * rgb[0] + 0.715 * rgb[1] + 0.072 * rgb[2];
+    return rgb.map(v => Math.round((l + (v - l) * PAST_SAT) * PAST_DIM));
+};
 // Rain lines are blue, contrast-tuned to the background by
 // luminance band. Deep steel-blue on light skies (gold, the light
 // greys), pale steel-blue on the dark ones (dark greys, storm violet,
 // the night palette), so the streaks stay legible everywhere and read
 // as "blue = rain". Line colour carries no data; density does.
-const LN_BLUE_HI = [20, 54, 110];   // deep, on bright bases (lum > 135)
-const LN_BLUE_LO = [206, 228, 247]; // pale, on dark bases
-const lnBlue = base => lnLum(base) > 135 ? LN_BLUE_HI : LN_BLUE_LO;
+//
+// The switch is a POLARITY FLIP — a light mark becomes a dark one — so
+// there is a luminance where both are at their worst together, and
+// contrast measured after compositing the mark over its own base bottoms
+// out there. Blending the two across that point was tried and is far
+// worse than the seam: a blend runs through a mid blue, and a mid blue on
+// a mid grey is 1.08:1. The seam is what holds the contrast up.
+//
+// What can be moved is where the two curves cross and how high they cross.
+// A deeper blue crosses the pale one lower down the range, where the pale
+// one is still strong, so the floor comes up. The gain saturates quickly:
+// past about this depth the extra contrast is hundredths and the mark
+// stops reading as blue at all, which is the one thing it cannot spend.
+//
+// Both numbers depend on the sky the mark sits on, so they follow the sky
+// model. The radiance model paints a continuum, which is what puts skies
+// on the crossing point at all; the wmo palette is a handful of discrete
+// swatches and none of them land there, so it keeps the pair it was drawn
+// against.
+const RADIANCE_SKY = SKY_MODEL === 'radiance';
+const LN_BLUE_HI = RADIANCE_SKY ? [10, 30, 70] : [20, 54, 110];   // deep, on bright bases
+const LN_BLUE_LO = [206, 228, 247];                               // pale, on dark bases
+const LN_BLUE_SW = RADIANCE_SKY ? 119 : 135;
+const lnBlue = base => lnLum(base) > LN_BLUE_SW ? LN_BLUE_HI : LN_BLUE_LO;

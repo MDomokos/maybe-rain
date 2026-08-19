@@ -673,9 +673,24 @@ const cellDelay = (anim, c, r, nCols, nRows, desc) => {
 // between them. The daily bar is the one that also changes shape
 // (inset, hairline), and says so with a class rather than more inline
 // style.
+//
+// Does this cell cover the hour an open tooltip is reading? Coverage, not
+// equality: activeBlock.hour is an hour of the day, and which block covers
+// it shifts with the cadence and with the phase of the hour window.
+// blockSpans slices the VISIBLE window, so one notch of hour peek re-phases
+// every span on a coarse day and an equality test would miss.
+// blankDesc carries day 0 / hour 0, hence the blank/empty guards.
+const coversActive = desc => !!activeBlock && !desc.blank && !desc.empty
+    && desc.dayIndex === activeBlock.day
+    && activeBlock.hour >= desc.hour
+    && activeBlock.hour < desc.hour + (desc.slots || 1);
+// applyCellContent rewrites className wholesale on every flip, so a
+// selection class set from outside would not survive a repaint. Written
+// here, the one place both the rebuild and the flip go through.
 const cellClass = desc => 'weather-block'
     + (desc.current ? ' current' : '') + (desc.past ? ' past' : '')
-    + (desc.slots > 1 ? ' span' : '') + (desc.daily ? ' daily' : '');
+    + (desc.slots > 1 ? ' span' : '') + (desc.daily ? ' daily' : '')
+    + (coversActive(desc) ? ' sel' : '');
 const cellHeight = desc => !(desc.slots > 1) ? ''
     : `height:calc(var(--band) * ${desc.slots} - var(--block-gap));`;
 const buildCell = desc => desc.empty
@@ -1202,6 +1217,12 @@ const maxOf = (list, key) => {
     const vals = list.map(h => h[key]).filter(v => v != null);
     return vals.length ? Math.max(...vals) : null;
 };
+// The only field whose worst value is its lowest, which is why it needs its
+// own reducer rather than riding on maxOf with the rest.
+const minOf = (list, key) => {
+    const vals = list.map(h => h[key]).filter(v => v != null);
+    return vals.length ? Math.min(...vals) : null;
+};
 const sumOf = (list, key) => {
     const vals = list.map(h => h[key]).filter(v => v != null);
     return vals.length ? +vals.reduce((a, b) => a + b, 0).toFixed(2) : null;
@@ -1235,6 +1256,12 @@ const spanHour = (hours, startHour) => {
         snowSpan: sumOf(hours, 'snow'),
         code,
         cloud: cloud == null ? null : Math.round(cloud),
+        // The span's murk is its worst hour's, for the same reason its
+        // weather is: an average would retire a foggy morning into a clear
+        // one. It was not carried at all before, so every block past the
+        // native hourly horizon drew as if the air were clear and the
+        // texture stopped part-way across the grid.
+        vis: minOf(hours, 'vis'),
         uv: maxOf(hours, 'uv'),
         wind: maxOf(hours, 'wind'),
         windDir: windy ? windy.windDir : null,
@@ -1263,11 +1290,22 @@ const spanHour = (hours, startHour) => {
 // reference block.
 //
 // One consequence to name. The columns are rebuilt on a view or city
-// change and never inside a gesture, so during a pull the field is
-// the one laid out for the width the columns had when they were built. The
-// pull only ever narrows a column, so the block clips the field rather than
-// exposing bare space, and the chance edge sits a little further right than
-// the width would put it until the next rebuild.
+// change and never inside a gesture, so during a pull the field in the DOM
+// is the one laid out for the width the columns had when they were built.
+//
+// That used to be a real cost and is now only a small one. The overlay
+// declares the box it was laid out for, so the browser maps the field onto
+// whatever the block has become and the chance edge keeps its true
+// fraction at every width; what a squish costs is a flattened lean and a
+// squashed flake, not a wrong reading. `settleFields` re-bakes exact
+// geometry once the size stops moving.
+//
+// Before the box was declared the field was simply clipped, and because
+// the chance channel is the fill's EXTENT that made a fixed fill cover
+// more of a narrower block: at full pull an 80% hour read as certain. Nor
+// was "the pull only ever narrows a column" true — a repaint taken while
+// the elastic is locked bakes the squished width, and going home then
+// stranded the field across 46% of the block.
 // The sky levels a glint reads against. Anything cloudier gets the cloud
 // pass instead, so a dry hour always has exactly one arrival cue.
 const SKY_FX_CLEAR = new Set(['clear', 'mclear']);
@@ -1279,6 +1317,37 @@ const blockPx = rows => {
     const { w } = dayGeom(dayN, gw);
     return { bw: w[HOME_COL], bh: gh / rows - BLOCK_GAP_PX };
 };
+// The size the fields in the DOM were actually laid out for, written by
+// `buildCols` and read by `settleFields` below. Null means nothing has
+// been built yet, or the last build could not measure the frame.
+let builtBlock = null;
+// Re-bake the field geometry when the block has genuinely changed size.
+//
+// The overlay declares the box it was laid out for, so a block that has
+// since changed size still READS correctly — the browser maps it, and the
+// chance edge lands on its true fraction at any width. What that map
+// cannot do is undo a non-uniform stretch: the lean flattens and a flake
+// squashes. That is an acceptable price on a gesture in flight and a bad
+// one on anything that stays, so whatever persists gets exact geometry
+// instead of a stretched copy of stale geometry — a settled elastic, a
+// locked stretch, a resized window.
+//
+// It is a rebuild, which the elastic is otherwise careful never to do:
+// the field is what makes a build expensive, which is why a frame of a
+// pull is sixteen style writes rather than a repaint. So it is gated on
+// the block having actually moved. Springing home from a pull that
+// started at home changes nothing and rebuilds nothing, which is the
+// common case by a wide margin.
+const FIELD_EPS = 0.5;   // px; under this nobody can see the difference
+const settleFields = () => {
+    if (!state.data.length || !builtBlock) return;
+    const w = visibleWindow();
+    const { bw, bh } = blockPx(w.end - w.start + 1);
+    if (!(bw > 0) || !(bh > 0)) return;
+    if (Math.abs(bw - builtBlock.bw) < FIELD_EPS
+        && Math.abs(bh - builtBlock.bh) < FIELD_EPS) return;
+    repaint(null);
+};
 
 const buildCols = () => {
     // No data, no columns. The frame is not drawn empty and then
@@ -1289,6 +1358,9 @@ const buildCols = () => {
     const rows = end - start + 1;
     const currentHour = cityNow().hour;
     const { bw, bh } = blockPx(rows);
+    // Remember what the fields are about to be laid out against, so a
+    // later settle or resize can tell whether they are still true.
+    builtBlock = bw > 0 && bh > 0 ? { bw, bh } : null;
 
 // The rain view is the sky base (skyBaseRGB, which is the radiance
 // model here and the classic build's palette) plus the streak
@@ -1358,10 +1430,21 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // scale. Rain view: the WMO sky colour (tinted for rain,
         // cloud-spread, night after this hour's local sunset); rain
         // itself rides on top as the streak overlay, below.
-        const rgb = view === 'temp' ? bandRGB(h.feels != null ? h.feels : h.temp)
+        const rgb0 = view === 'temp' ? bandRGB(h.feels != null ? h.feels : h.temp)
             : view === 'wind'
                 ? (h.wind != null ? windRGB(h.wind) : [40, 40, 40]) // no data: near-black, no arrow
                 : skyBaseRGB(h, nightFactor(hour, sun));
+        // A past block recedes in its own COLOUR, not by dimming the layer
+        // it is drawn on. Those look the same and are not: dimming scales
+        // the block and everything on it toward the page black together,
+        // and a ratio between two colours does not survive both being
+        // scaled — the marks lost up to a quarter of their contrast
+        // against the very base they sit on. Stepping the colour down
+        // here instead means the overlay is built against the receded
+        // base, so it picks its blue and its opacity for the sky it will
+        // actually be seen on and keeps every bit of its contrast. The day
+        // labels already recede this way, and say why.
+        const rgb = isPast ? pastRGB(rgb0) : rgb0;
         // Hazard icons: every applicable hazard shows, packed
         // into the bottom-right corner in a fixed order so
         // two never swap places: the weather-coded hazard first
@@ -1385,7 +1468,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
             ? `<span class="wind-arrow" style="transform:rotate(${windOctant(h.windDir) * 45 + 180}deg)">${MR_ICON.wind}</span>` : '';
         const hazGlyph = view === 'wind' ? ''
             : mrIcon(h.glyph)
-            + (rainView && h.mm != null && h.mm > LN.warn ? MR_ICON.rainwarn : '')
+            + (rainView && h.mm != null && h.mm >= LN.warn ? MR_ICON.rainwarn : '')
             + (hot ? MR_ICON.heat : '') + (uvHigh ? MR_ICON.uv : '')
             + (dangerCold || dangerHot ? MR_ICON.danger : '');
         // The frost contour (temperature view only), on ACTUAL air
@@ -2312,7 +2395,19 @@ const armClocks = () => { scheduleDayRollover(); scheduleHourTick(); };
 // --- Tooltip: shared by grid blocks and legend cells --------------
 const TIP_SEL = '.weather-block[data-info], .legend-swatch';
 const tooltipOpen = () => $('tooltip').style.opacity === '1';
-const showTooltip = el => {
+// What is rendered and what it measured. The tooltip is asked to re-read
+// itself far more often than it has anything new to say, and both the
+// write and the measure are layout work; see the single write at the
+// bottom of showTooltip. Cleared by hideTooltip (next open is a fresh one)
+// and by onFrameResize (the width cap moved under it).
+let tipHtml = '', tipW = 0, tipH = 0;
+const invalidateTip = () => { tipHtml = ''; };
+// `anchor` is the hour this reading was opened on, passed back in only by
+// refreshActiveTooltip. Without it the anchor re-derives from whatever
+// block covers it now, taking that block's START hour, so on a coarse day
+// whose spans re-phase a notch at a time it walks backwards one block per
+// notch. The hour asked for doesn't change because the grid redrew.
+const showTooltip = (el, anchor = null) => {
     const tooltip = $('tooltip');
     // Whether this is an OPEN or a MOVE, decided before anything below
     // touches the opacity. A move travels to the new block; an open lands
@@ -2345,6 +2440,14 @@ const showTooltip = el => {
     // swap, view switch, background refresh) can re-render the open
     // tooltip against the new data at the same grid position.
     activeBlock = null;
+    // Built here, written once at the bottom, only if it differs from what
+    // is on screen. waveFrame re-reads an open tooltip on every frame of a
+    // sweep where any cell changed hands, and nearly all of those frames
+    // produce the same words: the cell being read flips once, not sixty
+    // times. Writing innerHTML anyway invalidates layout and the
+    // offsetWidth read below forces it back, per frame, under a wave that
+    // is already writing a colour to every block.
+    let html = '';
     if (el.id === 'statusInfo') { // freshness line: what it means
         const title = '<div class="tip-title"><strong>Forecast freshness</strong></div>';
         const docs = '<div class="tip-link"><a href="https://open-meteo.com/en/docs/model-updates" target="_blank" rel="noopener">How Open-Meteo schedules updates</a></div><div style="border-bottom: 1px solid var(--line); margin: 6px 0;"></div><div class="tip-link"><a href="https://open-meteo.com" target="_blank" rel="noopener">Data provided by Open-Meteo</a></div>';
@@ -2357,11 +2460,11 @@ const showTooltip = el => {
                    'No local short-range model covers this location.'])
             : ['Shows when the app last fetched the forecast.',
                'The model run time is unavailable right now.'];
-        tooltip.innerHTML =
+        html =
             title + body.map(l => `<div class="tip-body">${l}</div>`).join('') + docs;
     } else if (el.dataset.cond != null) { // legend cell: exact condition names
         const c = CONDITIONS[+el.dataset.cond];
-        tooltip.innerHTML =
+        html =
             `<div><strong>${esc(c.label)}</strong></div><div>${namesFor(c.key).map(esc).join(' · ')}</div>`;
     } else { // grid block: view-ordered main lines, one detail line, hazard chips
         const di = +el.dataset.day;
@@ -2378,13 +2481,25 @@ const showTooltip = el => {
             const found = state.data[di]?.find(x => x.hour === h0 + k);
             if (found) hours.push(found);
         }
-        if (!day || !hours.length) return;
+        // No data behind this block. A bare return here left the tooltip
+        // half-changed: the .explain/.block classes were already toggled
+        // (they carry the padding and width cap, so the box re-sizes) and
+        // activeBlock was already cleared, but the write, measure,
+        // selection and position below never ran. It stayed on screen at
+        // the old size and place, with no activeBlock for
+        // refreshActiveTooltip to find it by again. Close instead.
+        if (!day || !hours.length) { hideTooltip(); return; }
         const h = span === 1 ? hours[0] : spanHour(hours, h0);
         const rows = hourRange().end - hourRange().start + 1;
         const wholeDay = span >= rows;
-        // Remember this cell by grid position (column + hour), which is
-        // stable across a city swap, so refreshActiveTooltip can re-render.
-        activeBlock = { day: di, hour: h0 };
+        // The day and hour this reading is OF, so refreshActiveTooltip can
+        // find it again. dayIndex is absolute and hour is an hour of the
+        // day, so both survive a city swap, a view switch, a re-phased hour
+        // window and a cadence change.
+        activeBlock = {
+            day: di,
+            hour: anchor != null && anchor >= h0 && anchor < h0 + span ? anchor : h0
+        };
         const sun = state.sun[day.date] || {};
 
         // Header: day + date left, the hour range right (kept whole so
@@ -2478,6 +2593,13 @@ const showTooltip = el => {
         const shared = [];
         if (!claimedCondition) shared.push(esc(h.description));
         if (h.humidity != null && !claimedHumidity) shared.push(`humidity ${Math.round(h.humidity)}%`);
+        // Visibility, but only when it is low enough to be the reason the
+        // block is drawing a murk texture across itself. Every hour has a
+        // visibility and a clear one's is not worth the room; a textured
+        // block that cannot be asked why is what this is for. A tenth of a
+        // km throughout, because the range it ever prints is 0 to 2 and the
+        // difference between 200 m and 900 m is the whole reading.
+        if (misty(h)) shared.push(`visibility ${(h.vis / 1000).toFixed(1)} km`);
         if (sun.rise && sun.set) shared.push(h0 < sun.rise.h + sun.rise.m / 60
             ? `sunrise ${timeLabel(sun.rise.h, sun.rise.m)}`
             : `sunset ${timeLabel(sun.set.h, sun.set.m)}`);
@@ -2508,7 +2630,7 @@ const showTooltip = el => {
             if (h.glyph === 'storm') chips.push(h.code === 96 || h.code === 99 ? 'thunderstorm, hail' : 'thunderstorm');
             else if (h.glyph === 'fog') chips.push('fog');
             else if (h.glyph === 'freeze') chips.push('freezing rain');
-            if (view === 'rain' && h.mm != null && h.mm > LN.warn) chips.push(span === 1 ? 'heavy rain' : 'heavy rain in this block');
+            if (view === 'rain' && h.mm != null && h.mm >= LN.warn) chips.push(span === 1 ? 'heavy rain' : 'heavy rain in this block');
             if (h.temp >= settings.heatWarn) chips.push('extreme heat');
             if (h.uv != null && h.uv >= settings.uvWarn) chips.push(`very high UV (${Math.round(h.uv)})`);
             // The danger glyph, temperature view only, on feels-like.
@@ -2529,25 +2651,70 @@ const showTooltip = el => {
         // set against a whole block would be a comparison of two
         // different things.
         const compare = span === 1 ? sheetCompareLine(day.date, h) : '';
-        tooltip.innerHTML = when + temp + rain + wind + divider + detailLine + provenance + chg + compare + chipHtml;
+        html = when + temp + rain + wind + divider + detailLine + provenance + chg + compare + chipHtml;
+    }
+    // The one write, only when there is something new to write. Size is
+    // cached with it: the box can only change size when its content does,
+    // except on resize, which onFrameResize handles by clearing the cache.
+    if (html !== tipHtml) {
+        tooltip.innerHTML = html;
+        tipHtml = html;
+        tipW = tooltip.offsetWidth;
+        tipH = tooltip.offsetHeight;
     }
     // The travel transition is armed BEFORE the position is written, and
     // only for a move. Placed after the innerHTML write so the box is
     // already the size it will be when it starts travelling.
     tooltip.classList.toggle('travel', moving && !reduceMotion());
     tooltip.style.opacity = '1';
-    // Measure the real size, center on the block, clamp to the
-    // viewport; flip below the block near the top edge.
+    // Center on the block, clamp to the viewport; flip below the block
+    // near the top edge.
     const rect = el.getBoundingClientRect();
-    const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
-    const x = Math.max(8, Math.min(window.innerWidth - tw - 8, rect.left + rect.width / 2 - tw / 2));
-    const y = rect.top < th + 16 ? rect.bottom + 8 : rect.top - th - 8;
+    const x = Math.max(8, Math.min(window.innerWidth - tipW - 8, rect.left + rect.width / 2 - tipW / 2));
+    const y = rect.top < tipH + 16 ? rect.bottom + 8 : rect.top - tipH - 8;
     // transform rather than left/top: neither of those can be composited,
     // and this element moves on every block the pointer visits.
-    tooltip.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+    const tf = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+    if (tf !== tooltip.style.transform) tooltip.style.transform = tf;
+    // Mark the block on the block itself. The tap that opened this repaints
+    // nothing, so the class is set by hand here; every later repaint writes
+    // it through cellClass.
+    // Last, after the getBoundingClientRect above: a class change dirties
+    // style, and a layout read right after one forces the recalc that the
+    // cache above exists to avoid. markSelection also no-ops when the right
+    // block is already marked, so on the sweep path it dirties nothing.
+    markSelection();
 };
 let tappedBlock = null; // element whose tooltip was opened by a tap/click (shared by mouse and touch again)
 let activeBlock = null; // {day,hour} of the open block tooltip, for re-render on repaint
+// The live block standing for activeBlock's hour. The DOM half of
+// coversActive, for the same reason: the hour peek, allHours and the
+// tail-fold in blockSpans all re-phase spans, so the hour a reading was
+// opened on routinely stops being any block's START hour.
+const blockCovering = (day, hour) => {
+    for (const el of $('grid').querySelectorAll(`.weather-block[data-day="${day}"]`)) {
+        // Every column the elastic can reach stays in the DOM with its
+        // dataset intact; applyDayWidths hides the out-of-reach ones with
+        // display:none. They still match the selector and measure as a zero
+        // rect, which parked the tooltip at the top-left corner.
+        if (!el.getClientRects().length) continue;
+        const h0 = +el.dataset.hour;
+        if (hour >= h0 && hour < h0 + (+el.dataset.span || 1)) return el;
+    }
+    return null;
+};
+// The tap that opens a tooltip repaints nothing, so the selection class is
+// written by hand for that case; every repaint after it goes through
+// cellClass. Both read activeBlock, so they cannot disagree.
+const markSelection = () => {
+    const want = activeBlock ? blockCovering(activeBlock.day, activeBlock.hour) : null;
+    const have = $('grid').querySelectorAll('.weather-block.sel');
+    // Already right: touch nothing. On the sweep path cellClass has usually
+    // just written the same class, and mutating would dirty style for free.
+    if (have.length === (want ? 1 : 0) && (!want || have[0] === want)) return;
+    have.forEach(n => n.classList.remove('sel'));
+    want?.classList.add('sel');
+};
 const hideTooltip = () => {
     const t = $('tooltip');
     t.style.opacity = '0';
@@ -2557,6 +2724,16 @@ const hideTooltip = () => {
     t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
     tappedBlock = null;
     activeBlock = null;
+    // Nothing is being read, so nothing is selected. After activeBlock is
+    // cleared, which is what markSelection reads to know there is no ring.
+    markSelection();
+    // Next open is an open, not a re-read: build and measure from scratch
+    // rather than trust a size taken for different words.
+    invalidateTip();
+    // A hover grace still counting down would re-open a moment after this
+    // closed it. Matters most when the close wasn't the pointer's doing:
+    // visibilitychange, or a repaint finding the block gone.
+    cancelTipHover();
     // The tooltip that was pausing the reveal-idle countdown (see
     // `showTooltip`) just closed: resume it. `springHours` is a no-op
     // once the offset is already back at rest, so re-arming here even
@@ -2570,11 +2747,15 @@ const hideTooltip = () => {
 // Re-render an open block tooltip after the grid repaints. The mouse
 // hasn't moved (no mouseover fires), so swapping city with the keyboard
 // would otherwise leave the old city's tooltip on screen. Re-target the
-// block at the same grid position and re-show it from fresh state.
+// block covering the same hour and re-show it from fresh state.
 const refreshActiveTooltip = () => {
     if (!activeBlock || $('tooltip').style.opacity !== '1') return;
-    const el = $('grid').querySelector(
-        `.weather-block[data-day="${activeBlock.day}"][data-hour="${activeBlock.hour}"]`);
+    // By coverage. The old exact [data-hour] match tied a reading to a
+    // block's start hour, which is a property of where the hour window
+    // happens to be standing, not of the forecast. One notch of hour peek
+    // re-phased every span on a coarse day and the reading vanished, while
+    // the same reading survived a seven-day pull.
+    const el = blockCovering(activeBlock.day, activeBlock.hour);
     if (!el) return hideTooltip();
     // A grid repaint (city/view switch, the day/hour keep-alive ticks
     // below) replaces the block DOM nodes wholesale, so a pinned
@@ -2586,8 +2767,13 @@ const refreshActiveTooltip = () => {
     // `activeBlock` current; a hover-only (unpinned) tooltip has
     // `tappedBlock === null` and stays that way.
     const wasPinned = tappedBlock != null;
-    showTooltip(el);
-    if (wasPinned) tappedBlock = el;
+    showTooltip(el, activeBlock.hour);
+    // showTooltip may find nothing behind the block and close instead (its
+    // !hours.length branch). Re-pinning then would point tappedBlock at a
+    // tooltip that isn't open, so "tap the same block to close it" would
+    // answer a tooltip nobody can see. activeBlock is the flag: the close
+    // path clears it, the show path sets it.
+    if (wasPinned && activeBlock) tappedBlock = el;
 };
 
 // Index of the arrow-key-highlighted search row (-1 = none). Reset
@@ -3326,6 +3512,7 @@ const springTo = (tn, tov, ms, ease, done) => {
     if (reduceMotion()) {
         elasticAnim = null;
         dayN = tn; dayOv = tov; applyDayWidths();
+        settleFields();
         if (done) done();
         return;
     }
@@ -3338,6 +3525,10 @@ const springTo = (tn, tov, ms, ease, done) => {
         elasticAnim = null;
         dayN = tn; dayOv = tov;
         applyDayWidths();
+        // Geometry first, then whatever the caller wanted to do about
+        // having arrived: a rebuild replaces the blocks, so anything
+        // armed on the old ones would be armed on nodes that are gone.
+        settleFields();
         if (done) done();
     };
     elasticAnim = scheduleFrame(step);
@@ -3373,8 +3564,10 @@ const elasticHome = () => {
     stopElastic();
     dayMode = 'home';
     setArmed(false);
-    // The elastic settles without rebuilding the grid, so there is no
-    // paint to wait for: arm and fire in the same breath.
+    // A frame of the spring never rebuilds the grid. The settle may, if
+    // the block came home to a different size than it was built for, and
+    // `springTo` does that before it calls back — so by here the blocks
+    // are final either way and there is nothing to wait for.
     springTo(0, 0, HOME_MS, easeOutQuint, () => { armArrival(); flushArrival(); });
 };
 // Straight back to rest: no spring, no decision, nothing kept.
@@ -3383,6 +3576,7 @@ const resetElastic = () => {
     dayN = 0; dayOv = 0; dayMode = 'home';
     lockArmed = false;
     applyDayWidths();
+    settleFields();
 };
 
 // What a view or city change does to the axis. A LOCKED stretch is
@@ -3429,6 +3623,9 @@ const nudgeElastic = dir => {
     dayMode = next ? (dayMode === 'locked' ? 'locked' : 'stretch') : 'home';
     if (next) retireHint('days');
     applyDayWidths();
+    // The keyboard holds where it is put rather than springing, so this
+    // IS the settle: there is no spring to finish and re-bake later.
+    settleFields();
 };
 
 // --- The gesture ---------------------------------------------------
@@ -4263,7 +4460,19 @@ const setGestureMode = on => {
 // sheet leaves holding what it was showing instead of collapsing to an
 // empty black box for the length of the fade.
 const hideSheetChrome = () => {
-    setGestureMode(false);
+    // The control row comes back at once. It has its own 140ms fade, so it
+    // arrives underneath the sheet as the sheet leaves — the opening's
+    // handover, run backwards.
+    //
+    // The sheet's OWN gesture class stays on, where it used to come off here
+    // as the other half of one `setGestureMode(false)`. `.city-sheet.gesture`
+    // is what takes the action row off screen for the length of a drag, so
+    // dropping it here put that row back for the 140ms the sheet then spent
+    // fading out: the search field appearing at the moment the switcher was
+    // dismissed, in a mode the sheet had never been in. It comes off in
+    // `wipe` instead, once the sheet is hidden and there is nothing left for
+    // it to reveal.
+    document.querySelector('.container').classList.remove('switching');
     const sh = $('citySheet'), sc = $('sheetScrim');
     $('sheetList').setAttribute('aria-activedescendant', '');
     if (sh.contains(document.activeElement)) $('location').focus({ preventScroll: true });
@@ -4277,6 +4486,10 @@ const hideSheetChrome = () => {
 
     const wipe = () => {
         sheetExitTimer = null;
+        // The other half of the close, held back until now: see above.
+        // Idempotent on the container, which left gesture mode when the exit
+        // began.
+        setGestureMode(false);
         sh.hidden = true;
         sc.hidden = true;
         sh.classList.remove('sheet-in', 'sheet-out');
@@ -5644,8 +5857,28 @@ addEventListener('orientationchange', () => renderViewBar());
 document.fonts?.ready?.then(() => renderViewBar());
 // The columns' widths are measured from the frame, so they have
 // to be re-measured for the same reasons.
-addEventListener('resize', () => { measureGap(); applyDayWidths(); });
-addEventListener('orientationchange', () => { measureGap(); applyDayWidths(); });
+//
+// Widths go out immediately, because a resize is a live drag and the
+// grid has to track it. The FIELDS follow on a debounce: the overlay
+// declares its own box so it reads correctly throughout the drag without
+// any help, and rebuilding sixty times a second while someone drags a
+// window corner is the one thing the elastic's whole design is arranged
+// to avoid. `settleFields` then re-bakes exact geometry once the size
+// has stopped moving — and does nothing at all if it came back to where
+// it started.
+let fieldSettleTimer = null;
+const onFrameResize = () => {
+    measureGap();
+    applyDayWidths();
+    // The tooltip's size cache is keyed on content, which holds everywhere
+    // but here: the width cap is min(240px, 100vw - 16px), so the same
+    // words measure differently after a rotation. Drop it.
+    invalidateTip();
+    clearTimeout(fieldSettleTimer);
+    fieldSettleTimer = setTimeout(settleFields, 180);
+};
+addEventListener('resize', onFrameResize);
+addEventListener('orientationchange', onFrameResize);
 if (window.visualViewport) visualViewport.addEventListener('resize', resyncStandalone);
 // Backstops: on some devices the bars settle without firing a resize.
 requestAnimationFrame(resyncStandalone);
