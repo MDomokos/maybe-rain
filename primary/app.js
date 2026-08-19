@@ -2814,6 +2814,19 @@ const cardRise = () => {
 // Measured against the block's own rect rather than computed from rows:
 // --band is a percentage here, set from JS, so a pixel band would be a
 // second copy of the row geometry that could drift from the first.
+//
+// The end is decided from the COLLAPSED card, so expanding never relocates
+// it. An expanded card is tall enough to cover most blocks, so deciding on
+// the live height meant a tap on the card sent it to the other end of the
+// chart — a 300px jump answering the reader's own tap, which is the cost
+// the `gone` threshold was chosen to avoid in the first place. This does
+// mean an expanded card can sit on the block it reads, which § What must
+// not change says a reading never does. The trade is deliberate: that rule
+// is about a card that arrives without being asked, and an expansion is
+// asked for by a tap on the card itself, with the reader's attention
+// already on it rather than on the block. The collapsed state, which is
+// what a reading spends most of its life in, still never covers its block.
+let cardBaseH = 0;
 const placeCard = () => {
     const card = $('readingCard');
     if (!card.classList.contains('open')) return;
@@ -2827,10 +2840,15 @@ const placeCard = () => {
         const cr = chart.getBoundingClientRect(), br = blk.getBoundingClientRect();
         const blkTop = br.top - cr.top, blkBot = br.bottom - cr.top;
         const h = card.offsetHeight;
-        const cover = t => Math.max(0, Math.min(blkBot, t + h) - Math.max(blkTop, t));
+        // The collapsed height decides, the live height positions. Taken
+        // whenever the card is collapsed, which includes every open, since
+        // a reading opens collapsed.
+        if (!cardExpanded && h) cardBaseH = h;
+        const dh = cardBaseH || h;
+        const cover = Math.max(0, Math.min(blkBot, top + dh) - Math.max(blkTop, top));
         // Half a pixel of tolerance, so subpixel rounding cannot leave a
         // sliver that claims the block is still visible when it is not.
-        const gone = (blkBot - blkTop) > 0 && cover(top) >= (blkBot - blkTop) - 0.5;
+        const gone = (blkBot - blkTop) > 0 && cover >= (blkBot - blkTop) - 0.5;
         card.classList.toggle('at-bottom', gone);
         card.style.top = (gone ? Math.max(0, chart.clientHeight - h) : top).toFixed(1) + 'px';
         measureVeil(chart, card);
@@ -3276,6 +3294,7 @@ const hideCard = () => {
     cardHtml = '';
     cardKey = '';
     cardExpanded = false;
+    cardBaseH = 0;
 };
 
 // The block just tapped plays its own weather once, the same arrival the

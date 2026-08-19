@@ -238,7 +238,8 @@ facts rather than repeating any: a figure dressed for the hour with what to wear
 and whether rain means an umbrella or a jacket, then gusts, humidity, cloud,
 visibility and the sun times. The warning belongs to both states, because it is
 the reason to look. The card moves only when the block it reads is entirely
-behind it, and thins as a gesture comes near it so the grid can be read through.
+behind the **collapsed** card, so expanding it never relocates it; it thins as
+a gesture comes near it so the grid can be read through.
 While it is open the grid gives up vertical page scrolling; the day row, the
 legend and the header still pan the page.
 
