@@ -1798,20 +1798,20 @@ const dayGeom = (n, W) => {
 const VIS_PX = 0.02;
 
 // The label row mirrors the columns exactly, so the dates stay over the
-// days they name at every width. What a label can SAY changes as it
-// narrows: date over weekday while there is room, the date alone when
-// there is less, nothing at all when there is not enough for a number
-// to be read. Stepped by bucket rather than continuously, so a pull
-// rewrites a label once instead of on every frame.
+// days they name at every width. A label says both its lines or neither:
+// the widths where a two-digit date fits are the widths where a
+// weekday fits too, since the abbreviations are one or two letters (M,
+// TH) and never wider than the number above them. There was a middle
+// bucket that dropped the weekday first, and it was answering a width
+// problem the row does not have — a pull lost the weekdays a good deal
+// before it lost the room for them.
 //
-// Both lines are always in the DOM and always laid out; the bucket only
-// toggles a class, and the fade is the stylesheet's. That is what makes
-// the drop from two lines to one stop being a swap: the date is the top
-// line, so it does not move when the weekday under it goes, and the row
-// keeps its height so the grid does not move either. The old order
-// (weekday over date) could not do this — losing the top line pulls
-// everything below it upward, whatever it is faded with.
-const labelBucket = px => px >= 34 ? 2 : px >= 16 ? 1 : 0;
+// So: both lines while a number can be read, nothing under that. Stepped
+// rather than continuous, so a pull rewrites a label once instead of on
+// every frame. Both lines stay in the DOM and stay laid out either way;
+// the bucket only toggles a class and the fade is the stylesheet's, so
+// the row keeps its height and the grid does not move.
+const labelTiny = px => px < 16;
 // The slide is written only when it changes, so a rebuild of the columns
 // has to say that the fresh nodes carry nothing yet. `null` is a value
 // no transform string can equal, which is the whole point of it.
@@ -1849,17 +1849,16 @@ const applyDayWidths = () => {
             if (moveTf) el.style.transform = tf;
         }
         if (!lab || lab.classList.contains('absent')) continue;
-        const bucket = labelBucket(width);
+        const tiny = labelTiny(width) ? 1 : 0;
         // A seam divides a column from the one before it, so the leading
         // visible column cannot carry one: the only thing to its left is
         // the gutter. `first` is already worked out above for the margins,
         // which is the same question asked once.
         const lead = i === first ? 1 : 0;
-        if (+lab.dataset.b === bucket && +lab.dataset.lead === lead) continue;
-        lab.dataset.b = bucket;
+        if (+lab.dataset.b === tiny && +lab.dataset.lead === lead) continue;
+        lab.dataset.b = tiny;
         lab.dataset.lead = lead;
-        lab.classList.toggle('tight', bucket === 1);
-        lab.classList.toggle('tiny', bucket === 0);
+        lab.classList.toggle('tiny', !!tiny);
         lab.classList.toggle('seam-lead', !!lead);
     }
     if (moveTf) {

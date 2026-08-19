@@ -365,19 +365,18 @@
            sheet, so nothing up here ever has to get out of its way. */
 
         /* Calendar day strip. The DATE is the top line and the weekday sits
-           under it, which is the order the elastic forced: a narrowing column
-           drops the weekday first, and with the weekday on top the date used
-           to jump up into the space it left — a shift on the one row whose
-           whole job is to stay over the days it names. Underneath, the
-           weekday can go without anything above it moving a pixel.
+           under it: the date is the line that survives every width, and a
+           line that can go has to be the bottom one or everything below it
+           moves when it does — a shift on the one row whose whole job is to
+           stay over the days it names.
            Today is gold, exactly as it was: the marker is not restated as a
            dot, since the app's rule is one signal per thing. */
         .day-label {
             line-height: 1.25;
-            /* Both lines are always laid out, so the row's height is the same
-               whether the weekday is visible or not. The weekday leaves by
-               opacity alone; collapsing it would shorten the strip and push
-               the grid up, which is the movement this is here to avoid. */
+            /* Both lines are always laid out, so the row keeps its height
+               when the label fades; collapsing it would shorten the strip
+               and push the grid up, which is the movement this is here to
+               avoid. */
             min-height: 2.5em;
         }
         .day-date {
@@ -385,11 +384,14 @@
             font-size: 14px;
             font-weight: 500;
             color: var(--text);
+            /* On the line itself rather than on `.tiny`, so it fades back in
+               on the way out of that bucket as well as on the way into it. */
+            transition: opacity 160ms ease;
         }
-        /* The weekday, secondary now that it is the line that leaves. It
-           cross-fades on the width bucket rather than being written in and
-           out of the DOM, so the transition is the browser's and a pull
-           costs one class toggle per column instead of an innerHTML swap. */
+        /* The weekday, secondary to the date and there at every width a
+           label is readable at: the abbreviations are one or two letters,
+           so a column wide enough for a two-digit date is wide enough for
+           the weekday under it. */
         .day-wd {
             display: block;
             font-size: 11px;
@@ -399,13 +401,13 @@
         }
         .day-label.today .day-date { color: var(--accent); }
         .day-label.today .day-wd { color: var(--accent); }
-        /* tight: no room for two lines, the weekday fades. tiny: no room for
-           a number to be read either, and the whole label fades. */
-        .day-label.tight .day-wd,
-        .day-label.tiny .day-wd { opacity: 0; }
-        .day-label.tiny .day-date { opacity: 0; transition: opacity 160ms ease; }
+        /* tiny: no room for a number to be read, so the whole label fades.
+           Both lines go together — a date nobody can read is not worth
+           keeping a weekday for. */
+        .day-label.tiny .day-wd,
+        .day-label.tiny .day-date { opacity: 0; }
         html.reduce-motion .day-wd,
-        html.reduce-motion .day-label.tiny .day-date { transition: none; }
+        html.reduce-motion .day-date { transition: none; }
 
         /* The control row. Stacked under the status line inside the existing
            .view-toggle block, so the bottom zone keeps one owner and the
