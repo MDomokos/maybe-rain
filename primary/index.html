@@ -913,10 +913,12 @@
            and margin in px on each frame of a pull, so a seam placed
            against the field would drift for the length of a drag.
 
-           The mark is a descender: it starts under the date and runs to
-           the bottom of the row, so it is beside the columns it divides
-           at exactly the point the eye drops into them, and the date
-           numbers above it stay evenly spaced.
+           The mark runs the full height of the label, so it divides both
+           lines it is standing between rather than only the weekday. It
+           used to start under the date and run down from there, which
+           separated the weekdays and left the dates above reading as one
+           unbroken row — the boundary was drawn at half the height of
+           the thing it was dividing.
 
            It is anchored to the label's own left edge rather than centred
            in the gap, so it is carried by the box the elastic is already
@@ -934,7 +936,7 @@
             content: '';
             position: absolute;
             left: 0;
-            top: 18px;
+            top: 0;
             bottom: 0;
             width: 1px;
             pointer-events: none;
@@ -2330,9 +2332,6 @@
             .day-label { font-size: 13px; }
             .day-date { font-size: 15px; }
             .day-wd { font-size: 12px; }
-            /* the seam clears the taller date line here */
-            .day-label.seam-week::before,
-            .day-label.seam-past::before { top: 19px; }
             /* a bigger block wants a bigger blur (see the phone rule) */
             .fx-cloud i { filter: blur(5px); }
             .fx-cloud i.b { filter: blur(9.5px); }
