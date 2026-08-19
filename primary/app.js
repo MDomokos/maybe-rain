@@ -1019,10 +1019,35 @@ const paintGrid = (grid, cols, anim) => {
         return;
     }
 
-    // Any other paint supersedes: drop a queued refresh and abandon a
-    // sweep in flight so rapid navigation can't leave half-finished cells.
     if (pendingRefresh) { clearTimeout(pendingRefresh); pendingRefresh = null; }
     gridTimers.forEach(clearTimeout); gridTimers.length = 0;
+
+    // A sweep IN FLIGHT owns the grid, so this paint hands it a
+    // destination rather than tearing it down and starting again. That is
+    // the whole point of the playhead: a retarget keeps `t` and the
+    // delays, so cells the stagger has already reached take the newer
+    // grid and the ones it has not carry on toward the older one.
+    //
+    // It used to supersede instead, and a run of quick city swaps was
+    // where that showed. Every switch restarted the wave from whatever
+    // half-and-half grid was on screen, so cells that had just lit up
+    // blinked back to black, and the commit's own repaint — fired on
+    // settle or on a 600ms backstop, whichever came first — could land
+    // mid-stagger and hard-cut the sweep after it. Three sweeps deep that
+    // is not an animation, it is a flicker.
+    //
+    // Only while it is SWEEPING: a settled wave is a grid at rest that
+    // happens to still be held open, and handing it a destination would
+    // replay the whole stagger over cells that are already there.
+    if (wave && wave.grid === grid && !wave.scrub && waveSweeping(wave)
+        && sameShape(wave.to, cols)) {
+        const a = animated && anim.type === 'wave' ? anim : wave.anim;
+        waveTo(grid, cols, a.dir || wave.dir, { axis: a.axis || wave.anim.axis, hold: wave.hold });
+        return;
+    }
+
+    // Anything else supersedes: abandon a sweep that cannot be retargeted
+    // so rapid navigation can't leave half-finished cells.
     if (wave) endWave(true);
 
     // No animation (or reduced motion): rebuild the grid instantly.
