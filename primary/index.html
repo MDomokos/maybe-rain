@@ -1870,6 +1870,25 @@
             line-height: 1.45;
             margin-top: 5px;
         }
+        /* What the numbers mean, which is the only part of the reading that
+           is not the data restated. One figure, dressed for the hour, and
+           the words beside it. The figure is drawn in its own garment
+           palette over --text-muted rather than in the block's colour: a
+           night block is rgb(58,60,64) and a 1.5px stroke of it on a
+           near-black panel is not there. */
+        .reading-card .rc-adv {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 6px;
+            padding-top: 7px;
+            border-top: 1px solid var(--divider);
+        }
+        .reading-card .rc-fig { flex: none; width: 36px; height: 47px; color: var(--text-muted); }
+        .reading-card .rc-fig svg { display: block; width: 36px; height: 47px; }
+        .reading-card .rc-lines { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+        .reading-card .rc-a { font-size: 12px; color: var(--text); line-height: 1.35; }
+
         /* The foot is the expanded state's own facts: the three that did not
            fit in the columns, plus the ambient ones. Nothing here appears
            above it. */

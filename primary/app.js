@@ -2925,6 +2925,285 @@ const cardFoot = (f) => {
     return bits.length ? `<div class="rc-foot">${bits.join(' · ')}</div>` : '';
 };
 
+// --- What the hour means for walking out of the door --------------
+// The expanded state is worth opening only if it says something the
+// collapsed state does not, and the collapsed columns already carry every
+// number worth printing. This is the one part of the reading that is not
+// the data restated.
+//
+// The warmth half is the app's own comfort scale and nothing else. TEMP_BANDS
+// has carried an absolute feels-like scale since the temperature view was
+// built — eight bands, the same edges in every city, each with one prep cue
+// the temp view already prints. The figure draws the band the block behind it
+// is already coloured by and says the sentence the app already wrote, so
+// there is no second scale to drift from the first. `bandIndex` is what
+// decides which band, which means the lower-edge-inclusive comparison
+// (`feels < max`, so -8 is Freezing and 0 is Cold) exists in exactly one
+// place and cannot be got backwards here.
+//
+// The accessory half is a branch of its own, and its thresholds are fixed:
+// gusts at 35 km/h is where an umbrella stops being the answer, a 30% chance
+// puts a carried umbrella on a dry hour, and UV 6 is strong sun. They run on
+// feels-like and on the block's own numbers, so a span reads the same
+// reduction its colour and its glyphs already come from.
+const GEAR_GUST = 35, GEAR_CHANCE = 30, GEAR_UV = 6;
+// Band index to the garment it puts on. One entry per TEMP_BANDS band, cold
+// to hot; each step is one garment against the step below it.
+const WEAR_BANDS = ['bitter', 'freezing', 'cold', 'cool', 'comfort', 'warm', 'hot', 'veryhot'];
+const dressFor = (h, past) => {
+    const feels = h.feels != null ? h.feels : h.temp;
+    if (feels == null) return null;
+    const i = bandIndex(feels);
+    const gusty = h.gust != null && h.gust >= GEAR_GUST;
+    const wet = (h.mm != null && h.mm > 0) || (h.snow != null && h.snow > 0);
+    let gear = null;
+    if (wet && h.mm > 2)
+        gear = gusty ? ['hood', 'rain jacket. the gusts will turn an umbrella out']
+                     : ['umbrella', 'umbrella, or arrive soaked'];
+    else if (wet)
+        gear = gusty ? ['hood', 'rain jacket rather than an umbrella']
+                     : ['umbrella', 'umbrella'];
+    // A past hour has no chance left to advise on, the same reason the rain
+    // column drops the percentage there.
+    else if (!past && h.pop != null && h.pop >= GEAR_CHANCE)
+        gear = ['umbrella', 'umbrella, on the chance it turns'];
+    else if (h.uv != null && h.uv >= GEAR_UV) gear = ['sun', 'strong sun. hat, or sunscreen'];
+    else if (gusty) gear = ['wind', 'gusty enough to hold on to a hat'];
+    return {
+        wear: WEAR_BANDS[i], gear: gear && gear[0], wet,
+        lines: gear ? [TEMP_BANDS[i].cue, gear[1]] : [TEMP_BANDS[i].cue]
+    };
+};
+
+// --- The dressing figure ------------------------------------------
+// A wardrobe on a 34x44 box. A step up the scale is a garment arriving
+// rather than a hem moving: at this size a proportion is not legible and a
+// category is, so warmth is a count of garments and the sleeve carries the
+// warm end.
+//
+// Three construction rules, each of which exists because the obvious
+// version failed a render.
+//
+// 1. ONE LINE WEIGHT, so occlusion is constructed rather than painted.
+//    Uniform 1.5 everywhere and no fills, which has a consequence: with no
+//    fill, drawing something later does not hide what is under it, so
+//    z-order is meaningless and every garment is drawn as the part of it
+//    that can actually be seen. Pants start at the hem of whatever is over
+//    them, the coat loses its neckline when the scarf is on, and trouser
+//    legs stop at the top of the shoe — a round cap puts half its width
+//    past its own endpoint, which reads as a spur below the foot.
+// 2. THE ARM IS AN AXIS FIRST AND A SLEEVE SECOND. The axis runs from the
+//    centre of the armhole to the wrist, the sleeve is generated as a quad
+//    around it, and the bare forearm is that same line continued past the
+//    cuff, so the two cannot disagree. Drawing the sleeve as a shape and
+//    aiming the forearm at it afterwards makes them agree only as well as
+//    they were nudged, which on the t-shirt was visibly not.
+// 3. THE HEAD IS A CIRCLE, hatted or not, and the brim crosses the crown,
+//    which is what a brim does.
+//
+// Colour is a second channel and never the carrier: remove it and the
+// ladder still reads, which is the only version that survives greyscale, a
+// colour-blind reader or a thinned panel.
+const FIGURE = (() => {
+    const f = n => n.toFixed(2);
+    // side is +1 left, -1 right; it keeps the polygon from self-intersecting
+    // on the mirrored arm. cut is the fraction of the axis the sleeve covers
+    // and is the only thing separating a t-shirt sleeve from a jumper's:
+    // below about 0.6 the wrist is bare and the forearm is drawn, above it
+    // the sleeve reaches the wrist and a hand closes it.
+    const arm = (side, st, ua, wrist, cut, w) => {
+        const m = [(st[0] + ua[0]) / 2, (st[1] + ua[1]) / 2];
+        const d = [wrist[0] - m[0], wrist[1] - m[1]];
+        const len = Math.hypot(d[0], d[1]) || 1;
+        const ox = -side * d[1] * w / len, oy = side * d[0] * w / len;
+        const h = [m[0] + d[0] * cut, m[1] + d[1] * cut];
+        return {
+            sleeve: `<path d="M${f(st[0])} ${f(st[1])} L${f(h[0] + ox)} ${f(h[1] + oy)} `
+                + `L${f(h[0] - ox)} ${f(h[1] - oy)} L${f(ua[0])} ${f(ua[1])} Z"/>`,
+            fore: `<path d="M${f(h[0])} ${f(h[1])} L${f(wrist[0])} ${f(wrist[1])}"/>`,
+            wrist
+        };
+    };
+    const UP = [22.90, 13.40];          // where the umbrella handle runs
+    // The armhole is 4.2 long against a 3.0 cuff, so the sleeve tapers
+    // rather than flares. It still read as a wing at first: a wrist at x 8.6
+    // puts the sleeve more than a unit outside the coat hem at 9.9 and the
+    // eye takes the overhang for the garment. The wrist came in rather than
+    // the shape changing.
+    const GEOM = {
+        tshirt: { st: [11.2, 14.0], ua: [12.6, 18.6], wr: [9.40, 25.40], cut: 0.42, w: 1.50 },
+        jumper: { st: [11.0, 13.9], ua: [12.4, 17.9], wr: [9.50, 25.70], cut: 0.88, w: 1.40 },
+        jacket: { st: [11.0, 13.8], ua: [12.4, 17.8], wr: [9.45, 26.00], cut: 0.89, w: 1.45 },
+        coat: { st: [10.8, 13.7], ua: [12.2, 17.7], wr: [9.40, 26.40], cut: 0.90, w: 1.50 }
+    };
+    const mirror = p => [30 - p[0], p[1]];
+    const arms = (garment, raised) => {
+        const g = GEOM[garment];
+        const L = arm(1, g.st, g.ua, g.wr, g.cut, g.w);
+        const R = raised
+            ? arm(-1, mirror(g.st), mirror(g.ua), UP, g.cut, g.w)
+            : arm(-1, mirror(g.st), mirror(g.ua), mirror(g.wr), g.cut, g.w);
+        return {
+            sleeve: L.sleeve + R.sleeve,
+            bare: g.cut < 0.6 ? L.fore + R.fore : '',
+            hands: [L.wrist, R.wrist]
+        };
+    };
+
+    const HEAD = '<circle cx="15" cy="7.6" r="4"/><path d="M15 11.6 V13.6"/>';
+    const HAT = '<path d="M11.6 5.2 A3.5 3.5 0 0 1 18.4 5.2"/>'
+        + '<path d="M10.7 5.3 H19.3"/><circle cx="15" cy="1.4" r="1.2"/>';
+    // A sun hat is a shallow crown over a brim that overhangs the head by two
+    // units either side; the winter hat is a tall crown over a narrow brim.
+    // Shape tells them apart, which matters because they share the accessory
+    // colour and sit at opposite ends of the same scale.
+    const SUNHAT = '<path d="M12.3 5.6 A2.8 2.8 0 0 1 17.7 5.6"/>'
+        + '<path d="M9.4 5.7 H20.6"/>';
+    const SCARF = '<path d="M11.2 12.2 H18.8 V15.4 H11.2 Z"/>'
+        + '<path d="M16.2 15.4 H18.8 V21.8 L17.5 22.8 L16.2 21.8 Z"/>';
+    const TEE = '<path d="M11.2 14.0 L12.6 18.6 L12.0 24.8 H18.0 L17.4 18.6 '
+        + 'L18.8 14.0 Q15 16.4 11.2 14.0 Z"/>';
+    const JUM = '<path d="M11.0 13.9 L12.4 17.9 L11.9 26.6 H18.1 L17.6 17.9 '
+        + 'L19.0 13.9 Q15 16.3 11.0 13.9 Z"/>';
+    // The Cool band's light jacket: the same blue as the coat, three units
+    // shorter, and no scarf. Cool to Cold is the scarf arriving.
+    const JKT = '<path d="M11.0 13.8 L12.4 17.8 L10.7 28.4 H19.3 L17.6 17.8 '
+        + 'L19.0 13.8 Q15 16.3 11.0 13.8 Z"/><path d="M15 15.3 V28.0"/>';
+    const CTC = '<path d="M10.8 13.7 L12.2 17.7 L9.9 30.4 H20.1 L17.8 17.7 '
+        + 'L19.2 13.7 Q15 16.2 10.8 13.7 Z"/><path d="M15 15.2 V30.0"/>';
+    // The same coat with no neckline: the scarf is sitting on it.
+    const CTO = '<path d="M10.8 13.7 L12.2 17.7 L9.9 30.4 H20.1 L17.8 17.7 '
+        + 'L19.2 13.7"/><path d="M15 15.8 V30.0"/>';
+    const BARE = {
+        L: '<path d="M15 15.6 L10.2 23.4"/>',
+        R: '<path d="M15 15.6 L19.8 23.4"/>',
+        up: '<path d="M15 15.6 L22.4 13.2"/>'
+    };
+    const shortsBare = '<path d="M11.4 23.2 H18.6 L19.2 29.2 H15.8 L15 26.8 '
+        + 'L14.2 29.2 H10.8 Z"/>';
+    const shortsTee = '<path d="M11.1 24.8 L10.6 29.4 H14.2 L15 26.9 L15.8 29.4 '
+        + 'H19.4 L18.9 24.8"/>';
+    const bareLegs = '<path d="M13.5 29.3 L13.1 35.8"/><path d="M16.5 29.3 L16.9 35.8"/>';
+    const trousers = (y, to) =>
+        `<path d="M12.0 ${y} L11.6 ${to}"/><path d="M14.6 ${y} L14.2 ${to}"/>`
+        + `<path d="M18.0 ${y} L18.4 ${to}"/><path d="M15.4 ${y} L15.8 ${to}"/>`;
+    const SHOE_T = '<path d="M11.6 35.8 H14.2 V37.6 H9.8 V36.6 Z"/>'
+        + '<path d="M18.4 35.8 H15.8 V37.6 H20.2 V36.6 Z"/>';
+    const SHOE_B = '<path d="M12.3 35.8 H14.0 V37.6 H10.4 V36.6 Z"/>'
+        + '<path d="M17.7 35.8 H16.0 V37.6 H19.6 V36.6 Z"/>';
+    const BOOTS = '<path d="M11.6 33.4 H14.2 V37.8 H9.6 V36.4 Z"/>'
+        + '<path d="M18.4 33.4 H15.8 V37.8 H20.4 V36.4 Z"/>';
+    const dot = (p, r) => `<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${r}"/>`;
+
+    // The hood is rain and the hat is cold; neither has to be read in the
+    // light of the other. This hood is the figure's own: the shared one arcs
+    // to y 4.9 against a crown at 3.6 and cuts across the face.
+    const HOOD = '<path d="M9.6 13.0 A6.8 6.8 0 0 1 20.4 13.0"/>'
+        + '<path d="M9.6 13.0 L10.9 15.8"/><path d="M20.4 13.0 L19.1 15.8"/>';
+    const RAIN = '<path d="M4.6 13.8 L3 17.6"/><path d="M7.2 16.4 L5.6 20.2"/>'
+        + '<path d="M4.2 23 L2.6 26.8"/>';
+    const BROLLY = '<path d="M17.2 9.6 A6.3 6.3 0 0 1 29.8 9.6 Z"/><path d="M23.5 2.6 V4"/>'
+        + '<path d="M23.5 9.6 V15.4"/>';
+    const SUN = '<circle cx="27" cy="7" r="2.8"/>'
+        + '<path d="M27 2.2 V3.4 M27 10.6 V11.8 M22.2 7 H23.4 M30.6 7 H31.8 '
+        + 'M23.6 3.6 L24.4 4.4 M29.6 9.6 L30.4 10.4 M30.4 3.6 L29.6 4.4 M24.4 9.6 L23.6 10.4"/>';
+    const WIND = '<path d="M2 15.5 H8.4 A1.9 1.9 0 1 0 6.5 13.6"/><path d="M2 20.5 H6.6"/>';
+
+    // A colour per garment rather than a colour per temperature. A ramp says
+    // how cold it is, which the words beside the figure already say; this
+    // says what is on the figure, which is the only thing the drawing is for.
+    // One accessory colour covers scarf, hat, mittens and boots together,
+    // because those are read as a count and not as four separate things.
+    // Legwear is 11 and 15 points darker than any body garment on purpose: at
+    // its first value it sat within 3% lightness of both the jumper and the
+    // coat, a hue difference and nothing else, so in greyscale the trousers
+    // merged into the coat above them.
+    const WEARC = {
+        skin: '#E8E1D4', leg: '#6E7C96', tee: '#F2C14E',
+        jum: '#E07A5F', coat: '#5BA8D8', acc: '#6FCF97'
+    };
+    const GEARC = { umbrella: '#87CEEB', hood: '#87CEEB', sun: '#F0C060', wind: '#50C878' };
+
+    // Both ends of the scale saturate, and not symmetrically. At the cold end
+    // there is always one more thing to put on. At the hot end there is not:
+    // `hot` has already removed everything a figure can remove, so `veryhot`
+    // has to ADD the only garment that gets worn for heat.
+    const build = (band, raised) => {
+        const p = [], add = (k, s) => p.push([k, s]);
+        const hatted = band === 'freezing' || band === 'bitter';
+        const mitts = band === 'bitter';
+        const hr = mitts ? 1.7 : 1.3, hk = mitts ? 'acc' : 'skin';
+
+        if (band === 'hot' || band === 'veryhot') {
+            add('leg', shortsBare + bareLegs + SHOE_B);
+            add('skin', HEAD + '<path d="M15 13.4 V23.4"/>');
+            add('skin', BARE.L + (raised ? BARE.up : BARE.R));
+            if (band === 'veryhot') add('acc', SUNHAT);
+            return p;
+        }
+        if (band === 'warm') {
+            const a = arms('tshirt', raised);
+            add('leg', shortsTee + bareLegs + SHOE_B);
+            add('skin', HEAD);
+            add('tee', TEE); add('tee', a.sleeve);
+            add('skin', a.bare);
+            return p;
+        }
+        if (band === 'comfort') {
+            const a = arms('jumper', raised);
+            add('leg', trousers(26.6, 35.8) + SHOE_T);
+            add('skin', HEAD);
+            add('jum', JUM); add('jum', a.sleeve);
+            add('skin', a.hands.map(w => dot(w, 1.3)).join(''));
+            return p;
+        }
+        if (band === 'cool') {
+            const a = arms('jacket', raised);
+            add('leg', trousers(28.4, 35.8) + SHOE_T);
+            add('skin', HEAD);
+            add('coat', JKT); add('coat', a.sleeve);
+            add('skin', a.hands.map(w => dot(w, 1.3)).join(''));
+            return p;
+        }
+        const a = arms('coat', raised);
+        add('leg', trousers(30.4, mitts ? 33.4 : 35.8) + (mitts ? '' : SHOE_T));
+        if (mitts) add('acc', BOOTS);
+        add('skin', HEAD);
+        add('coat', hatted ? CTO : CTC); add('coat', a.sleeve);
+        add(hk, a.hands.map(w => dot(w, hr)).join(''));
+        add('acc', SCARF + (hatted ? HAT : ''));
+        return p;
+    };
+
+    // The raised arm is the same call with the wrist replaced by the
+    // umbrella handle, so the whole limb — cuff, hand and mitten — swaps as
+    // one piece rather than a second arm being added beside the first.
+    return (a) => {
+        const raised = a.gear === 'umbrella';
+        let body = build(a.wear, raised)
+            .map(([k, s]) => `<g stroke="${WEARC[k]}" color="${WEARC[k]}">${s}</g>`).join('');
+        let extra = '';
+        if (raised) extra = BROLLY + (a.wet ? RAIN : '');
+        else if (a.gear === 'hood') { body += `<g stroke="${GEARC.hood}">${HOOD}</g>`; extra = RAIN; }
+        else if (a.gear === 'sun') extra = SUN;
+        else if (a.gear === 'wind') extra = WIND;
+        const gc = a.gear && GEARC[a.gear];
+        if (extra && gc) extra = `<g stroke="${gc}">${extra}</g>`;
+        return `<svg viewBox="0 0 34 44" fill="none" stroke="currentColor" stroke-width="1.5" `
+            + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}${extra}</svg>`;
+    };
+})();
+
+// The advice row. Expanded state only, and nothing in it is tappable: it
+// lives inside a pointer-events:none element and must stay that way. It does
+// not animate, so prefers-reduced-motion is honoured by construction.
+const cardAdvice = (f) => {
+    const a = dressFor(f.h, f.day.past);
+    if (!a) return '';
+    return `<div class="rc-adv"><span class="rc-fig">${FIGURE(a)}</span>`
+        + `<span class="rc-lines">${a.lines.map(l => `<span class="rc-a">${esc(l)}</span>`).join('')}</span></div>`;
+};
+
 const cardHTML = (f, expanded) => {
     // What the active view makes of this block, then what the block is.
     // In the rain view those are the same sentence and the detail line
@@ -2948,7 +3227,7 @@ const cardHTML = (f, expanded) => {
         f.chgLines.map(l => `<div class="rc-note">${l}</div>`).join(''),
         f.compare
     ].filter(Boolean).join('');
-    return head + cardCells(f) + notes + (expanded ? cardFoot(f) : '');
+    return head + cardCells(f) + notes + (expanded ? cardAdvice(f) + cardFoot(f) : '');
 };
 
 const showCard = (f) => {
