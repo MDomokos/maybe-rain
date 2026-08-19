@@ -62,10 +62,11 @@ const LN = { cap: 8, floor: 0.3, popFloor: 8, warn: 20,
              // system uses, so it composes with drizzle rather than
              // replacing it.
              //
-             // Two thresholds, not one: `fogVis` is fog outright, `mistVis`
-             // is the mist boundary, and what separates them is whether the
-             // sky code has to agree. See `misty` below.
-             fogVis: 1000,
+             // One threshold, not two: `mistVis` is both the draw boundary
+             // and the ramp `misty` ranges its thickness over. There used
+             // to be a second, lower one that skipped the sky-code check
+             // outright, on the theory that visibility that low had to be
+             // fog. Heavy rain and storms proved that wrong — see `misty`.
              mistVis: 2000, mistSp: 4.5, mistSw: 1.0, mistLen: 7, mistLenHi: 12,
              mistGap: 5, mistAlpha: 0.14, mistAlphaHi: 0.44,
              // The lattice: 7.6 px at the light end, 4.7 at the heavy
@@ -884,10 +885,15 @@ const FOG_CODE = { 45: 1, 48: 1 };
 // while the block beside it, a shade drier, drew none. It was reporting the
 // rain, and the rain was drawn already.
 //
-// From 1 to 2 km the sky code now has to agree that it is fog. Below 1 km it
-// does not: that is fog whatever the code calls it.
-const misty = h => h.vis != null && h.vis <= LN.mistVis
-    && (h.vis <= LN.fogVis || !!FOG_CODE[h.code]);
+// The first fix only went halfway: the sky code had to agree below 2 km,
+// but not below 1 km, on the theory that a reading that low could only be
+// fog. It wasn't — RAIN_CODES carries codes like 65 (heavy rain) and 82
+// (violent showers), and STORM_CODES carries 95/96/99, all of which sag a
+// model's visibility under 1 km on their own. Below-1 km hours kept
+// drawing murk over rain and storm marks for exactly the reason above,
+// just at a lower floor. The sky code has to agree at every visibility
+// now: no reading, however low, is trusted to mean fog on its own.
+const misty = h => h.vis != null && h.vis <= LN.mistVis && !!FOG_CODE[h.code];
 
 const mistSVG = (h, base, W, H, opts) => {
     if (!misty(h)) return '';

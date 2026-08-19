@@ -10,6 +10,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the search list's unpin star is now filled instead of struck through, so a pinned city reads as "on" instead of "removed"
 - fixed a pinned city's star sometimes showing grey instead of gold after a tap, from a hover style that stuck on touch
 - the gold highlight on the first search result no longer shows on phones and tablets, where it had nothing to explain itself (it marks the Enter-key target, and touch has no Enter key)
+- fixed the mist texture drawing over heavy rain and storms. below 1km visibility it used to skip the fog-code check; it now requires one at every visibility, same as the 1-2km band already did
 
 ## v2.6.4 (2026-08-19)
 
