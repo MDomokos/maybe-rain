@@ -1908,7 +1908,7 @@ const applyDayWidths = () => {
     // screen, on any frame of a pull. Only the class is touched here, not
     // the content: the numbers on the card are still true, so a rebuild per
     // frame would be paying to write the same words.
-    if (cardOpen()) $('readingCard').classList.toggle('orphan',
+    if (cardOpen() && activeBlock) $('readingCard').classList.toggle('orphan',
         !blockCovering(activeBlock.day, activeBlock.hour));
 };
 
@@ -2758,7 +2758,12 @@ const cardOpen = () => $('readingCard').classList.contains('open');
 // the card's own rect, NOT a hit test: elementFromPoint returning the card
 // is the exact thing the form is built to avoid, and asking the browser
 // what is under a point would re-introduce it.
-const insideCard = (x, y) => {
+// The second half is not a hit test on the card, which is the thing being
+// avoided; it is a hit test on what covers it. The sheet and the modals sit
+// outside #content and can be drawn over the card, and a tap on a sheet row
+// that happens to land on the card's rectangle is the sheet's.
+const insideCard = (x, y, target) => {
+    if (target && !target.closest?.('.chart, .day-row')) return false;
     const r = $('readingCard').getBoundingClientRect();
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 };
@@ -3602,7 +3607,7 @@ const clearSwallow = () => { swallowClick = false; };
 // still works, because this handler sees it either way.
 document.addEventListener('pointerdown', e => {
     clearSwallow();
-    downInCard = cardOpen() && insideCard(e.clientX, e.clientY);
+    downInCard = cardOpen() && insideCard(e.clientX, e.clientY, e.target);
     // A new gesture starts from an opaque panel; the moves below thin it.
     applyVeil(0);
 }, true);
