@@ -2786,12 +2786,42 @@ const cardRise = () => {
     return Math.max(0, Math.min(cr.top - wr.top, cr.top - dr.bottom) + 1);
 };
 
-// Where the card rests. It has one home — the top of the chart, risen into
-// the weekday line — and commit 4 gives it the one reason to leave.
+// Where the card rests. It has one home, the top of the chart risen into
+// the weekday line, and one reason to leave it: a reading must never sit on
+// the block it is a reading of.
+//
+// "Sit on" means GONE, not merely touched. A block with half of itself
+// still showing is still a block you can see and still a block you can hit,
+// so the card holds its place; it flips to the far end only when nothing of
+// the block is left. Flipping on first contact made the card jump for
+// blocks that were never actually hidden, which is a bigger cost than a
+// clipped edge, and this threshold means the card moves rarely.
+//
+// Measured against the block's own rect rather than computed from rows:
+// --band is a percentage here, set from JS, so a pixel band would be a
+// second copy of the row geometry that could drift from the first.
 const placeCard = () => {
     const card = $('readingCard');
     if (!card.classList.contains('open')) return;
-    card.style.top = (-cardRise()).toFixed(1) + 'px';
+    const chart = document.querySelector('.chart');
+    const top = -cardRise();
+    // No block covers this hour: the elastic has pulled the day off screen.
+    // The card says so (see the orphan class) and does not move, because
+    // there is nothing left to be in the way of.
+    const blk = activeBlock && blockCovering(activeBlock.day, activeBlock.hour);
+    if (chart && blk) {
+        const cr = chart.getBoundingClientRect(), br = blk.getBoundingClientRect();
+        const blkTop = br.top - cr.top, blkBot = br.bottom - cr.top;
+        const h = card.offsetHeight;
+        const cover = t => Math.max(0, Math.min(blkBot, t + h) - Math.max(blkTop, t));
+        // Half a pixel of tolerance, so subpixel rounding cannot leave a
+        // sliver that claims the block is still visible when it is not.
+        const gone = (blkBot - blkTop) > 0 && cover(top) >= (blkBot - blkTop) - 0.5;
+        card.classList.toggle('at-bottom', gone);
+        card.style.top = (gone ? Math.max(0, chart.clientHeight - h) : top).toFixed(1) + 'px';
+        return;
+    }
+    card.style.top = top.toFixed(1) + 'px';
 };
 
 const cardCells = (f) => {
