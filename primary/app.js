@@ -1904,6 +1904,12 @@ const applyDayWidths = () => {
     $('dayHome').hidden = dayMode !== 'locked';
     $('dayHome').textContent = dayMode === 'locked' ? '⌂' : '';
     paintLockMark();
+    // The elastic can pull the day a reading points at right off the
+    // screen, on any frame of a pull. Only the class is touched here, not
+    // the content: the numbers on the card are still true, so a rebuild per
+    // frame would be paying to write the same words.
+    if (cardOpen()) $('readingCard').classList.toggle('orphan',
+        !blockCovering(activeBlock.day, activeBlock.hour));
 };
 
 // The row that labels the window. Split out of updateDisplay because a
@@ -2401,6 +2407,14 @@ const showTooltip = (el, anchor = null) => {
     // what to re-arm once this tooltip closes, and `armRevealIdle`
     // itself skips arming a fresh one while a tooltip is still open.
     clearTimeout(revealTimer);
+    // A grid block on a coarse pointer is read by the docked card instead,
+    // and the tooltip must be left entirely alone for it: an invisible box
+    // whose pointerEvents had been set to 'auto' below is still a hit
+    // target, so it would swallow taps aimed at the grid it is lying over.
+    // The legend swatches and the freshness line keep the tooltip on every
+    // pointer, so this is scoped to blocks.
+    const cardCase = coarse() && el.id !== 'statusInfo' && el.dataset.cond == null;
+    if (!cardCase) {
     // Prose explanation wraps and is interactive (so its link is
     // clickable); the fact tooltips stay single-line.
     tooltip.classList.toggle('explain', el.id === 'statusInfo');
@@ -2416,6 +2430,7 @@ const showTooltip = (el, anchor = null) => {
     // the open tooltip closes it, same as tapping anywhere else
     // that isn't a block/legend swatch.
     tooltip.style.pointerEvents = 'auto';
+    }
     // Cleared here; the grid-block branch re-arms it so a repaint (city
     // swap, view switch, background refresh) can re-render the open
     // tooltip against the new data at the same grid position.
@@ -2572,8 +2587,14 @@ const showTooltip = (el, anchor = null) => {
                 : `${esc(band.name)} - ${esc(band.cue)}`;
         } else if (view === 'wind') {
             const bits = [];
-            if (h.gust != null && h.wind != null && h.gust - h.wind >= GUST_MIN) bits.push(`gusts ${displayWind(h.gust)}`);
-            if (h.windDir != null) bits.push(COMPASS[windOctant(h.windDir)]);
+            // On a coarse pointer both halves of this line already have a
+            // home in the card: the expanded foot owns the gusts and the
+            // wind column's own second line owns the direction. Printing
+            // them here as well is the repeat the two states forbid.
+            if (!coarse()) {
+                if (h.gust != null && h.wind != null && h.gust - h.wind >= GUST_MIN) bits.push(`gusts ${displayWind(h.gust)}`);
+                if (h.windDir != null) bits.push(COMPASS[windOctant(h.windDir)]);
+            }
             activeDetail = bits.join(' · ');
         }
         const shared = [];
@@ -2604,9 +2625,9 @@ const showTooltip = (el, anchor = null) => {
 
         // The was/now detail, as small muted lines under the detail
         // line. Recorded per hour, so a span has nothing to report.
-        const chg = span > 1 ? ''
-            : changeLines(state.changed?.[`${day.date}|${h.hour}`])
-                .map(l => `<div class="tip-ctx">${l}</div>`).join('');
+        const chgLines = span > 1 ? []
+            : changeLines(state.changed?.[`${day.date}|${h.hour}`]);
+        const chg = chgLines.map(l => `<div class="tip-ctx">${l}</div>`).join('');
 
         // Hazard chips: one per corner glyph currently shown on the
         // block (none in wind view, where the arrow replaces them),
@@ -2637,6 +2658,22 @@ const showTooltip = (el, anchor = null) => {
         // set against a whole block would be a comparison of two
         // different things.
         const compare = span === 1 ? sheetCompareLine(day.date, h) : '';
+
+        // A coarse pointer takes the same facts and lays them out as the
+        // docked card instead. Routed from here, at the bottom of the one
+        // place that gathers them, so the two readings cannot come to
+        // disagree about what the block says. The card arranges them
+        // differently — three columns, a head and an expanded foot — but
+        // every value below came from the lines above.
+        if (coarse()) {
+            showCard({
+                day, h, span, wholeDay, sun, h0, dayName, range,
+                activeDetail, claimedCondition, chips, chgLines, compare,
+                mmVal, snowVal, liquidVal, per
+            });
+            markSelection();
+            return;
+        }
         html = when + temp + rain + wind + divider + detailLine + provenance + chg + compare + chipHtml;
     }
     // The one write, only when there is something new to write. Size is
@@ -2701,6 +2738,155 @@ const markSelection = () => {
     have.forEach(n => n.classList.remove('sel'));
     want?.classList.add('sel');
 };
+
+// --- The docked reading, coarse pointers only ---------------------
+// A full-width card resting under the date strip, in two states. It never
+// takes a touch: `pointer-events: none` is permanent, so elementFromPoint
+// never returns it and the grid underneath keeps every tap. Its own
+// gestures are claimed by where they STARTED, in the pointer handlers
+// further down.
+//
+// The two states share nothing. Everything the head and the three columns
+// carry is absent from the foot and the advice row by design, so expanding
+// adds facts rather than repeating them.
+let cardExpanded = false;   // whether the open reading is showing its foot
+let cardKey = '';           // date|hour of the reading the state belongs to
+let cardHtml = '';          // last written markup, so a repaint that changes
+                            // nothing writes nothing
+const cardOpen = () => $('readingCard').classList.contains('open');
+
+// How far the card may rise into the day strip, measured rather than
+// assumed. Two readings, not a constant: the weekday's TOP is far enough to
+// cover the weekday whole including whatever slack the label's line box
+// leaves under it, and the date's own BOTTOM is the hard stop. They are the
+// same boundary in a healthy layout, and taking the smaller means a broken
+// measurement fails by covering too little rather than by eating the date.
+// The +1 lands inside the date line box's half-leading, so no glyph is
+// touched.
+const cardRise = () => {
+    const chart = document.querySelector('.chart');
+    const wd = $('days').querySelector('.day-wd'), dt = $('days').querySelector('.day-date');
+    if (!chart || !wd || !dt) return 0;
+    const cr = chart.getBoundingClientRect();
+    const wr = wd.getBoundingClientRect(), dr = dt.getBoundingClientRect();
+    if (!wr.height || !dr.height) return 0;
+    return Math.max(0, Math.min(cr.top - wr.top, cr.top - dr.bottom) + 1);
+};
+
+// Where the card rests. It has one home — the top of the chart, risen into
+// the weekday line — and commit 4 gives it the one reason to leave.
+const placeCard = () => {
+    const card = $('readingCard');
+    if (!card.classList.contains('open')) return;
+    card.style.top = (-cardRise()).toFixed(1) + 'px';
+};
+
+const cardCells = (f) => {
+    const dim = k => k === view ? '' : ' dim';
+    const cell = (k, lb, big, sub) =>
+        `<div class="rc-cell rc-${k}${k === view ? ' on' : ''}">`
+        + `<span class="rc-lb">${lb}</span>`
+        + `<span class="rc-val${dim(k)}">${big}</span>`
+        + (sub ? `<span class="rc-sub">${sub}</span>` : '')
+        + `</div>`;
+    const h = f.h;
+    // Temperature: the reading, with the apparent temperature under it. The
+    // band the figure draws comes from the same feels-like.
+    const temp = cell('temp', 'Temp',
+        h.temp != null ? `${displayTemp(h.temp)}°` : '—',
+        h.feels != null ? `feels ${displayTemp(h.feels)}°` : '');
+    // Rain: the amount leads, because that is what the block is drawing;
+    // the chance follows it. A snowing hour puts the snow depth in front
+    // and keeps its liquid equivalent in the second line, which is the
+    // same split the tooltip makes across two lines.
+    const snowing = f.snowVal != null && f.snowVal > 0;
+    const rainBig = snowing ? `${f.snowVal} cm${f.per}`
+        : f.mmVal != null ? `${+f.mmVal.toFixed(1)} mm${f.per}` : '—';
+    const rainSub = [];
+    // A past day drops the chance for the reason the tooltip drops it: the
+    // hour has happened, so a probability beside a known outcome is a
+    // prediction about the past.
+    if (!f.day.past && h.pop != null) rainSub.push(`${h.pop}%`);
+    if (snowing && f.liquidVal != null && f.liquidVal >= 0.1) rainSub.push(`${f.liquidVal} mm${f.per}`);
+    const rain = cell('rain', 'Rain', rainBig, rainSub.join(' · '));
+    const wind = cell('wind', 'Wind',
+        h.wind != null ? `${displayWind(h.wind)} ${windUnitLabel()}` : '—',
+        h.windDir != null ? COMPASS[windOctant(h.windDir)] : '');
+    return `<div class="rc-cells">${temp}${rain}${wind}</div>`;
+};
+
+// The expanded state's own facts: the three the columns had no room for,
+// then the ambient ones the tooltip carried on its detail line. Nothing
+// here appears anywhere else on the card.
+const cardFoot = (f) => {
+    const h = f.h, bits = [];
+    if (h.gust != null && h.wind != null && h.gust - h.wind >= GUST_MIN)
+        bits.push(`gusts ${displayWind(h.gust)} ${windUnitLabel()}`);
+    if (h.humidity != null) bits.push(`humidity ${Math.round(h.humidity)}%`);
+    if (h.cloud != null) bits.push(`cloud ${Math.round(h.cloud)}%`);
+    if (misty(h)) bits.push(`visibility ${(h.vis / 1000).toFixed(1)} km`);
+    if (f.sun.rise && f.sun.set) bits.push(f.h0 < f.sun.rise.h + f.sun.rise.m / 60
+        ? `sunrise ${timeLabel(f.sun.rise.h, f.sun.rise.m)}`
+        : `sunset ${timeLabel(f.sun.set.h, f.sun.set.m)}`);
+    if (21 >= f.h0 && 21 < f.h0 + f.span) {
+        const sky = skyEventFor(f.day.date); if (sky) bits.push(esc(sky.label));
+    }
+    return bits.length ? `<div class="rc-foot">${bits.join(' · ')}</div>` : '';
+};
+
+const cardHTML = (f, expanded) => {
+    // What the active view makes of this block, then what the block is.
+    // In the rain view those are the same sentence and the detail line
+    // says so, so it is not printed twice.
+    const cond = [f.activeDetail, f.claimedCondition ? '' : esc(f.h.description)]
+        .filter(Boolean).join(' · ');
+    const chips = f.chips.length
+        ? `<div class="rc-chips">${f.chips.map(c => `<span class="rc-chip">${esc(c)}</span>`).join('')}</div>` : '';
+    const head = `<div class="rc-head">`
+        + `<span class="rc-when">${f.dayName} ${dateLabel(f.day.date)}</span>`
+        + `<span class="rc-hr">${f.range}</span>`
+        + (cond ? `<span class="rc-cond">${cond}</span>` : '')
+        + chips + `</div>`;
+    // The span provenance, the was/now lines and the city comparison stay
+    // with the collapsed state: each is a reason the reading exists rather
+    // than detail the expansion reveals, and the comparison in particular
+    // is what makes an open reading the comparison tool.
+    const notes = [
+        f.span === 1 ? ''
+            : `<div class="rc-note">${f.wholeDay ? 'daily value' : `${f.span}-hour block`} · beyond native hourly</div>`,
+        f.chgLines.map(l => `<div class="rc-note">${l}</div>`).join(''),
+        f.compare
+    ].filter(Boolean).join('');
+    return head + cardCells(f) + notes + (expanded ? cardFoot(f) : '');
+};
+
+const showCard = (f) => {
+    const card = $('readingCard');
+    // Keyed on the DATE, not on the day index: a preview sweep can put two
+    // columns on the same index for a frame, and an index is a position in
+    // the window rather than a property of the reading.
+    const key = `${f.day.date}|${activeBlock.hour}`;
+    // Expansion is a property of the reading that was expanded, not a
+    // preference the next one inherits.
+    if (key !== cardKey) { cardExpanded = false; cardKey = key; }
+    const html = cardHTML(f, cardExpanded);
+    // Written only when it differs. A repaint mid-sweep re-reads the open
+    // card on every frame and nearly all of them produce the same words.
+    if (html !== cardHtml) { card.innerHTML = html; cardHtml = html; }
+    card.classList.remove('orphan');
+    card.classList.add('open');
+    placeCard();
+};
+
+const hideCard = () => {
+    const card = $('readingCard');
+    if (!card) return;
+    card.classList.remove('open', 'orphan');
+    cardHtml = '';
+    cardKey = '';
+    cardExpanded = false;
+};
+
 const hideTooltip = () => {
     const t = $('tooltip');
     t.style.opacity = '0';
@@ -2708,6 +2894,7 @@ const hideTooltip = () => {
     // to rather than slide there from the block this one was on.
     t.classList.remove('travel');
     t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
+    hideCard();                     // one reading, one way to close it
     tappedBlock = null;
     activeBlock = null;
     // Nothing is being read, so nothing is selected. After activeBlock is
@@ -2735,14 +2922,22 @@ const hideTooltip = () => {
 // would otherwise leave the old city's tooltip on screen. Re-target the
 // block covering the same hour and re-show it from fresh state.
 const refreshActiveTooltip = () => {
-    if (!activeBlock || $('tooltip').style.opacity !== '1') return;
+    if (!activeBlock || !(cardOpen() || $('tooltip').style.opacity === '1')) return;
     // By coverage. The old exact [data-hour] match tied a reading to a
     // block's start hour, which is a property of where the hour window
     // happens to be standing, not of the forecast. One notch of hour peek
     // re-phased every span on a coarse day and the reading vanished, while
     // the same reading survived a seven-day pull.
     const el = blockCovering(activeBlock.day, activeBlock.hour);
-    if (!el) return hideTooltip();
+    if (!el) {
+        // The card holds its hour rather than closing when the day it reads
+        // has been pulled off screen: the numbers on it are still true, and
+        // the day comes back when the elastic does. What it stops doing is
+        // claiming to point at something visible. A floating tooltip has no
+        // way to say that, so it still closes.
+        if (cardOpen()) { $('readingCard').classList.add('orphan'); markSelection(); return; }
+        return hideTooltip();
+    }
     // A grid repaint (city/view switch, the day/hour keep-alive ticks
     // below) replaces the block DOM nodes wholesale, so a pinned
     // tooltip's `tappedBlock` reference would otherwise go stale:

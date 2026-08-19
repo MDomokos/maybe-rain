@@ -1694,6 +1694,152 @@
             line-height: 1.35;
         }
 
+        /* --- The docked reading -----------------------------------------
+           A coarse pointer gets this instead of the floating tooltip: a
+           full-width card resting under the date strip, in the app's own
+           --bg, --line and type. It never takes a touch, so it costs the
+           grid nothing and overlaps rather than displacing; the frame does
+           not change size.
+
+           It rises into the weekday line by a measured amount (see cardRise
+           in app.js), which buys back most of an hour row. Both `top` and
+           the entrance are animated; `top` moves only when the card flips
+           ends, which at the `gone` threshold is rare. */
+        .reading-card {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            z-index: 6;
+            /* Permanent, and the trick the whole form rests on. */
+            pointer-events: none;
+            padding: 8px 11px 9px;
+            background: rgba(0, 0, 0, 0.96);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.72), 0 3px 10px rgba(0, 0, 0, 0.55);
+            font-size: 12px;
+            opacity: 0;
+            /* Off the top, so the card arrives from the direction the date
+               strip is in rather than fading up over the grid. */
+            transform: translateY(-135%);
+            transition: transform 340ms cubic-bezier(0.22, 1.18, 0.36, 1),
+                        opacity 150ms ease,
+                        top 220ms cubic-bezier(0.3, 0.9, 0.35, 1);
+            /* Kept in the layout when closed so offsetHeight is measurable
+               before the card is shown; visibility is what hides it, and it
+               is never a hit target either way. */
+            visibility: hidden;
+        }
+        .reading-card.open { visibility: visible; opacity: 1; transform: none; }
+        /* Flipped below the block it would otherwise have covered entirely. */
+        .reading-card.at-bottom:not(.open) { transform: translateY(135%); }
+        /* The day this reading points at has been pulled off screen. The
+           numbers are still true, so they stay legible; what changes is that
+           the card stops claiming to point at something visible. */
+        .reading-card.orphan { opacity: 0.72; }
+        .reading-card.orphan .rc-when::after {
+            content: ' · off screen';
+            color: var(--text-dim);
+            font-weight: 400;
+        }
+        /* No entrance under reduced motion, and no travel when it flips. */
+        html.reduce-motion .reading-card { transition: opacity 150ms ease; }
+        html.reduce-motion .reading-card:not(.open) { transform: none; }
+
+        /* Head: the day, the hour or hour range, what the active view makes
+           of the block, and the warnings. The warning chip belongs to BOTH
+           states — it is the reason to look, not a detail the expansion
+           reveals — so it sits here rather than in the foot. */
+        .reading-card .rc-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 4px 10px;
+            min-width: 0;
+            padding-bottom: 3px;
+            margin-bottom: 5px;
+            border-bottom: 1px solid var(--divider);
+        }
+        .reading-card .rc-when { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+        .reading-card .rc-hr { color: var(--text-faint); white-space: nowrap; }
+        /* Shrinks and ellipsizes so the chips beside it never do. */
+        .reading-card .rc-cond {
+            flex: 0 1 auto;
+            min-width: 0;
+            margin-left: auto;
+            text-align: right;
+            font-size: 11px;
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .reading-card .rc-chips { display: flex; flex: none; gap: 5px; }
+        .reading-card .rc-chip {
+            color: var(--warn);
+            background: var(--warn-bg);
+            border: 1px solid var(--warn);
+            border-radius: var(--radius);
+            padding: 1px 7px;
+            font-size: 9px;
+            line-height: 1.35;
+            white-space: nowrap;
+        }
+
+        /* Three columns, one per view, the width split evenly. The full
+           width gives each column about 110px at 390 and 100px at 360,
+           enough for the value and its second fact without either wrapping.
+           Only the active view's value is bright; the other two share one
+           quieter size and weight, the same rule the tooltip uses. */
+        .reading-card .rc-cells { display: flex; align-items: flex-start; }
+        .reading-card .rc-cell {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            padding-left: 11px;
+            border-left: 1px solid var(--divider);
+        }
+        .reading-card .rc-cell:first-child { padding-left: 0; border-left: 0; }
+        .reading-card .rc-lb {
+            font-size: 9px;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+        .reading-card .rc-cell.on .rc-lb { color: var(--text-muted); }
+        .reading-card .rc-val { font-size: 20px; font-weight: 600; line-height: 1.1; white-space: nowrap; }
+        .reading-card .rc-val.dim { font-size: 14px; font-weight: 500; color: #eee; }
+        .reading-card .rc-temp .rc-val:not(.dim) { color: var(--tip-temp); }
+        .reading-card .rc-rain .rc-val:not(.dim) { color: var(--tip-rain); }
+        .reading-card .rc-wind .rc-val:not(.dim) { color: var(--tip-wind); }
+        .reading-card .rc-sub { font-size: 10.5px; color: #b4b4b4; white-space: nowrap; }
+
+        /* What this block IS, and what it is being compared with. Both are
+           reasons the reading exists rather than detail the expansion
+           reveals, so they stay with the collapsed state. */
+        .reading-card .rc-note,
+        .reading-card .tip-ctx {
+            font-size: 10.5px;
+            color: var(--text-dim);
+            line-height: 1.45;
+            margin-top: 5px;
+        }
+        /* The foot is the expanded state's own facts: the three that did not
+           fit in the columns, plus the ambient ones. Nothing here appears
+           above it. */
+        .reading-card .rc-foot {
+            font-size: 10.5px;
+            color: var(--text-dim);
+            line-height: 1.45;
+            margin-top: 5px;
+            padding-top: 4px;
+            border-top: 1px solid var(--divider);
+        }
+
         /* Shared modal shell: a panel over a scrim, opened only from the
            settings menu so nothing steals attention on its own. Both the
            changelog ("What's new") and the hourly-data explainer use this
@@ -2476,6 +2622,16 @@
                 <div id="sunLines"></div>
                 <div class="time-labels" id="times"></div>
                 <div class="chart-grid" id="grid"></div>
+                <!-- The docked reading, coarse pointers only. It lives INSIDE
+                     .chart, unlike #tooltip, because it positions against the
+                     chart box and rises into the day strip by a measured
+                     amount. That is only safe because it is permanently
+                     pointer-events:none: elementFromPoint never returns it,
+                     every touch reads through to the block underneath, and
+                     nothing it does can feed the chart's gesture detection.
+                     aria-hidden because the blocks carry their own labels and
+                     the card is a second rendering of one of them. -->
+                <div class="reading-card" id="readingCard" aria-hidden="true"></div>
                 <div class="rail" id="hourRail" aria-hidden="true"></div>
                 <!-- The reach carets. Nothing at rest; drawn only while a
                      hand is on the grid, and only on the sides the hour
