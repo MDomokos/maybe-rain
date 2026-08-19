@@ -220,6 +220,24 @@ selected. On a mouse, hovering a block opens its tooltip and the ring replaces
 the usual hover dim for as long as the reading is up. Touch has no hover state
 at all: the ring is the only thing that says which block is being read.
 
+On a coarse pointer the reading is not a floating box at all. It is a full-width
+card resting under the date strip, risen into the weekday line, in two states. It
+never takes a touch: every tap reads through it to the block underneath, so it
+costs the grid nothing and overlaps rather than displacing. Its own gestures are
+claimed by **where they started** — a swipe up or sideways from inside the card
+closes the reading, and everything else is the grid's. The price is that those
+two rows give up the day elastic for a sideways swipe, and that the card's left
+edge over the hour gutter belongs to the hour peek. Collapsed, the card carries
+the day, the hour range, what the active view makes of the block, any warning,
+and the three numbers in three columns. A tap expands it, and expanding **adds**
+facts rather than repeating any: a figure dressed for the hour with what to wear
+and whether rain means an umbrella or a jacket, then gusts, humidity, cloud,
+visibility and the sun times. The warning belongs to both states, because it is
+the reason to look. The card moves only when the block it reads is entirely
+behind it, and thins as a gesture comes near it so the grid can be read through.
+While it is open the grid gives up vertical page scrolling; the day row, the
+legend and the header still pan the page.
+
 An open tooltip survives a city switch, a view switch, an hour peek, a day pull
 and a change of cadence, so it doubles as the comparison tool. What it holds on
 to is the **hour** it was opened on, not the block. A block is a slice of the
@@ -228,7 +246,9 @@ three, six or twenty-four hours, cut from the top of whatever window is showing,
 so one notch of hour peek redraws every one of them a little earlier or later.
 The reading follows its hour into whichever block covers it, at whatever size
 that block is now drawn — widening to a three-hour block, and saying so, rather
-than closing. It closes only when the hour is no longer on screen at all.
+than closing. It closes only when the hour is no longer on screen at all. The
+docked card does not close there: it dims, says **off screen** beside the day,
+and keeps its hour until the elastic brings the day back.
 
 While a switcher preview is aimed, an open tooltip prints **both** cities on
 one line — same date, same hour, the current reading and the aimed one, in the

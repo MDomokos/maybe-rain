@@ -2,6 +2,15 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.4 (2026-08-19)
+
+- on phones and tablets, tapping a block now opens a full-width card under the dates instead of a box floating over the grid. the card never blocks a tap, so every block behind it is still reachable
+- tap the card to expand it: a small figure shows what to wear at that hour, whether to take an umbrella or a rain jacket, and the gusts, humidity, cloud, visibility and sun times
+- swipe the card up or sideways to dismiss it, or tap the block again
+- the card moves out of the way only when it would hide the block being read, and thins while a finger is near it so the grid can be read through
+- a reading whose day is dragged off screen now says so instead of disappearing
+- while a reading is open the grid no longer scrolls the page; the dates, the key and the header still do
+
 ## v2.6.3 (2026-08-19) — bugfix
 
 - rain and snow marks now stay visible against every sky color and brightness level, including fog, near-white snow skies, and dimmed past days
