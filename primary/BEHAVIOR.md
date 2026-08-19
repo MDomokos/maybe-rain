@@ -19,7 +19,8 @@ One viewport, no scrolling. Nothing above the grid but dates. Top to bottom:
 - **Grid** — 7 columns × 16 rows at rest. Days across, hours 06:00–21:00 down.
   Every block in the home week is one real hour of one real day. Days pulled in
   from beyond it draw at the granularity the forecast actually has: 3-hour
-  blocks at lead 7–8, 6-hour at 9–10, one inset daily bar from 11.
+  blocks at lead 7–8, 6-hour at 9–10, one outlined daily bar from 11. Every
+  column is the same width and sits on the same gap, whatever its cadence.
 - **Side axis** — hour labels, with the current temperature in gold and a ▶ at
   the current hour when today is in frame.
 - **Control row** — the city name, then the three views as words, each carrying

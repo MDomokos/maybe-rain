@@ -670,9 +670,8 @@ const cellDelay = (anim, c, r, nCols, nRows, desc) => {
 // A block is as tall as the hours it stands for. One hour is the CSS
 // default and writes no inline height at all, so the common case stays
 // exactly what it was; a coarse block spans its slots' bands and the gap
-// between them. The daily bar is the one that also changes shape
-// (inset, hairline), and says so with a class rather than more inline
-// style.
+// between them. The daily bar is the one that is also outlined, and
+// says so with a class rather than more inline style.
 //
 // Does this cell cover the hour an open tooltip is reading? Coverage, not
 // equality: activeBlock.hour is an hour of the day, and which block covers
@@ -1141,7 +1140,7 @@ const waveRelease = () => { if (wave) { wave.hold = false; kickWave(); } };
 // blocks there states a resolution the forecast does not have.
 // Revealed far days therefore draw at the granularity the data actually
 // carries: fewer, taller blocks as lead time grows, down to a
-// single inset daily bar.
+// single outlined daily bar.
 //
 // Phase A (this): one fixed table, applied from lead 7 so the home week
 // is untouched. Phase B is a response-detected cadence, and every

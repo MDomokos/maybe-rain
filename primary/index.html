@@ -1456,21 +1456,18 @@
         /* --- Far days, at the data's own cadence -----------------------
            A block that stands for three or six hours is simply taller;
            its height is written inline from the slots it covers, so
-           nothing is needed here. The DAILY bar is the one that also
-           changes shape: inset from the column's sides and outlined with
-           a hairline, so a single value for a whole day cannot be
-           mistaken for an hour that happens to be very tall. The
-           existing geometry, unchanged.
+           nothing is needed here. The DAILY bar says what it is with a
+           hairline outline, so a single value for a whole day cannot be
+           mistaken for an hour that happens to be very tall.
 
-           `width: auto` rather than the block's usual 100%: a margin does
-           not shrink a definite width, so 100% plus an 18% margin would
-           push the bar out over its neighbour instead of insetting it.
-           The column is a flex column, so auto stretches to what is left. */
+           It used to be inset 18% from each side as well. The inset was
+           the wrong channel to say it in: the gap between columns is one
+           number the whole way across, and insetting two columns' worth
+           of block widened that channel to a third of a column out at
+           the daily end, so the field read as unevenly spaced right
+           where it is already at its coarsest. The outline says the same
+           thing and says it on the block itself. */
         .weather-block.daily {
-            width: auto;
-            align-self: stretch;
-            margin-left: 18%;
-            margin-right: 18%;
             border: 1px solid rgba(255, 255, 255, 0.22);
         }
 
