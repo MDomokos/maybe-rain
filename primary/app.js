@@ -27,6 +27,12 @@ const HOUR_SPAN = HOUR_END - HOUR_START + 1; // 16 slots
 // a transition that has to be zero for one frame while an element moves).
 const REDUCE_Q = matchMedia('(prefers-reduced-motion: reduce)');
 const reduceMotion = () => REDUCE_Q.matches;
+// The pointer, asked the same way. A coarse pointer gets the docked reading
+// card; a fine one keeps the floating tooltip and its hover behaviour. Read
+// through `coarse()` so a device that changes primary pointer mid-session
+// (a tablet gaining a trackpad) answers with what is true now.
+const COARSE_Q = matchMedia('(pointer: coarse)');
+const coarse = () => COARSE_Q.matches;
 const syncReduceMotion = () =>
     document.documentElement.classList.toggle('reduce-motion', REDUCE_Q.matches);
 REDUCE_Q.addEventListener?.('change', syncReduceMotion);
@@ -2557,7 +2563,13 @@ const showTooltip = (el, anchor = null) => {
             claimedCondition = true;
         } else if (view === 'temp' && feelsVal != null) {
             const band = TEMP_BANDS[bandIndex(feelsVal)];
-            activeDetail = `${esc(band.name)} - ${esc(band.cue)}`;
+            // The band cue has two possible homes on a coarse pointer: this
+            // line and the dressing figure, which draws the same band and
+            // says the same sentence. Only one may print it, and the figure
+            // is the one that needs it, so here it is the band NAME alone.
+            // A fine pointer has no figure and keeps the whole line.
+            activeDetail = coarse() ? esc(band.name)
+                : `${esc(band.name)} - ${esc(band.cue)}`;
         } else if (view === 'wind') {
             const bits = [];
             if (h.gust != null && h.wind != null && h.gust - h.wind >= GUST_MIN) bits.push(`gusts ${displayWind(h.gust)}`);
