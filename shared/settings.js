@@ -8,7 +8,7 @@ const enabledViews = () => VIEWS.filter(v => settings.views[v]);
     const saved = loadJSON(LS_SETTINGS) || {};
     settings = {
         unit: 'C', clock: '24', allHours: false, heatWarn: 35, uvWarn: 8,
-        windUnit: 'kmh', legend: true, sunLines: true, ...saved,
+        windUnit: 'kmh', legend: true, sunLines: true, dayNotify: true, ...saved,
         // deep-merged so pre-wind saved settings still get defaults
         views: { rain: true, temp: true, wind: true, ...(saved.views || {}) }
     };

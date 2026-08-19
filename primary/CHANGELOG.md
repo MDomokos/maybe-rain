@@ -11,6 +11,8 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - only one reading is open at a time: opening a day closes an open hour, and the other way round
 - snow no longer suggests an umbrella. a snowing hour now advises a hood, and the figure draws falling snow instead of rain beside it
 - the reading header names the weekday in full ("Thu 21 Aug" instead of "TH 21 Aug")
+- on phones and tablets, the first open of each day drops today's summary in from the top for four seconds, then sends it back up. it takes no taps, so anything you touch during it still works, and touching anything sends it away early. ⚙ Day note turns it off
+- fixed a reading that had been pushed to the foot of the screen handing its downward exit to the next one
 
 ## v2.6.6 (2026-08-19)
 

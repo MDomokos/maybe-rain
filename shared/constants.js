@@ -85,6 +85,11 @@ const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (capped, user-cur
 const LS_META = 'mr-model-meta';     // cached global model-run metadata (run time + cadence)
 const LS_META_LOCAL = 'mr-model-meta-local'; // cached regional model meta, keyed by model slug
 const LS_VERSION = 'mr-version';     // build id last seen on this device (drives the post-update note)
+// City-local date the day note last popped for. One date, not a set: the
+// note is once a day and there is nothing to remember about the days before
+// it. Keyed by date rather than by place, so switching city does not earn a
+// second one.
+const LS_DAY_NOTE = 'mr-day-note';
 // The running build's id. build.mjs swaps __APP_VERSION__ for sw.js's
 // CACHE_NAME at publish, so the version lives in one place. An unbuilt dev
 // copy keeps the literal token, so the post-update note just never fires.

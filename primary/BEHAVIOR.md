@@ -335,6 +335,28 @@ held over a head collects it. So a snowing hour advises a hood whatever the wind
 is doing, and the figure draws falling snow — three pale flakes where the rain
 strokes would be — instead of rain.
 
+### The day note
+
+Once a day, on the first paint of real data, the app taps today's date for you:
+the day reading drops in from under the date strip, rests four seconds, and goes
+back up the way it came. Coarse pointers only, since the card it borrows only
+exists there, and off entirely behind **⚙ Day note**.
+
+It is not a new surface and not a new state — it opens through the same
+`showTooltip` the date label goes through. So everything that already dismisses a
+reading dismisses this one: a tap on a block opens that block instead, a tap on
+empty space closes it, a city or view switch re-renders it. That is the whole of
+"any touch sends it away early", and it needed no code of its own.
+
+The card keeps `pointer-events: none` throughout. The note is never a hit target,
+so a tap aimed at the grid during those four seconds still lands on the grid.
+
+The timer checks before it closes anything: if a tap in the meantime opened an
+hour, or a different date, that reading is the user's and does not time out. The
+date is recorded when the note **shows**, not when it is considered, so a run
+that gives up on a hidden tab or a payload with no today has not spent the day's
+one showing. Under `prefers-reduced-motion` it fades rather than travelling.
+
 ### What the two readings share
 
 They are the same three sections said about different spans of time, so the parts
@@ -411,7 +433,10 @@ name starts at the same place. A city with no cache reads blank, never a zero.
 ## Settings
 
 One menu, reached from the sheet's own action row. Rows: Units, Wind, Clock, Hours, Views, Sun, Key,
-♨ heat threshold, ☀ UV threshold, Share, What's new, Hourly data.
+Day note, ♨ heat threshold, ☀ UV threshold, Share, What's new, Hourly data.
+
+Day note renders on coarse pointers only. A row for a setting that cannot do
+anything on this device is a row that has to be explained.
 
 Thresholds apply at render time, so changing one repaints without a refetch.
 

@@ -2161,6 +2161,10 @@ const updateDisplay = (anim = null) => {
     if (!firstPaintDone && state.data.length) {
         firstPaintDone = true;
         maybeScheduleInstallBanner();
+        // Same gate, same reason: real data, once, and never off a blank
+        // grid. A note summarising a day that did not load is worse than no
+        // note, and it would spend the day's one showing on nothing.
+        maybeDayNote();
     }
 };
 
@@ -3022,6 +3026,14 @@ const placeCard = () => {
         measureVeil(chart, card);
         return;
     }
+    // Nothing to be in the way of: the card is at its home under the date
+    // strip, so it also leaves the way it arrived. `at-bottom` has to be
+    // cleared rather than just left alone — it is what decides the exit
+    // direction, and a reading that had been pushed to the foot would
+    // otherwise hand its downward exit to the next one, which for the day
+    // note means dropping out of the bottom of a screen it entered from the
+    // top of.
+    card.classList.remove('at-bottom');
     card.style.top = top.toFixed(1) + 'px';
     if (chart) measureVeil(chart, card);
 };
@@ -3894,6 +3906,61 @@ const showHourCard = f => showCard(`${f.day.date}|${activeBlock.hour}`,
     cardHTML(f, cardExpanded), false);
 const showDayCard = d => showCard(`day|${d.day.date}`, dayCardHTML(d), true);
 
+// --- The day note -------------------------------------------------
+// Once a day, on the first paint, the app taps today's date for you: the
+// day reading drops in from under the date strip, sits for four seconds and
+// goes back the way it came. Coarse pointers only, because the card it
+// borrows only exists there, and off entirely behind ⚙ Day note.
+//
+// It is not a new surface and not a new state. It opens through the same
+// `showTooltip` the date label goes through, which means everything that
+// already dismisses a reading dismisses this one: a tap on a block opens
+// that block instead, a tap on empty space closes it, a city or view switch
+// re-renders it. That is the whole of "any tap sends it away early", and it
+// cost nothing to get.
+//
+// The card keeps `pointer-events: none` throughout. Nothing here makes the
+// note a hit target, so a tap aimed at the grid during those four seconds
+// still lands on the grid.
+const NOTE_DWELL_MS = 4000;
+let noteTimer = 0;
+// The reading the note opened, as the card's own key. The timer checks it
+// before closing anything: if a tap in the meantime opened an hour, or
+// another date, that reading is the user's and does not time out. Cleared
+// by hideTooltip, so the timer can never outlive what it was counting for.
+let noteKey = '';
+const clearDayNote = () => { clearTimeout(noteTimer); noteTimer = 0; noteKey = ''; };
+const maybeDayNote = () => {
+    if (!settings.dayNotify || !coarse()) return;
+    // A reading is already open, so the app was beaten to it by a tap
+    // during the first paint. The user's reading wins.
+    if (activeBlock || activeDay != null) return;
+    // Opened into a hidden tab: the note would spend its four seconds
+    // where nobody is, and then be spent for the day.
+    if (document.hidden) return;
+    const today = cityNow().date;
+    if (loadJSON(LS_DAY_NOTE) === today) return;
+    const di = state.todayIndex;
+    if (!state.days[di] || !state.days[di].isToday) return;
+    // Next frame, so the label row has been laid out and measured: the card
+    // positions against it, and dayLabelFor asks whether it has a rect.
+    requestAnimationFrame(() => {
+        const lab = dayLabelFor(di);
+        if (!lab || activeBlock || activeDay != null) return;
+        saveJSON(LS_DAY_NOTE, today);
+        showTooltip(lab);
+        // Recorded after the open, because showTooltip is what sets cardKey.
+        noteKey = cardKey;
+        clearTimeout(noteTimer);
+        noteTimer = setTimeout(() => {
+            noteTimer = 0;
+            const mine = noteKey && cardKey === noteKey && activeDay != null;
+            noteKey = '';
+            if (mine) hideTooltip();
+        }, NOTE_DWELL_MS);
+    });
+};
+
 const hideCard = () => {
     const card = $('readingCard');
     if (!card) return;
@@ -3941,6 +4008,7 @@ const hideTooltip = () => {
     t.classList.remove('travel');
     t.style.pointerEvents = 'none'; // hidden tooltip must never intercept clicks
     hideCard();                     // one reading, one way to close it
+    clearDayNote();                 // nothing left for the note's timer to close
     tappedBlock = null;
     activeBlock = null;
     activeDay = null;
@@ -4407,6 +4475,11 @@ const openSearch = () => {
 // the geolocation button open the field.
 
 // --- Settings menu: the app's only menu ---------------------------
+// Which preferences are not strings. Every row writes through one segmented
+// control, so the coercion is decided by the key rather than by the row, and
+// a new toggle is one name in a set instead of one more clause in a chain.
+const BOOL_PREFS = new Set(['allHours', 'legend', 'sunLines', 'dayNotify']);
+const NUM_PREFS = new Set(['heatWarn', 'uvWarn']);
 const renderSettings = () => {
     const seg = (key, options) => `<div class="seg">${options.map(([val, label]) =>
         `<button data-key="${key}" data-val="${val}"
@@ -4421,6 +4494,12 @@ const renderSettings = () => {
             `<button data-viewkey="${v}" class="${settings.views[v] ? 'active' : ''}">${v}</button>`).join('')}</div></div>` +
         `<div class="setting-row"><span>Key</span>${seg('legend', [['true', 'show'], ['false', 'hide']])}</div>` +
         `<div class="setting-row"><span>Sun</span>${seg('sunLines', [['true', 'show'], ['false', 'hide']])}</div>` +
+        // Coarse only, because the card the note borrows only exists there.
+        // A row for a setting that cannot do anything on this device is a
+        // row that has to be explained.
+        (coarse()
+            ? `<div class="setting-row"><span>Day note</span>${seg('dayNotify', [['true', 'show'], ['false', 'hide']])}</div>`
+            : '') +
         `<div class="setting-row"><span>${MR_ICON.heat} heat ≥</span>${seg('heatWarn',
             [30, 35, 40].map(t => [String(t), `${displayTemp(t)}°`]))}</div>` +
         `<div class="setting-row"><span>${MR_ICON.uv} UV ≥</span>${seg('uvWarn',
@@ -4495,8 +4574,8 @@ $('settings').addEventListener('click', e => {
     const seg = e.target.closest('button[data-key]');
     if (seg) {
         const { key, val } = seg.dataset;
-        settings[key] = (key === 'allHours' || key === 'legend' || key === 'sunLines') ? val === 'true'
-            : (key === 'heatWarn' || key === 'uvWarn') ? +val : val;
+        settings[key] = BOOL_PREFS.has(key) ? val === 'true'
+            : NUM_PREFS.has(key) ? +val : val;
         saveJSON(LS_SETTINGS, settings);
         applyPrefs();
         renderSettings();
