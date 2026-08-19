@@ -2943,7 +2943,11 @@ const applyBgDim = v => { chart.style.setProperty('--bg-dim', v.toFixed(3)); };
 // could plausibly become both.
 const armHoldScrub = p => {
     p.holdTimer = 0;
-    if (pull !== p || p.axis || !p.holdEl) return;
+    if (pull !== p || p.axis || !p.holdEl) {
+        if (HS_DEBUG) hsLog('skip', null,   // HS-DEBUG
+            pull !== p ? 'gesture already over' : p.axis ? `axis=${p.axis}` : 'no block');
+        return;
+    }
     p.axis = 'scrub'; // claims the gesture; endPull's own branch on this closes it below
     holdScrubActive = true;
     holdScrubBlock = p.holdEl;
@@ -2952,6 +2956,7 @@ const armHoldScrub = p => {
     chart.setPointerCapture?.(p.id);
     showTooltip(p.holdEl); // opens already expanded; see showCard's cardExpanded line
     applyBgDim(cardProximity(p.holdX, p.holdY));
+    if (HS_DEBUG) hsLog('arm');   // HS-DEBUG
 };
 // Retargets the reading to whatever block the finger is over, live.
 // elementFromPoint, not the touch's own `.target`: a Touch's target is
@@ -2966,7 +2971,8 @@ const moveHoldScrub = (p, e) => {
     applyBgDim(cardProximity(e.clientX, e.clientY));
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const block = el && el.closest && el.closest(HOLD_SCRUB_SEL);
-    if (!block || block === holdScrubBlock) return;
+    if (!block) { if (HS_DEBUG) hsLog('miss'); return; }   // HS-DEBUG
+    if (block === holdScrubBlock) return;
     holdScrubBlock = block;
     navigator.vibrate?.(4); // a lighter tick per block crossed, DR-27's tuned value
     showTooltip(block);
@@ -2976,6 +2982,104 @@ const endHoldScrub = () => {
     holdScrubBlock = null;
     applyBgDim(0);
     hideTooltip(); // always closes: a hold-scrub reading never outlives the finger
+};
+
+// --- TEMPORARY: hold-scrub instrumentation --------------------------
+// Measures on a device what DR-49 settled by reasoning. Off unless
+// `?holddebug` is on the URL; every call site is a single line tagged
+// HS-DEBUG, so a grep for that tag plus this block is the whole removal.
+//
+// The four things it separates, because they fail identically from the
+// outside (nothing happens, or the reading vanishes):
+//   gap     press landed between blocks, `holdEl` never resolved
+//   drift   finger moved past PULL_SLOP inside the 350ms, timer cleared
+//   cancel  browser claimed the pan and fired pointercancel
+//   miss    scrub crossed a gap, elementFromPoint returned no block
+// `cancel` is the one to watch. `.chart` is touch-action: pan-y and the
+// axis is granted by hit-testing at touchstart, so flipping
+// .reading-open on at arm time cannot take the y axis back for a touch
+// already in flight. If that is what is happening, a cancel is logged
+// with `armed=yes` every time a scrub is dragged with any vertical
+// component, and with `armed=no` for a press that drifts vertically
+// before it can arm.
+// `typeof` guard because research/test-docked-reading.mjs evals this
+// region with no `location` in scope.
+const HS_DEBUG = typeof location !== 'undefined' && /[?&]holddebug\b/.test(location.search);
+const hsTally = { down: 0, gap: 0, arm: 0, drift: 0, cancel: 0, miss: 0, up: 0 };
+let hsG = null;          // the gesture being measured: {t0, x, y, far, armed, block}
+let hsLines = [];        // newest first, capped
+let hsPanel = null, hsHead = null, hsBody = null, hsQueued = false;
+const hsMs = () => (performance.now() - (hsG?.t0 || performance.now())).toFixed(0);
+const hsPaint = () => {
+    hsQueued = false;
+    if (!hsBody) return;
+    hsHead.textContent = `down ${hsTally.down}  arm ${hsTally.arm}  |  gap ${hsTally.gap}`
+        + `  drift ${hsTally.drift}  cancel ${hsTally.cancel}  miss ${hsTally.miss}`;
+    hsBody.textContent = hsLines.join('\n');
+};
+const hsPush = line => {
+    hsLines.unshift(line);
+    if (hsLines.length > 16) hsLines.pop();
+    if (!hsQueued) { hsQueued = true; requestAnimationFrame(hsPaint); }
+};
+// Built once, on the first log rather than at load: a run without the
+// flag never touches the DOM. pointer-events: none on everything except
+// the copy button, and the button sits above the header rather than over
+// the grid, so the panel cannot take a touch the gesture was owed.
+const hsPanelInit = () => {
+    if (hsPanel || !document.body) return;
+    const css = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;pointer-events:none;'
+        + 'font:11px/1.35 ui-monospace,Menlo,monospace;color:#9fe;background:rgba(0,0,0,0.82);'
+        + 'padding:6px 8px;white-space:pre;max-height:42vh;overflow:hidden';
+    hsPanel = document.createElement('div');
+    hsPanel.style.cssText = css;
+    hsHead = document.createElement('div');
+    hsHead.style.cssText = 'color:#fff;border-bottom:1px solid #444;padding-bottom:4px;margin-bottom:4px';
+    hsBody = document.createElement('div');
+    const copy = document.createElement('button');
+    copy.textContent = 'copy';
+    copy.style.cssText = 'position:fixed;right:8px;top:8px;z-index:10000;pointer-events:auto;'
+        + 'font:11px ui-monospace,monospace;padding:4px 8px;background:#222;color:#9fe;border:1px solid #555';
+    copy.addEventListener('click', () => {
+        navigator.clipboard?.writeText(hsHead.textContent + '\n' + hsLines.join('\n'));
+        copy.textContent = 'copied';
+        setTimeout(() => { copy.textContent = 'copy'; }, 900);
+    });
+    hsPanel.append(hsHead, hsBody);
+    document.body.append(hsPanel, copy);
+};
+// `extra` is per-kind: the resolved block for 'down', the reason for
+// 'skip', the distance for 'drift', the event for 'end'.
+const hsLog = (kind, e, extra) => {
+    hsPanelInit();
+    if (kind === 'down') {
+        hsTally.down++;
+        hsG = { t0: performance.now(), x: e.clientX, y: e.clientY, far: 0, armed: false };
+        if (!extra) { hsTally.gap++; hsPush(`gap   press at ${e.clientY | 0} hit no block`); }
+        else hsPush(`down  ${e.pointerType} on block`);
+        return;
+    }
+    if (!hsG) return;
+    if (kind === 'move') { hsG.far = Math.max(hsG.far, extra); return; }
+    if (kind === 'arm') {
+        hsTally.arm++; hsG.armed = true;
+        hsPush(`ARM   ${hsMs()}ms, drift ${hsG.far.toFixed(0)}px`);
+        return;
+    }
+    if (kind === 'skip') { hsPush(`skip  ${extra} at ${hsMs()}ms`); return; }
+    if (kind === 'drift') {
+        hsTally.drift++;
+        hsPush(`drift ${extra.toFixed(0)}px at ${hsMs()}ms, timer cleared`);
+        return;
+    }
+    if (kind === 'miss') { hsTally.miss++; hsPush(`miss  scrub over a gap at ${hsMs()}ms`); return; }
+    if (kind === 'end') {
+        const cancelled = e && e.type === 'pointercancel';
+        if (cancelled) hsTally.cancel++; else hsTally.up++;
+        hsPush(`${cancelled ? 'CANCEL' : 'up    '} ${hsMs()}ms, drift ${hsG.far.toFixed(0)}px, `
+            + `armed=${hsG.armed ? 'yes' : 'no'}, axis=${extra || 'none'}`);
+        hsG = null;
+    }
 };
 // 0.96 → 0.75: thinned enough to read the grid through, not so thin that
 // the reading stops being a panel. The text never fades either way.
@@ -4411,6 +4515,7 @@ chart.addEventListener('pointerdown', e => {
     // is the timing DR-48's handover needed and a hold naturally has.
     if (coarse() && !downInCard) {
         const el = e.target.closest?.(HOLD_SCRUB_SEL);
+        if (HS_DEBUG) hsLog('down', e, el);   // HS-DEBUG
         if (el) {
             pull.holdEl = el;
             pull.holdX = e.clientX;
@@ -4434,6 +4539,7 @@ const restPull = p => {
 chart.addEventListener('pointermove', e => {
     if (!pull || e.pointerId !== pull.id) return;
     const dx = e.clientX - pull.x, dy = e.clientY - pull.y;
+    if (HS_DEBUG) hsLog('move', e, Math.hypot(dx, dy));   // HS-DEBUG
     // The panel thins as the gesture comes near it, and as the elastic
     // travels. Computed one frame before any reposition rather than after
     // one: the card moves only when it flips, which at this threshold is
@@ -4451,7 +4557,10 @@ chart.addEventListener('pointermove', e => {
         // press: cancel the arm, at the same slop the day elastic itself
         // claims at, so the two thresholds can never disagree about
         // whether a given press counts as "moved".
-        if (pull.holdTimer) { clearTimeout(pull.holdTimer); pull.holdTimer = 0; }
+        if (pull.holdTimer) {
+            clearTimeout(pull.holdTimer); pull.holdTimer = 0;
+            if (HS_DEBUG) hsLog('drift', e, Math.hypot(dx, dy));   // HS-DEBUG
+        }
         // A swipe that began inside the card's rectangle is the card's, and
         // up or sideways closes the reading the way a notification does.
         // Down is not a dismiss direction, so it falls through.
@@ -4547,6 +4656,7 @@ const endPull = e => {
     if (!pull || (e && e.pointerId !== pull.id)) return;
     const p = pull;
     pull = null;
+    if (HS_DEBUG) hsLog('end', e, p.axis);   // HS-DEBUG
     if (chart.hasPointerCapture?.(e?.pointerId)) chart.releasePointerCapture(e.pointerId);
     // A press that never got the chance to arm (released, or moved past
     // the slop, before HOLD_SCRUB_MS) still has a pending timer to clear.
