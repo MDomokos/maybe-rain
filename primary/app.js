@@ -3963,6 +3963,9 @@ const resnapSheet = () => {
     sheet.cache.clear();
     const i = was ? sheet.rows.findIndex(r => placeKey(r.place) === placeKey(was)) : -1;
     sheet.aim = i >= 0 ? i : Math.max(0, sheet.rows.length - 1);
+    // The indices are new, so the old one no longer names the grid on
+    // screen. The aim is where the grid is: it did not move, the list did.
+    sheet.swept = sheet.aim;
 };
 
 // The destination grid for a PLACE, fitted to the live frame and cached
@@ -4118,13 +4121,23 @@ const renderActions = () => {
 // the container, and every click on a row is silently swallowed. Same
 // class of bug as re-rendering under a drag, which is why the app already
 // forbids it elsewhere.
+// The row the highlight is currently on, so moving it is two writes
+// rather than a walk of every row in the sheet. A fast drag crosses a row
+// every few frames and this is on the hot path; the list is also the one
+// thing that must not be rebuilt under a finger, so the node is looked up
+// by id and never re-created.
+let aimRow = null;
 const paintAim = () => {
     if (!sheet) return;
-    $('citySheet').querySelectorAll('.sheet-row').forEach(r => {
-        const on = +r.dataset.idx === sheet.aim;
-        r.classList.toggle('aim', on);
-        r.setAttribute('aria-selected', String(on));
-    });
+    // A re-render of the list (a mode change, a re-snapshot) replaces the
+    // node this was holding, and a detached node's classes mean nothing.
+    if (aimRow && !aimRow.isConnected) aimRow = null;
+    const next = $('citySheet').querySelector(`.sheet-row[data-idx="${sheet.aim}"]`);
+    if (next !== aimRow) {
+        if (aimRow) { aimRow.classList.remove('aim'); aimRow.setAttribute('aria-selected', 'false'); }
+        if (next) { next.classList.add('aim'); next.setAttribute('aria-selected', 'true'); }
+        aimRow = next;
+    }
     const n = sheetPlaces().length;
     // Only a place is an option in the listbox; the two actions sit outside
     // it, so pointing the descendant at one of them would name a node the
@@ -4162,15 +4175,26 @@ const paintAim = () => {
     alignAimReadout();
 };
 
-const setAim = idx => {
-    if (!sheet || idx === sheet.aim) return;
-    const was = sheet.aim;
-    sheet.aim = idx;
-    // The aim has been pointed somewhere on purpose. A drag will not commit
-    // without this: see closeSheet.
-    sheet.moved = true;
-    navigator.vibrate?.(VIBE_DETENT);
-    paintAim();
+// --- What an aim change costs, and when ---------------------------------
+// Two jobs, and they do not belong in the same frame. Moving the highlight
+// is two class writes; previewing the aimed city means BUILDING that
+// city's grid — sixteen columns of blocks with their precipitation fields
+// — and that is milliseconds, not microseconds.
+//
+// Both used to run inline in the touchmove handler, so a thumb crossing
+// five rows in a tenth of a second built five grids before the highlight
+// could paint, and the highlight visibly trailed the finger. The rows the
+// finger passed THROUGH were built and thrown away: the only aim worth
+// drawing is the one the finger is on when the frame lands.
+//
+// So the highlight moves now and the preview is coalesced to one frame:
+// the latest aim wins, intermediate ones are never built. `swept` is what
+// the grid was last pointed at, which is what makes the sweep direction
+// the distance actually travelled rather than the last detent crossed.
+let aimFrame = null;
+const flushAim = () => {
+    aimFrame = null;
+    if (!sheet) return;
     // An open tooltip carries the comparison line, so it has to be re-read
     // when the aim moves — the same "re-target the same grid position after
     // a repaint" path a city commit already uses. It is safe to run inside
@@ -4182,8 +4206,53 @@ const setAim = idx => {
     // moving so everything visible moves with the finger. Off under
     // reduced motion, where the sheet is the whole answer.
     if (!sheet.live || reduceMotion()) return;
+    const idx = sheet.aim, was = sheet.swept;
+    if (idx === was) return;
+    sheet.swept = idx;
     const cols = sheetColsFor(idx);
     if (cols) waveTo($('grid'), cols, -(Math.sign(idx - was) || 1), { axis: 'y', hold: true });
+};
+const queueAim = () => { if (!aimFrame) aimFrame = scheduleFrame(flushAim); };
+// `run` is for the paths that end the gesture in the same task the aim
+// moved in — a tap on a row sets the aim and closes the sheet without a
+// frame in between, and it still gets its sweep.
+const cancelAim = (run = false) => {
+    if (!aimFrame) return;
+    cancelFrame(aimFrame);
+    aimFrame = null;
+    if (run) flushAim();
+};
+
+const setAim = idx => {
+    if (!sheet || idx === sheet.aim) return;
+    sheet.aim = idx;
+    // The aim has been pointed somewhere on purpose. A drag will not commit
+    // without this: see closeSheet.
+    sheet.moved = true;
+    navigator.vibrate?.(VIBE_DETENT);
+    paintAim();
+    queueAim();
+};
+
+// The cities either side of the aim, built while nothing is happening.
+// `previewCols` caches per opening, so this is not extra work — it is the
+// same work moved off the drag, where it was the thing the highlight was
+// waiting behind. Walked outward from the opening aim, because the rows
+// nearest where the finger starts are the ones it reaches first, and
+// abandoned the moment the sheet it belongs to is gone.
+const IDLE = cb => (window.requestIdleCallback || (f => setTimeout(f, 24)))(cb);
+const warmSheet = (sh, k = 1) => {
+    if (!sh || sheet !== sh || k > sh.rows.length) return;
+    IDLE(() => {
+        if (sheet !== sh) return;
+        // A preview is already queued, so the finger is moving. Warming is
+        // the one thing here with no deadline; it waits.
+        if (aimFrame) { warmSheet(sh, k); return; }
+        for (const i of [sh.aim - k, sh.aim + k]) {
+            if (i >= 0 && i < sh.rows.length) previewCols(sh.rows[i].place, sh);
+        }
+        warmSheet(sh, k + 1);
+    });
 };
 
 // `via` is how the sheet was reached, tap or drag, and is not the same
@@ -4223,6 +4292,9 @@ const openSheet = via => {
         // thumb roll and a city change, and one guard on a gesture that
         // fires by accident is not enough.
         aim: Math.max(0, rows.length - 1),
+        // Where the GRID is pointed, which starts as the city on screen and
+        // is only moved by a preview that actually ran. See flushAim.
+        swept: Math.max(0, rows.length - 1),
         moved: false,
         cache: new Map(),
         live: !reduceMotion()
@@ -4231,6 +4303,9 @@ const openSheet = via => {
     setGestureMode(via === 'drag');
     renderSheet();
     pinListToBottom();
+    // Build the neighbouring cities' grids while nothing is happening, so
+    // the first pass over them is a cache hit rather than a stall.
+    if (sheet.live) warmSheet(sheet);
     // The one re-measure. renderSheet's alignment ran while the sheet was
     // still rising, so take the reading again once it has landed and let
     // every detent after this reuse it.
@@ -4483,6 +4558,11 @@ const closeSheet = (commit = false) => {
     // the row you tap is the row you get, and the click handler sets the aim
     // and commits in one go.
     if (commit && sheet && sheet.via === 'drag' && !sheet.moved) commit = false;
+    // A preview waiting on the next frame has run out of frames. A commit
+    // takes it now — a tap sets the aim and closes in one task, and the
+    // sweep it would have had is the one the commit lands on. Anything
+    // that takes nothing drops it: there is nothing left to preview.
+    cancelAim(commit);
     // The two action indices are answered before anything is torn down, and
     // off the sheet's own frozen rows rather than off a fresh list. The wide
     // one is the mode the sheet is already in; the compact one is the mode it
@@ -4526,9 +4606,12 @@ const closeSheet = (commit = false) => {
         // screen names another. That is what used to happen when the current
         // city was in neither list and this lookup came back -1; it always
         // has a row now, which is what makes the lookup answerable at all.
+        // Measured against `swept`, not the aim: the aim is where the finger
+        // ended and the grid may never have been pointed there — a preview
+        // the release beat to the frame is a preview that never ran.
         const cur = s.rows.findIndex(r => placeKey(r.place) === placeKey(state.place));
-        const back = cur >= 0 && cur !== s.aim ? sheetColsFor(cur, s) : null;
-        if (back) waveTo($('grid'), back, -(Math.sign(cur - s.aim) || 1), { axis: 'y' });
+        const back = cur >= 0 && cur !== s.swept ? sheetColsFor(cur, s) : null;
+        if (back) waveTo($('grid'), back, -(Math.sign(cur - s.swept) || 1), { axis: 'y' });
         waveRelease();
         if (!wave) repaint();
         // The sheet is already null, so this drops the comparison line and
