@@ -1744,6 +1744,11 @@
             border-radius: 10px;
             box-shadow: 0 12px 30px rgba(0, 0, 0, 0.72), 0 3px 10px rgba(0, 0, 0, 0.55);
             font-size: 12px;
+            /* Closed is opacity 0 and off the edge, never display:none:
+               the card has to stay measurable, because placeCard reads its
+               height to decide the flip before it is ever shown. It takes
+               no touches either way, and aria-hidden keeps it out of the
+               reading order, so nothing needs it removed. */
             opacity: 0;
             /* Off the top, so the card arrives from the direction the date
                strip is in rather than fading up over the grid. */
@@ -1752,12 +1757,15 @@
                         opacity 150ms ease,
                         top 220ms cubic-bezier(0.3, 0.9, 0.35, 1),
                         --card-a 380ms ease;
-            /* Kept in the layout when closed so offsetHeight is measurable
-               before the card is shown; visibility is what hides it, and it
-               is never a hit target either way. */
-            visibility: hidden;
         }
-        .reading-card.open { visibility: visible; opacity: 1; transform: none; }
+        .reading-card.open { opacity: 1; transform: none; }
+        /* Which way it leaves. A dismissal is a swipe with a direction, so
+           the card goes the way it was pushed, the way a notification does.
+           Anything else — tapping the block again, a city switch, the
+           reading closing on its own — goes back up under the date strip it
+           came from, or down when it was resting at the bottom. Set at the
+           moment the swipe is claimed and cleared on the next open. */
+        .reading-card.at-bottom:not(.open) { transform: translateY(135%); }
         /* Thinning has to keep up with the finger; the way back to opaque
            is the long ease above, because nothing is chasing it. */
         .reading-card.veiling {
@@ -1765,6 +1773,22 @@
                         opacity 150ms ease,
                         top 220ms cubic-bezier(0.3, 0.9, 0.35, 1),
                         --card-a 110ms linear;
+        }
+        /* After .veiling, so a card dismissed mid-gesture still leaves the
+           way it was pushed rather than at the veil's timings. Sideways is
+           a slide with no overshoot: a notification pushed off the edge
+           does not come back, so there is nothing for a spring to say.
+           Upward keeps the spring, because that is the way it came in. */
+        .reading-card.out-up:not(.open) { transform: translateY(-135%); }
+        .reading-card.out-left:not(.open) { transform: translateX(-108%); }
+        .reading-card.out-right:not(.open) { transform: translateX(108%); }
+        .reading-card.out-left, .reading-card.out-right {
+            transition: transform 280ms cubic-bezier(0.32, 0.72, 0.35, 1),
+                        opacity 220ms ease;
+        }
+        .reading-card.out-up {
+            transition: transform 260ms cubic-bezier(0.4, 0, 0.7, 0.2),
+                        opacity 200ms ease;
         }
         /* Flipped below the block it would otherwise have covered entirely. */
         .reading-card.at-bottom:not(.open) { transform: translateY(135%); }
@@ -1781,12 +1805,16 @@
            The veil stays: it is a change of alpha rather than movement, and
            a panel snapping between two opacities under a moving finger is
            worse than a short fade for the reader this setting is for. */
-        html.reduce-motion .reading-card {
+        html.reduce-motion .reading-card,
+        html.reduce-motion .reading-card.out-up,
+        html.reduce-motion .reading-card.out-left,
+        html.reduce-motion .reading-card.out-right {
             transition: opacity 150ms ease, --card-a 380ms ease;
         }
         html.reduce-motion .reading-card.veiling {
             transition: opacity 150ms ease, --card-a 110ms linear;
         }
+        html.reduce-motion .reading-card:not(.open) { transform: none; }
         html.reduce-motion .reading-card:not(.open) { transform: none; }
 
         /* Head: the day, the hour or hour range, what the active view makes

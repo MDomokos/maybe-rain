@@ -3248,7 +3248,7 @@ const showCard = (f) => {
     // Written only when it differs. A repaint mid-sweep re-reads the open
     // card on every frame and nearly all of them produce the same words.
     if (html !== cardHtml) { card.innerHTML = html; cardHtml = html; }
-    card.classList.remove('orphan');
+    card.classList.remove('orphan', 'out-up', 'out-left', 'out-right');
     card.classList.add('open');
     // At open time, never mid-gesture: see the .chart.reading-open note in
     // the stylesheet for why the scope is the whole chart and not the card.
@@ -3260,7 +3260,10 @@ const hideCard = () => {
     const card = $('readingCard');
     if (!card) return;
     document.querySelector('.chart')?.classList.remove('reading-open');
-    card.classList.remove('open', 'orphan');
+    // The exit classes stay: closing is what plays them, and the next open
+    // clears them. `veiling` goes, so a card thinned by the gesture that
+    // dismissed it does not open again on the fast transition.
+    card.classList.remove('open', 'orphan', 'veiling');
     cardHtml = '';
     cardKey = '';
     cardExpanded = false;
@@ -4278,6 +4281,11 @@ chart.addEventListener('pointermove', e => {
             const side = Math.abs(dx) > PULL_SLOP && Math.abs(dx) >= Math.abs(dy);
             if (up || side) {
                 e.preventDefault();
+                // It leaves the way it was pushed, the way a notification
+                // does. Written before the card is closed, because closing
+                // is what starts the exit.
+                $('readingCard').classList.add(
+                    !side ? 'out-up' : dx < 0 ? 'out-left' : 'out-right');
                 // The trailing click must not land on the block under the
                 // card and re-open a reading the swipe just closed.
                 swallowClick = true;
