@@ -3647,16 +3647,25 @@ document.addEventListener('mouseout', e => {
 });
 // Keyboard: blocks and legend cells are tabbable; focus shows the
 // same tooltip.
+// A tap on the card focuses whatever is under it, because the card takes no
+// events, and the focus MOVES: off the block being read, onto the block the
+// card happens to be lying over. That is a pair of events, and the first of
+// them is what made the tap read as a tap-through.
+//
+// `focusout` on the old block closes the reading. `focusin` on the new one
+// then opens it there. Gating only the second is not enough, and gating it
+// on `cardOpen()` is worse than not enough: `focusout` has already closed
+// the card by then, so the gate disarms itself one event before it is read.
+// Both are gated, and on the ORIGIN alone — the same flag the click and the
+// swipe use — because that is the only thing here that still knows the
+// gesture began on the card.
 document.addEventListener('focusin', e => {
-    // A tap on the card focuses whatever is under it, because the card
-    // takes no events. That focus is not a request to read the block it
-    // landed on, so it does not re-point the reading; the click that
-    // follows expands the card instead.
-    if (downInCard && cardOpen()) return;
+    if (downInCard) return;
     const el = e.target.closest(TIP_SEL);
     if (el) showTooltip(el);
 });
 document.addEventListener('focusout', e => {
+    if (downInCard) return;
     if (e.target.closest(TIP_SEL)) hideTooltip();
 });
 // A claimed day pull is not a tap, and its trailing click must not reach

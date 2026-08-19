@@ -4,6 +4,8 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ## v2.6.5 (2026-08-19) — bugfix
 
+- fixed tapping the reading card on a phone switching to the block behind it instead of expanding the card
+
 - flicking the day grid now locks the extra days open instead of springing back to today, timed by the flick's own speed. removed the status-line hint that used to explain why a fast swipe didn't work
 - the search list's unpin star is now filled instead of struck through, so a pinned city reads as "on" instead of "removed"
 - fixed a pinned city's star sometimes showing grey instead of gold after a tap, from a hover style that stuck on touch
