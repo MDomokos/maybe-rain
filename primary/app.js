@@ -2754,6 +2754,19 @@ let cardKey = '';           // date|hour of the reading the state belongs to
 let cardHtml = '';          // last written markup, so a repaint that changes
                             // nothing writes nothing
 const cardOpen = () => $('readingCard').classList.contains('open');
+// Whether a point is inside the card's rectangle. A containment test on
+// the card's own rect, NOT a hit test: elementFromPoint returning the card
+// is the exact thing the form is built to avoid, and asking the browser
+// what is under a point would re-introduce it.
+const insideCard = (x, y) => {
+    const r = $('readingCard').getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+};
+// Set on every pointerdown while a reading is open, and read by the two
+// handlers that decide what a gesture on the card means. Origin, not
+// target: the card takes no events, so where the finger LANDED is the only
+// thing that can tell its gestures from the grid's.
+let downInCard = false;
 
 // How far the card may rise into the day strip, measured rather than
 // assumed. Two readings, not a constant: the weekday's TOP is far enough to
@@ -2875,12 +2888,16 @@ const showCard = (f) => {
     if (html !== cardHtml) { card.innerHTML = html; cardHtml = html; }
     card.classList.remove('orphan');
     card.classList.add('open');
+    // At open time, never mid-gesture: see the .chart.reading-open note in
+    // the stylesheet for why the scope is the whole chart and not the card.
+    document.querySelector('.chart')?.classList.add('reading-open');
     placeCard();
 };
 
 const hideCard = () => {
     const card = $('readingCard');
     if (!card) return;
+    document.querySelector('.chart')?.classList.remove('reading-open');
     card.classList.remove('open', 'orphan');
     cardHtml = '';
     cardKey = '';
@@ -3220,8 +3237,17 @@ document.addEventListener('focusout', e => {
 // the tooltip is the only thing a stray click on the grid does.
 let swallowClick = false;
 const clearSwallow = () => { swallowClick = false; };
-document.addEventListener('pointerdown', clearSwallow, true);
-document.addEventListener('keydown', clearSwallow, true);
+// Recorded on the document rather than on .chart, so it holds for the
+// card's left edge as well. That strip overlaps #hourRail, whose origin
+// gate in the day-elastic handler returns before the elastic's own record
+// is made: a SWIPE starting there is the hour peek's and the card does not
+// get it, which is the one place the origin rule does not reach. A TAP
+// still works, because this handler sees it either way.
+document.addEventListener('pointerdown', e => {
+    clearSwallow();
+    downInCard = cardOpen() && insideCard(e.clientX, e.clientY);
+}, true);
+document.addEventListener('keydown', () => { clearSwallow(); downInCard = false; }, true);
 
 // Tap/click toggles the tooltip; the same block or anywhere else
 // dismisses. Shared by mouse and touch (touch no longer swallows its
@@ -3229,6 +3255,15 @@ document.addEventListener('keydown', clearSwallow, true);
 // this single handler is back to covering both).
 document.addEventListener('click', e => {
     if (swallowClick) { swallowClick = false; return; }
+    // A tap that STARTED inside the open card is the card's, and it
+    // expands or collapses the reading. Without this the tap reads
+    // straight through to the block underneath — the card takes no
+    // events — and closes or re-points the reading instead.
+    if (downInCard && cardOpen() && activeBlock) {
+        cardExpanded = !cardExpanded;
+        refreshActiveTooltip();
+        return;
+    }
     const el = e.target.closest(TIP_SEL);
     if (el) {
         if (tappedBlock === el) return hideTooltip();
@@ -3840,6 +3875,31 @@ chart.addEventListener('pointermove', e => {
     const dx = e.clientX - pull.x, dy = e.clientY - pull.y;
     if (!pull.axis) {
         if (Math.hypot(dx, dy) < PULL_SLOP) return;
+        // A swipe that began inside the card's rectangle is the card's, and
+        // up or sideways closes the reading the way a notification does.
+        // Down is not a dismiss direction, so it falls through.
+        //
+        // PULL_SLOP, not a bigger number: the elastic claims at 10, so a
+        // swipe that has to win against it cannot ask for more travel than
+        // it does. One slop, one arbiter.
+        //
+        // The counter for it is a real cost, and it is this: a sideways
+        // swipe starting inside the card is a pull the grid does not get.
+        // The two rows the card covers trade the day elastic for the
+        // dismissal.
+        if (downInCard && cardOpen()) {
+            const up = dy < -PULL_SLOP && Math.abs(dy) > Math.abs(dx);
+            const side = Math.abs(dx) > PULL_SLOP && Math.abs(dx) >= Math.abs(dy);
+            if (up || side) {
+                e.preventDefault();
+                // The trailing click must not land on the block under the
+                // card and re-open a reading the swipe just closed.
+                swallowClick = true;
+                restPull(pull); pull = null;
+                hideTooltip();
+                return;
+            }
+        }
         pull.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
         // Vertical belongs to nobody here. Let go of the pointer rather
         // than claim it, so the page behaves as any page would — and

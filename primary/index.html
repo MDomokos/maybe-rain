@@ -1112,12 +1112,27 @@
                browser pinch on the grid itself. */
             touch-action: pan-y;
             height: clamp(280px, 56vh, 720px);
+            /* While a docked reading is open the grid gives up its vertical
+               axis. `touch-action` is decided by hit-testing when the touch
+               begins, and the card is pointer-events:none, so it is never
+               hit-tested and its own value is never consulted: the touch
+               lands on the .weather-block underneath, which is inside this
+               box and says pan-y, and the browser grants itself the vertical
+               axis before any origin check has run. Setting it mid-gesture
+               does not take it back, and preventDefault on the first move
+               only wins if the browser has not already fast-pathed the
+               scroll. This is the narrowest scope that works, and it is
+               bounded to reading time: .control-row is already none, so the
+               city switcher's swipe is unaffected, and body is manipulation,
+               so the page can still be panned by dragging the day row, the
+               legend, the header or the padding. */
             padding-left: var(--gutter);
             /* columns stop short of the right edge, so the full-width
                gridlines overhang the grid on both sides */
             padding-right: var(--overhang);
             margin-top: 0;
         }
+        .chart.reading-open { touch-action: none; }
         .time-labels {
             position: absolute;
             left: 0;
