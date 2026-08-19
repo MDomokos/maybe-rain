@@ -2819,9 +2819,57 @@ const placeCard = () => {
         const gone = (blkBot - blkTop) > 0 && cover(top) >= (blkBot - blkTop) - 0.5;
         card.classList.toggle('at-bottom', gone);
         card.style.top = (gone ? Math.max(0, chart.clientHeight - h) : top).toFixed(1) + 'px';
+        measureVeil(chart, card);
         return;
     }
     card.style.top = top.toFixed(1) + 'px';
+    if (chart) measureVeil(chart, card);
+};
+
+// --- The veil -----------------------------------------------------
+// How much see-through the gesture in progress needs, 0..1. Two sources,
+// taken at their maximum, neither of them a state flag:
+//
+//   proximity  1 while the finger is inside the card, ramping to 0 over
+//              2.2 hour-rows outside it. Counted in rows rather than
+//              pixels so it means the same at 390 and at 360. A gesture
+//              that never goes near the card leaves it alone.
+//   pull       ramps with the elastic's travel, because during a peek the
+//              columns underneath are the thing being watched.
+//
+// The pull ramp is SQUARED, so a short pull barely touches the panel: a
+// small pull is a correction rather than a comparison, and thinning the
+// reading for it takes the reading away in exchange for nothing. Squared
+// rather than a hold-then-ramp, because holding needs a second distance
+// threshold and PULL_SLOP is the only arbiter § Navigation allows.
+const VEIL_DEPTH = 2.2;     // hour-rows
+const VEIL_TOP = 0.96, VEIL_FLOOR = 0.75;
+// Both measured once per placement, not per frame: the card only moves
+// when it flips, and a rect read inside a gesture is a forced layout.
+let veilRect = null, veilRange = 0;
+const measureVeil = (chart, card) => {
+    const w = visibleWindow();
+    veilRange = (chart.clientHeight / Math.max(1, w.end - w.start + 1)) * VEIL_DEPTH;
+    veilRect = card.getBoundingClientRect();
+};
+const veilFor = (x, y) => {
+    let prox = 0;
+    if (veilRect && veilRange > 0 && x != null) {
+        const r = veilRect;
+        const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+        const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+        prox = Math.max(0, 1 - Math.hypot(dx, dy) / veilRange);
+    }
+    const t = Math.abs(pull?.travel || 0);
+    return Math.max(prox, Math.pow(Math.min(1, t / 100), 2));
+};
+// 0.96 → 0.75: thinned enough to read the grid through, not so thin that
+// the reading stops being a panel. The text never fades either way.
+const applyVeil = v => {
+    const card = $('readingCard');
+    if (!card.classList.contains('open')) return;
+    card.classList.toggle('veiling', v > 0.002);
+    card.style.setProperty('--card-a', (VEIL_TOP - (VEIL_TOP - VEIL_FLOOR) * v).toFixed(3));
 };
 
 const cardCells = (f) => {
@@ -3276,6 +3324,8 @@ const clearSwallow = () => { swallowClick = false; };
 document.addEventListener('pointerdown', e => {
     clearSwallow();
     downInCard = cardOpen() && insideCard(e.clientX, e.clientY);
+    // A new gesture starts from an opaque panel; the moves below thin it.
+    applyVeil(0);
 }, true);
 document.addEventListener('keydown', () => { clearSwallow(); downInCard = false; }, true);
 
@@ -3903,6 +3953,12 @@ const restPull = p => {
 chart.addEventListener('pointermove', e => {
     if (!pull || e.pointerId !== pull.id) return;
     const dx = e.clientX - pull.x, dy = e.clientY - pull.y;
+    // The panel thins as the gesture comes near it, and as the elastic
+    // travels. Computed one frame before any reposition rather than after
+    // one: the card moves only when it flips, which at this threshold is
+    // rare, and a rect read per repositioned frame is a forced layout in
+    // the middle of a gesture.
+    applyVeil(veilFor(e.clientX, e.clientY));
     if (!pull.axis) {
         if (Math.hypot(dx, dy) < PULL_SLOP) return;
         // A swipe that began inside the card's rectangle is the card's, and
@@ -3988,6 +4044,10 @@ chart.addEventListener('pointermove', e => {
 // The release is the decision, and there are only two of them: this was
 // a peek, or this was a lock.
 const endPull = e => {
+    // The hand is off the glass, so the panel eases back to opaque. Ahead
+    // of the early return, because a press that never became a pull still
+    // thinned the card by being near it.
+    applyVeil(0);
     if (!pull || (e && e.pointerId !== pull.id)) return;
     const p = pull;
     pull = null;
