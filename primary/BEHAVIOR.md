@@ -220,12 +220,16 @@ selected. On a mouse, hovering a block opens its tooltip and the ring replaces
 the usual hover dim for as long as the reading is up. Touch has no hover state
 at all: the ring is the only thing that says which block is being read.
 
+A tapped block also plays its own weather once — rain falling in, mist
+drifting, a storm striking, a glint across a clear sky — the same arrival the
+current hour plays when the grid settles. Off under `prefers-reduced-motion`.
+
 On a coarse pointer the reading is not a floating box at all. It is a full-width
 card resting under the date strip, risen into the weekday line, in two states. It
 never takes a touch: every tap reads through it to the block underneath, so it
 costs the grid nothing and overlaps rather than displacing. Its own gestures are
 claimed by **where they started** — a swipe up or sideways from inside the card
-closes the reading, and everything else is the grid's. The price is that those
+closes the reading, and the card leaves the way it was pushed. The price is that those
 two rows give up the day elastic for a sideways swipe, and that the card's left
 edge over the hour gutter belongs to the hour peek. Collapsed, the card carries
 the day, the hour range, what the active view makes of the block, any warning,

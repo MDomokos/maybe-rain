@@ -1419,6 +1419,15 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // one. Nor can it pulse on a model change, which is recorded
         // per hour and would be claiming the whole span moved.
         const isCurrent = isToday && slots === 1 && hour === currentHour;
+        // The block being read plays the same arrival the current hour
+        // plays, so it asks for the same markup. Opt-in for both and for
+        // nothing else: a layered block draws its marks in three groups
+        // instead of one, and 112 of those is a cost the resting screen
+        // should not carry for an animation that only ever runs on one
+        // block at a time.
+        const isRead = !!activeBlock && activeBlock.day === off + dayIndex
+            && activeBlock.hour >= hour && activeBlock.hour < hour + slots;
+        const plays = isCurrent || isRead;
         // Temperature view: comfort-band colour on feels-like
         // (raw temp only if apparent is missing). Wind view: wind
         // scale. Rain view: the WMO sky colour (tinted for rain,
@@ -1609,12 +1618,12 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // know and does not need to. A coarse block stands for `slots`
         // hour bands and is that much taller, gaps included.
         //
-        // The current hour asks for the layered field, which is the only
-        // block whose overlay the arrival animation can drive.
+        // The layered field is what the arrival animation drives, and only
+        // a block that can play one asks for it.
         const precip = rainView
             ? precipOverlay(h, rgb, bw, bh > 0
                 ? bh * slots + BLOCK_GAP_PX * (slots - 1) : 0,
-                isCurrent ? { layered: true } : null)
+                plays ? { layered: true } : null)
             : '';
         // The arrival cue for an hour the precipitation field cannot
         // speak for. `precip` being empty IS the test for "this hour
@@ -1622,7 +1631,7 @@ return Array.from({ length: days }, (_, dayIndex) => {
         // condition group are all weighed inside the renderer, and a
         // second reading of them here would drift away from it.
         const skyFX = () => {
-            if (!isCurrent) return '';
+            if (!plays) return '';
             if (!rainView) return '<span class="sky-fx fx-neutral"><i></i><i class="b"></i></span>';
             if (STORM_CODES.has(h.code)) return '<span class="sky-fx fx-strike"></span>';
             if (precip) return '';
@@ -3269,6 +3278,31 @@ const hideCard = () => {
     cardExpanded = false;
 };
 
+// The block just tapped plays its own weather once, the same arrival the
+// current hour plays when the grid settles: rain falls in, mist drifts, a
+// storm strikes, a clear sky glints. It is the reading answering in the
+// hour's own terms rather than only in words.
+//
+// The markup has to be rebuilt for it. The layered field and the sky cue
+// are opt-in (`plays` in buildCols), and a tap repaints nothing, so the
+// block is still carrying its plain one-path-per-phase field at the moment
+// it is tapped. Rebuilt through the same descriptor path a repaint uses, so
+// the block cannot end up drawing something a repaint would not.
+const playArrival = () => {
+    if (reduceMotion() || !activeBlock) return;
+    const node = blockCovering(activeBlock.day, activeBlock.hour);
+    if (!node) return;
+    let desc = null;
+    for (const col of buildCols()) for (const d of col) if (coversActive(d)) desc = d;
+    if (!desc || desc.empty || desc.blank) return;
+    applyCellContent(node, desc);
+    // Removing the class, forcing the reflow and adding it back is the only
+    // reliable way to replay a CSS animation.
+    node.classList.remove('arrive');
+    void node.offsetWidth;
+    node.classList.add('arrive');
+};
+
 const hideTooltip = () => {
     const t = $('tooltip');
     t.style.opacity = '0';
@@ -3652,6 +3686,10 @@ document.addEventListener('click', e => {
         if (tappedBlock === el) return hideTooltip();
         showTooltip(el);
         tappedBlock = el;
+        // After showTooltip, which is what sets activeBlock, and only on a
+        // tap: hover and focus reach showTooltip too, and neither is a
+        // request to watch the hour play.
+        if (el.dataset.info != null) playArrival();
     } else {
         // Also reached by tapping/clicking the open tooltip
         // itself, since it no longer click-through's (see the

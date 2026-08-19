@@ -6,7 +6,8 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 - on phones and tablets, tapping a block now opens a full-width card under the dates instead of a box floating over the grid. the card never blocks a tap, so every block behind it is still reachable
 - tap the card to expand it: a small figure shows what to wear at that hour, whether to take an umbrella or a rain jacket, and the gusts, humidity, cloud, visibility and sun times
-- swipe the card up or sideways to dismiss it, or tap the block again
+- swipe the card up or sideways to dismiss it, or tap the block again. it leaves in the direction it was swiped
+- tapping a block plays its weather once — rain falling in, mist drifting, a storm striking — the same animation the current hour plays when the grid loads
 - the card moves out of the way only when it would hide the block being read, and thins while a finger is near it so the grid can be read through
 - a reading whose day is dragged off screen now says so instead of disappearing
 - while a reading is open the grid no longer scrolls the page; the dates, the key and the header still do
