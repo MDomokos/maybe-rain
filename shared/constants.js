@@ -90,59 +90,39 @@ const LS_VERSION = 'mr-version';     // build id last seen on this device (drive
 // copy keeps the literal token, so the post-update note just never fires.
 const APP_VERSION = '__APP_VERSION__';
 const MAX_CITIES = 12;   // cap on recent cities (MRU-evicted); favorites are separate
-// Cap on ★ favorites — the pinned tier in primary's switcher. Nine was
-// the old figure, set when the switcher held favorites and nothing else;
-// primary's sheet now carries a transient tier and two anchor rows on top
-// of them, and nine pinned would put it at fourteen rows, well past the
-// one thumb sweep the gesture is built around. Five pinned plus three
-// transient plus the two anchors is ten, which is the same reach the old
-// nine-row list had.
+// Max pinned (★) favorites in primary's switcher. Used to be 9 back when
+// the switcher only held favorites; the sheet now also carries a
+// transient tier and two anchor rows, so 9 pinned would mean 14 rows
+// total, more than fits in one thumb sweep. 5 pinned + 3 transient + 2
+// anchors = 10, matching the old list's reach.
 //
-// The cap only gates ADDING. Anyone already holding more keeps them and
-// simply cannot pin another until they unpin one, which is the same rule
-// the cap has always enforced, just from a different number.
+// The cap only blocks adding new favorites. Anyone already holding more
+// keeps them until they unpin one.
 //
-// classic is bound by it too — it never names the constant, but it reaches
-// it through toggleFavorite and flashFavHint, and the two variants share
-// one `mr-favorites` under one origin. So this is a real change to classic
-// as well, and the honest reading is that one list cannot have two caps.
+// classic shares the same `mr-favorites` storage (via toggleFavorite /
+// flashFavHint) and is bound by this cap too, even without referencing
+// the constant directly.
 const MAX_FAVORITES = 5;
-// primary's switcher carries a second, transient tier below the pinned
-// one: the cities you looked up rather than the ones you keep. Three,
-// because the whole sheet has to stay inside one thumb sweep, and three
-// unpinned places is already more than a trip usually needs at once.
+// Second, unpinned tier in primary's switcher: cities looked up but not
+// saved. Capped at 3 so the whole sheet still fits one thumb sweep.
 const MAX_TRANSIENT = 3;
-// The whole switcher, every tier together. Five pinned plus three transient
-// plus the two anchors is ten, and ten does not fit: at 44px a row, ten rows
-// is 440px of list, and the sheet only ever gives the list about 335 of it.
-// The overflow fell off the BOTTOM, taking `back` and `here` with it — the
-// two rows the gesture is built to move between, and the two nearest the
-// thumb. A list that drops its cheapest rows to keep its most expensive ones
-// has the trade exactly backwards.
+// Total visible rows across all tiers. 5 pinned + 3 transient + 2 anchor
+// rows = 10, which doesn't fit: at 44px/row that's 440px versus the
+// ~335px of list height available on the smallest supported phone.
 //
-// Eight is the figure because of reach rather than pixels. Nine fit on a
-// 6.1" phone and eight on the smallest one still worth supporting, but the
-// swipe is a single unbroken gesture that starts at the very bottom of the
-// screen, and the sheet at its full height already reaches the top of the
-// thumb's arc. Rows past the eighth are ones you can see and cannot
-// comfortably swipe to, which is a worse failure than not showing them.
+// Overflow used to drop from the bottom, which cut the two anchor rows
+// (the current city and the one before it) — the rows nearest the thumb
+// and the ones the swipe gesture moves between. It now drops from the
+// top instead, since those rows are scrolled past anyway.
 //
-// The tiers are not each capped to fit; the TRANSIENT tier absorbs it. Its
-// rows are the disposable ones — they expire on their own after
-// TRANSIENT_TTL_MS — where a pinned city is a thing someone chose to keep,
-// and MAX_FAVORITES is a number the interface has already told them. So the
-// squeeze falls on the tier that costs nothing, oldest first and silently.
-//
-// This is a render cap, not a storage one, and it cannot be relied on alone:
-// MAX_FAVORITES only gates ADDING, so anyone who pinned more before the cap
-// dropped still has them and can still overflow the list. `openSheet` pins
-// the list's scroll to the bottom for that case, so what is lost is lost off
-// the far end.
+// This is a render cap, not a storage one: MAX_FAVORITES only blocks
+// adding, so anyone who pinned more before the cap was lowered still has
+// them and can still overflow the list. `openSheet` scrolls the list to
+// the bottom in that case, so the current city stays visible.
 const MAX_SHEET_ROWS = 8;
-// How long a place stays in that tier without being visited. A trip
-// spans days, so it survives a restart; a week later it is not "recent"
-// by any reading, and a tier that never expires is just a worse
-// favourites list that nobody asked for.
+// How long an unpinned (transient) city stays in the switcher before
+// expiring. Long enough to survive a restart mid-trip, short enough that
+// it doesn't become a second favorites list.
 const TRANSIENT_TTL_MS = 72 * 60 * 60 * 1000;
 // ⌘ on Apple platforms, Ctrl elsewhere, for the shortcut hint label.
 const MOD = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? '⌘' : 'Ctrl+';

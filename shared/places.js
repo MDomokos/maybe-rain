@@ -27,17 +27,15 @@ let savedCities = loadCities(LS_CITIES);   // recents (MRU)
 let favorites = loadCities(LS_FAVORITES);  // explicit ★
 
 // Recents carry `seenAt` so a variant can tell "looked at this morning"
-// from "looked at this in March" — primary's switcher ages its transient
-// tier out on it. MRU order alone cannot answer that: it says which is
-// newer, never whether either is recent.
+// from "looked at this in March" — primary's switcher uses it to age out
+// its transient tier. MRU order alone can't do that; it only says which
+// entry is newer, not whether either is actually recent.
 //
-// Entries saved before the field existed are stamped once, here, rather
-// than treated as infinitely old. Reading them as expired would empty
-// the tier on the upgrade that introduces it, which is the wrong first
-// impression of a feature whose entire point is that things are already
-// in it. The stamp is a floor, not a claim about when you last looked:
-// everything present at the upgrade gets one TTL window to earn a real
-// one, and anything you do not revisit inside it ages out honestly.
+// Entries saved before this field existed are stamped once here instead
+// of being treated as already expired, which would empty the transient
+// tier the moment this update lands. Each gets one full TTL window to
+// earn a real timestamp; anything not revisited within it ages out
+// normally after that.
 {
     let patched = false;
     savedCities = savedCities.map(c =>
@@ -84,16 +82,15 @@ const toggleFavorite = place => {
 const pinCity = place => isFav(place) ? true : toggleFavorite(place);
 const unpinCity = place => {
     if (!isFav(place)) return;
-    // A demotion, not a delete. The place drops into the transient tier
-    // and ages out from there on its own, so unpinning never has to mean
-    // "gone" and nothing is left needing manual cleanup.
+    // A demotion, not a delete: the place drops into the transient tier
+    // and ages out on its own, so unpinning never leaves anything needing
+    // manual cleanup.
     //
-    // Appended rather than prepended: unpinning is not visiting, and the
-    // head of the MRU is what the switcher reads as "the city you were
-    // just on". It is stamped fresh either way, so one TTL window starts
-    // now — the same reasoning as the load-time backfill above. Room is
-    // made from the old end first, so the entry being added cannot be the
-    // one the cap drops.
+    // Appended rather than prepended, since unpinning isn't a visit and
+    // the head of the MRU list means "the city you were just on". It's
+    // stamped with a fresh `seenAt` either way, so it gets a full TTL
+    // window before it can expire. Room for it is freed from the old end
+    // of the list first, so it can't be the entry the cap immediately drops.
     const rest = savedCities.filter(c => placeKey(c) !== placeKey(place))
         .slice(0, MAX_CITIES - 1);
     savedCities = [...rest, { ...place, seenAt: Date.now() }];
