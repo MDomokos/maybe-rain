@@ -1104,6 +1104,17 @@
         .home-chip[hidden] { display: none; }
         .home-chip:focus-visible { outline: 1px solid var(--accent); }
 
+        /* The hold-scrub's background dim (app.js, applyBgDim): the grid
+           recedes as the scrubbing finger nears the card, so the reading
+           holds the eye rather than the block still under the finger.
+           Registered so it can transition smoothly, the same way --card-a
+           is above; a plain custom property is a string to the animation
+           engine and steps instead of ramping. */
+        @property --bg-dim {
+            syntax: '<number>';
+            inherits: false;
+            initial-value: 0;
+        }
         /* Chart and grid */
         .chart {
             position: relative;
@@ -1125,14 +1136,40 @@
                bounded to reading time: .control-row is already none, so the
                city switcher's swipe is unaffected, and body is manipulation,
                so the page can still be panned by dragging the day row, the
-               legend, the header or the padding. */
+               legend, the header or the padding.
+               The hold-scrub (see app.js) opens the reading, and so flips
+               this on, the moment it arms rather than mid-drag: arming
+               requires the finger to have stayed put past HOLD_SCRUB_MS, so
+               no qualifying movement has happened yet for the browser to
+               have fast-pathed into a scroll, which is what makes this
+               timing safe for a gesture that has to react partway through
+               a single continuous touch rather than between two of them. */
             padding-left: var(--gutter);
             /* columns stop short of the right edge, so the full-width
                gridlines overhang the grid on both sides */
             padding-right: var(--overhang);
             margin-top: 0;
+            --bg-dim: 0;
         }
         .chart.reading-open { touch-action: none; }
+        /* The dim itself: a flat scrim above the grid and below the card
+           (z-index 6), so the reading stays legible and everything behind
+           it recedes together rather than each block dimming by its own
+           colour, which would risk the "block's colour stays true" rule
+           the moment the gesture ends and the true colour has to return
+           instantly correct. Off (0 opacity) outside a hold-scrub; nothing
+           else writes --bg-dim. */
+        .chart::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: #000;
+            opacity: calc(var(--bg-dim) * 0.65);
+            pointer-events: none;
+            z-index: 4;
+            transition: opacity 110ms linear;
+        }
+        html.reduce-motion .chart::before { transition: none; }
         .time-labels {
             position: absolute;
             left: 0;

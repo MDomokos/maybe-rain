@@ -2,6 +2,10 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.6 (2026-08-19)
+
+- on phones and tablets, holding a block for a moment now opens its reading already expanded, with a light buzz. dragging while still holding scrubs it live across other blocks, with a lighter buzz on each one crossed; the grid dims as the drag nears the reading. releasing closes it
+
 ## v2.6.5 (2026-08-19) — bugfix
 
 - fixed tapping the reading card on a phone switching to the block behind it instead of expanding the card

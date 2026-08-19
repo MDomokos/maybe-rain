@@ -213,7 +213,21 @@ Two surfaces, and which one a drag started on is what decides its meaning.
 ## Tooltip
 
 A single tap on a block opens it; tapping the same block, the tooltip itself, or
-anywhere else closes it. There is no pinned tier and no long press.
+anywhere else closes it. There is no pinned tier.
+
+On a coarse pointer only, a second way in: holding a block still for 350ms arms
+a scrub, with a haptic tick. It opens the docked card already in its expanded
+state, and from there the finger can drag across other blocks to re-target the
+reading live, with a lighter tick each time it crosses onto a new one. The grid
+dims as the finger nears the card, so the reading holds the eye rather than the
+block still under it; the card itself stays fully opaque throughout, unlike the
+thinning its own veil does for a day-elastic pull. Lifting the finger closes it
+outright, whatever block it lands on: a hold-scrub reading never persists, so
+none of the rules below about surviving a repaint apply to it. This is a deliberate,
+owner-directed exception to distance-only navigation elsewhere in the app (see
+DR-49), and the third time this project has built a long press for the tooltip;
+the first two (DR-18/24, then DR-25/28) were reverted for feeling fiddly in
+daily use, on the old floating tooltip rather than the docked card.
 
 The block being read is marked with a hairline ring drawn inside it, so the
 block's own colour — which is the encoding — is never altered to say it is

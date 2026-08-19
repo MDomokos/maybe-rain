@@ -2884,16 +2884,98 @@ const measureVeil = (chart, card) => {
     veilRange = (chart.clientHeight / Math.max(1, w.end - w.start + 1)) * VEIL_DEPTH;
     veilRect = card.getBoundingClientRect();
 };
+// Distance from a point to the card's own rect, 0..1, ramping to 0 over
+// VEIL_DEPTH rows outside it. Pulled out of veilFor so the hold-scrub's
+// background dim (see below) can read the same proximity the card's veil
+// does, without the pull-ramp term that belongs to the day elastic alone.
+const cardProximity = (x, y) => {
+    if (!veilRect || veilRange <= 0 || x == null) return 0;
+    const r = veilRect;
+    const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+    const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    return Math.max(0, 1 - Math.hypot(dx, dy) / veilRange);
+};
 const veilFor = (x, y) => {
-    let prox = 0;
-    if (veilRect && veilRange > 0 && x != null) {
-        const r = veilRect;
-        const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
-        const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
-        prox = Math.max(0, 1 - Math.hypot(dx, dy) / veilRange);
-    }
     const t = Math.abs(pull?.travel || 0);
-    return Math.max(prox, Math.pow(Math.min(1, t / 100), 2));
+    return Math.max(cardProximity(x, y), Math.pow(Math.min(1, t / 100), 2));
+};
+
+// --- The hold-scrub -------------------------------------------------
+// A deliberate, owner-directed exception to "distance is the only
+// arbiter, no timers" (see DR-49 in research/SPEC.md, and the two prior
+// long-press tooltips this project shipped and reverted, DR-18/24 and
+// DR-25/28, both for feeling fiddly in daily use — this is a third
+// attempt, on the docked card rather than the old floating tooltip, and
+// unlike either prior version it always opens already expanded and
+// always closes on release, so nothing about it has to survive a repaint
+// or be unpinned by hand).
+//
+// A stationary press on a block for HOLD_SCRUB_MS arms it: a haptic tick
+// fires, the reading opens straight to its expanded state on that block,
+// and the grid starts giving up its vertical axis (showCard's own
+// `reading-open` toggle does that, for free, at the moment it is called
+// here — see the note on chart's pointerdown for why that timing is
+// early enough to matter, which is the thing DR-48's handover flagged as
+// broken for a hold that has to react mid-gesture). From there the
+// finger can drag across other blocks and the reading re-targets live,
+// same as the rig's `hold` scrub mode. Lifting the finger closes it:
+// this reading never persists, so it never has to survive a city
+// switch, a view switch or a day pull the way a tapped-open one does.
+const HOLD_SCRUB_SEL = '.weather-block[data-info]';
+const HOLD_SCRUB_MS = 350;
+let holdScrubActive = false;   // true only while an armed hold-scrub is live
+let holdScrubBlock = null;     // the block currently being read, so a repaint
+                                // and a haptic tick fire only when it changes
+// The grid dims as the scrubbing finger nears the card, the opposite of
+// the card's own veil (which thins the card, not the grid): the reading
+// is meant to hold the eye in the last stretch before release, not the
+// block still under the finger. Same proximity term as the veil, a
+// different target, and never mixed with it (see the pointermove guard
+// below that forces applyVeil to 0 for a 'scrub' axis).
+const applyBgDim = v => { chart.style.setProperty('--bg-dim', v.toFixed(3)); };
+
+// Fired once, when a press has held still past HOLD_SCRUB_MS. `p` is the
+// day elastic's own pull record for this gesture (see chart's
+// pointerdown below): arming only while it is still the live one and
+// has not already decided to be a drag (`p.axis`) keeps the scrub and
+// the elastic mutually exclusive by construction, the same way DR-27
+// kept its scrub and the swipe apart — there is no window where a press
+// could plausibly become both.
+const armHoldScrub = p => {
+    p.holdTimer = 0;
+    if (pull !== p || p.axis || !p.holdEl) return;
+    p.axis = 'scrub'; // claims the gesture; endPull's own branch on this closes it below
+    holdScrubActive = true;
+    holdScrubBlock = p.holdEl;
+    swallowClick = true; // the eventual release must not also open or close a tap tooltip
+    navigator.vibrate?.(8); // one tick, on arming only — the convention setArmed uses
+    chart.setPointerCapture?.(p.id);
+    showTooltip(p.holdEl); // opens already expanded; see showCard's cardExpanded line
+    applyBgDim(cardProximity(p.holdX, p.holdY));
+};
+// Retargets the reading to whatever block the finger is over, live.
+// elementFromPoint, not the touch's own `.target`: a Touch's target is
+// fixed at whatever was under the finger at the press and never updates,
+// per spec, so it cannot track a drag (DR-27 records the same finding).
+// This is not the hit-test the docked card's own design avoids: that
+// rule is about the CARD never being returned by elementFromPoint, which
+// its permanent pointer-events:none already guarantees, so this call
+// only ever resolves to a block or nothing.
+const moveHoldScrub = (p, e) => {
+    e.preventDefault();
+    applyBgDim(cardProximity(e.clientX, e.clientY));
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const block = el && el.closest && el.closest(HOLD_SCRUB_SEL);
+    if (!block || block === holdScrubBlock) return;
+    holdScrubBlock = block;
+    navigator.vibrate?.(4); // a lighter tick per block crossed, DR-27's tuned value
+    showTooltip(block);
+};
+const endHoldScrub = () => {
+    holdScrubActive = false;
+    holdScrubBlock = null;
+    applyBgDim(0);
+    hideTooltip(); // always closes: a hold-scrub reading never outlives the finger
 };
 // 0.96 → 0.75: thinned enough to read the grid through, not so thin that
 // the reading stops being a panel. The text never fades either way.
@@ -3269,8 +3351,10 @@ const showCard = (f) => {
     // the window rather than a property of the reading.
     const key = `${f.day.date}|${activeBlock.hour}`;
     // Expansion is a property of the reading that was expanded, not a
-    // preference the next one inherits.
-    if (key !== cardKey) { cardExpanded = false; cardKey = key; }
+    // preference the next one inherits — except during a hold-scrub,
+    // which always opens, and stays, expanded: that is the whole point
+    // of holding rather than tapping.
+    if (key !== cardKey) { cardExpanded = holdScrubActive; cardKey = key; }
     const html = cardHTML(f, cardExpanded);
     // Written only when it differs. A repaint mid-sweep re-reads the open
     // card on every frame and nearly all of them produce the same words.
@@ -4314,6 +4398,27 @@ chart.addEventListener('pointerdown', e => {
     // running stops where it is, and the pull is anchored to what is
     // actually on screen rather than to where it was heading.
     stopElastic();
+    // Arm the hold-scrub, coarse pointers only, and only for a press that
+    // lands on a block rather than inside an already-open card (that
+    // origin already belongs to the card's own swipe-to-dismiss/expand
+    // gesture below). The timer is cancelled in pointermove the moment
+    // real movement shows this was a drag, not a press — see the slop
+    // check there. Firing it calls showTooltip/showCard synchronously,
+    // which is also what flips `.chart.reading-open` (touch-action:none)
+    // on: early enough to matter, because arming requires the finger to
+    // have stayed put, so no qualifying movement (and nothing for the
+    // browser to have fast-pathed into a scroll) has happened yet. That
+    // is the timing DR-48's handover needed and a hold naturally has.
+    if (coarse() && !downInCard) {
+        const el = e.target.closest?.(HOLD_SCRUB_SEL);
+        if (el) {
+            pull.holdEl = el;
+            pull.holdX = e.clientX;
+            pull.holdY = e.clientY;
+            const p = pull;
+            p.holdTimer = setTimeout(() => armHoldScrub(p), HOLD_SCRUB_MS);
+        }
+    }
 });
 // A press that turns out not to be a pull — a tap, or a vertical drag
 // the page takes — hands the axis back exactly as it found it.
@@ -4334,9 +4439,19 @@ chart.addEventListener('pointermove', e => {
     // one: the card moves only when it flips, which at this threshold is
     // rare, and a rect read per repositioned frame is a forced layout in
     // the middle of a gesture.
-    applyVeil(veilFor(e.clientX, e.clientY));
+    // A hold-scrub owns its own proximity effect (the background dim,
+    // applied in moveHoldScrub below) instead: the card stays fully
+    // opaque through a scrub rather than thinning, so the reading itself
+    // never fades, only the grid behind it.
+    applyVeil(pull.axis === 'scrub' ? 0 : veilFor(e.clientX, e.clientY));
+    if (pull.axis === 'scrub') { moveHoldScrub(pull, e); return; }
     if (!pull.axis) {
         if (Math.hypot(dx, dy) < PULL_SLOP) return;
+        // This much travel before the hold timer fired is a drag, not a
+        // press: cancel the arm, at the same slop the day elastic itself
+        // claims at, so the two thresholds can never disagree about
+        // whether a given press counts as "moved".
+        if (pull.holdTimer) { clearTimeout(pull.holdTimer); pull.holdTimer = 0; }
         // A swipe that began inside the card's rectangle is the card's, and
         // up or sideways closes the reading the way a notification does.
         // Down is not a dismiss direction, so it falls through.
@@ -4433,6 +4548,15 @@ const endPull = e => {
     const p = pull;
     pull = null;
     if (chart.hasPointerCapture?.(e?.pointerId)) chart.releasePointerCapture(e.pointerId);
+    // A press that never got the chance to arm (released, or moved past
+    // the slop, before HOLD_SCRUB_MS) still has a pending timer to clear.
+    if (p.holdTimer) { clearTimeout(p.holdTimer); p.holdTimer = 0; }
+    // An armed hold-scrub closes outright on release: see endHoldScrub for
+    // why nothing here has to survive the way a tapped-open reading does.
+    // restPull first, same as any other press that turns out not to be a
+    // pull: whatever spring or wheel hold the press interrupted is owed
+    // its motion back.
+    if (p.axis === 'scrub') { restPull(p); endHoldScrub(); return; }
     // A tap. The trailing click opens the tooltip, and nothing here
     // navigates — but the press stopped whatever was in flight when the
     // finger landed, so it is set going again toward where it was headed.
