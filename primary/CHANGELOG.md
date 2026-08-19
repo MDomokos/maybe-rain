@@ -4,6 +4,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 ## v2.6.5 (2026-08-19) — bugfix
 
+- flicking the day grid now locks the extra days open instead of springing back to today, timed by the flick's own speed. removed the status-line hint that used to explain why a fast swipe didn't work
 - the search list's unpin star is now filled instead of struck through, so a pinned city reads as "on" instead of "removed"
 - fixed a pinned city's star sometimes showing grey instead of gold after a tap, from a hover style that stuck on touch
 - the gold highlight on the first search result no longer shows on phones and tablets, where it had nothing to explain itself (it marks the Enter-key target, and touch has no Enter key)

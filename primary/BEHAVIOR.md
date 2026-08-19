@@ -147,11 +147,12 @@ Two surfaces, and which one a drag started on is what decides its meaning.
     one haptic tick: **release there and the stretch locks open.** One pixel
     wide throughout — it answers the threshold by lighting up, never by
     thickening.
-  - **A flick is answered in words.** The axis is dragged and held; there is no
-    momentum in it anywhere, so a thrown swipe opens a few days and shuts them
-    before they can be read. A release that fast, after that little travel,
-    puts one transient line in the status line saying to keep hold of the drag.
-    Three times ever, and never again once a stretch has been locked open.
+  - **A flick locks instead of springing back.** A release inside 260ms that
+    travelled at least 24px carries its own speed into the animation and locks
+    the stretch open on the side it was thrown toward, landing on the same day
+    count a held drag reaches by pulling to the edge and staying there. A
+    flick toward an end with nothing behind it has nowhere to lock, so it
+    eases home like any other short peek.
   - **Locked is a place.** Taps open tooltips exactly as at home. Three ways
     out, all of them home: the same pull again to the same mark, a clear pull
     back, or ⌂ / Esc. Anything less is a wiggle and the lock holds. The ⌂ chip
