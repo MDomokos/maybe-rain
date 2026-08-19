@@ -3564,6 +3564,12 @@ const TIP_HOVER_MS = 90;
 let tipHoverTimer = 0;
 const cancelTipHover = () => { if (tipHoverTimer) { clearTimeout(tipHoverTimer); tipHoverTimer = 0; } };
 document.addEventListener('mouseover', e => {
+    // Hover belongs to a fine pointer. Touch has no hover state, and a tap
+    // synthesises a mouseover before its click: with the docked card open
+    // that armed this grace against the block UNDER the card, so a tap
+    // meant for the card re-pointed the reading 90ms later and collapsed
+    // it. The tap read as a tap-through even though nothing was hit-tested.
+    if (coarse()) return;
     const el = e.target.closest(TIP_SEL);
     if (!el) return;
     cancelTipHover();
@@ -3571,6 +3577,7 @@ document.addEventListener('mouseover', e => {
     tipHoverTimer = setTimeout(() => { tipHoverTimer = 0; showTooltip(el); }, TIP_HOVER_MS);
 });
 document.addEventListener('mouseout', e => {
+    if (coarse()) return;
     if (!e.target.closest(TIP_SEL)) return;
     cancelTipHover();
     hideTooltip();
@@ -3578,6 +3585,11 @@ document.addEventListener('mouseout', e => {
 // Keyboard: blocks and legend cells are tabbable; focus shows the
 // same tooltip.
 document.addEventListener('focusin', e => {
+    // A tap on the card focuses whatever is under it, because the card
+    // takes no events. That focus is not a request to read the block it
+    // landed on, so it does not re-point the reading; the click that
+    // follows expands the card instead.
+    if (downInCard && cardOpen()) return;
     const el = e.target.closest(TIP_SEL);
     if (el) showTooltip(el);
 });
@@ -3624,6 +3636,10 @@ document.addEventListener('click', e => {
     // straight through to the block underneath — the card takes no
     // events — and closes or re-points the reading instead.
     if (downInCard && cardOpen() && activeBlock) {
+        // Any hover grace still counting down was armed against the block
+        // under the card, and firing it would re-point the reading a moment
+        // after this expanded it.
+        cancelTipHover();
         cardExpanded = !cardExpanded;
         refreshActiveTooltip();
         return;
