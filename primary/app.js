@@ -1264,6 +1264,105 @@ const spanHour = (hours, startHour) => {
     };
 };
 
+// --- The whole-day reduction --------------------------------------
+// What the date label answers for. Every figure comes from the day's own
+// hours, the same series the blocks are built from, so the summary and the
+// grid cannot drift; Open-Meteo's daily block is not read at all.
+//
+// All 24 hours, not the hours the grid happens to be showing. The label is
+// a date, so the date is what it reports on, and a summary that changed
+// with the hour window would be a summary of the window instead. A
+// part-loaded day — today opened at noon, a short payload, a day trimmed at
+// the edge of the reach — reduces over whatever hours exist and is never
+// padded, which is principle 4 applied to a reduction rather than a column.
+//
+// Each field takes the reducer its own question deserves: temperature is a
+// spread, rain is a total, wind and UV are their worst, cloud and humidity
+// are the day's character and so are means.
+const dayReduce = di => {
+    const hours = state.data[di];
+    const day = state.days[di];
+    if (!day || !hours?.length) return null;
+    const tMax = maxOf(hours, 'temp'), tMin = minOf(hours, 'temp');
+    const fMax = maxOf(hours, 'feels'), fMin = minOf(hours, 'feels');
+    // The hour each extreme lands on, so the two figures can say WHEN
+    // rather than only how far apart. Falls back to the plain temperature
+    // on a payload with no apparent temperature in it.
+    const at = (key, val) => {
+        const h = val == null ? null : hours.find(x => x[key] === val);
+        return h ? h.hour : null;
+    };
+    const warmAt = at('feels', fMax) ?? at('temp', tMax);
+    const coldAt = at('feels', fMin) ?? at('temp', tMin);
+    // Wet hours counts hours that actually delivered, so it stays a fact on
+    // a past day as well as a forecast: pop is what might happen, this is
+    // what did or will.
+    const wet = hours.filter(h => (h.mm ?? 0) > 0 || (h.snow ?? 0) > 0);
+    // The day's weather is its worst hour, the same rule spanHour holds for
+    // a block: WMO codes climb with severity, so the highest one in the day
+    // is the one the summary reports.
+    const code = maxOf(hours, 'code');
+    const worst = hours.find(h => h.code === code) || hours[0];
+    // When it starts, printed only when it is not already going at the
+    // first hour on hand. "rain from 00:00" on a day that opens in rain
+    // says nothing, and on a part-loaded day it would date the payload
+    // rather than the weather.
+    const onsetH = wet.length ? wet[0].hour : null;
+    const onset = onsetH != null && onsetH > hours[0].hour ? onsetH : null;
+    // Direction by count, not by the windiest hour: a whole day has no
+    // single gust to take a bearing from, and the octant most of it blew
+    // from is the one worth naming.
+    const tally = {};
+    for (const h of hours) if (h.windDir != null) {
+        const o = windOctant(h.windDir);
+        tally[o] = (tally[o] || 0) + 1;
+    }
+    const dirs = Object.keys(tally);
+    const dir = dirs.length ? +dirs.reduce((a, b) => tally[b] > tally[a] ? b : a) : null;
+    return {
+        di, day, hours,
+        // Short of a full day for any reason. The reading says so rather
+        // than reporting a partial total as a day's worth of rain.
+        partial: hours.length < 24,
+        tMax, tMin, fMax, fMin, warmAt, coldAt,
+        mm: sumOf(hours, 'mm'),
+        snow: sumOf(hours, 'snow'),
+        liquid: sumOf(hours, 'liquid'),
+        // Dropped by the caller on a past day: a probability set beside a
+        // known outcome is a prediction about the past, the same reason the
+        // hour reading drops it.
+        pop: maxOf(hours, 'pop'),
+        wetHours: wet.length,
+        wind: maxOf(hours, 'wind'),
+        gust: maxOf(hours, 'gust'),
+        dir,
+        code, worst, onset,
+        cloud: meanOf(hours, 'cloud'),
+        humidity: meanOf(hours, 'humidity'),
+        uv: maxOf(hours, 'uv'),
+        vis: minOf(hours, 'vis'),
+        sun: state.sun[day.date] || {}
+    };
+};
+
+// The chips a whole day earns: the union of the hour chips over its own
+// hours, deduplicated and in a fixed order. Built from the day's worst
+// values rather than by walking every hour twice, which is the same set:
+// each of these is a threshold on a maximum.
+const dayChips = d => {
+    const chips = [];
+    if (d.code === 96 || d.code === 99) chips.push('thunderstorm, hail');
+    else if (d.hours.some(h => h.glyph === 'storm')) chips.push('thunderstorm');
+    if (d.hours.some(h => h.glyph === 'fog')) chips.push('fog');
+    if (d.hours.some(h => h.glyph === 'freeze')) chips.push('freezing rain');
+    if (d.hours.some(h => h.mm != null && h.mm >= LN.warn)) chips.push('heavy rain');
+    if (d.tMax != null && d.tMax >= settings.heatWarn) chips.push('extreme heat');
+    if (d.uv != null && d.uv >= settings.uvWarn) chips.push(`very high UV (${Math.round(d.uv)})`);
+    if (d.fMin != null && d.fMin <= TEMP_DANGER_COLD) chips.push('dangerous cold');
+    if (d.fMax != null && d.fMax >= TEMP_DANGER_HOT) chips.push('dangerous heat');
+    return chips;
+};
+
 // The whole sixteen-column frame as an array of columns of cell
 // descriptors, a pure function of `state` + `view` + the hour window.
 // Columns are ragged now: a home-week column holds one block per hour,
@@ -1919,6 +2018,9 @@ const applyDayWidths = () => {
     // frame would be paying to write the same words.
     if (cardOpen() && activeBlock) $('readingCard').classList.toggle('orphan',
         !blockCovering(activeBlock.day, activeBlock.hour));
+    // Same for a day reading, against the label instead of the block.
+    if (cardOpen() && activeDay != null) $('readingCard').classList.toggle('orphan',
+        !dayLabelFor(activeDay));
 };
 
 // The row that labels the window. Split out of updateDisplay because a
@@ -1969,11 +2071,21 @@ const renderDayStrip = () => {
     $('days').innerHTML = Array.from({ length: days }, (_, i) => {
         const day = state.days[off + i];
         if (!day) return '<div class="day-label absent" aria-hidden="true"></div>';
-        return `<div class="day-label${day.isToday ? ' today' : ''}${day.past ? ' past' : ''}${seamClass(day)}">`
+        // data-day is the ABSOLUTE index, matching the blocks': the row is
+        // rebuilt with a different window offset on every pull, so a
+        // position in the row is not something a reading can be held by.
+        // tabindex and the role make it the same kind of target a block is,
+        // which is what puts it on the keyboard route with no extra code.
+        return `<div class="day-label${day.isToday ? ' today' : ''}${day.past ? ' past' : ''}${seamClass(day)}"`
+            + ` data-day="${off + i}" tabindex="0" role="button"`
+            + ` aria-label="${esc(DAY_FULL[dowOf(day.date)])} ${esc(dateLabel(day.date))}, whole day summary">`
             + `<span class="day-date">${+day.date.slice(8, 10)}</span>`
             + `<span class="day-wd">${esc(day.text)}</span></div>`;
     }).join('');
     applyDayWidths();
+    // The row the mark lives on was just replaced, so the open reading's
+    // date has to be marked again on the fresh node.
+    markDaySelection();
 };
 
 // Everything outside the grid whose position depends on the hour
@@ -2388,7 +2500,11 @@ const scheduleHourTick = () => {
 const armClocks = () => { scheduleDayRollover(); scheduleHourTick(); };
 
 // --- Tooltip: shared by grid blocks and legend cells --------------
-const TIP_SEL = '.weather-block[data-info], .legend-swatch';
+// Everything that opens a reading. The date label joins the list rather
+// than getting handlers of its own, so hover, focus, tap-to-open,
+// tap-again-to-close and every dismissal path come for free and cannot
+// drift from the block reading's.
+const TIP_SEL = '.weather-block[data-info], .legend-swatch, .day-label[data-day]';
 const tooltipOpen = () => $('tooltip').style.opacity === '1';
 // What is rendered and what it measured. The tooltip is asked to re-read
 // itself far more often than it has anything new to say, and both the
@@ -2423,13 +2539,20 @@ const showTooltip = (el, anchor = null) => {
     // The legend swatches and the freshness line keep the tooltip on every
     // pointer, so this is scoped to blocks.
     const cardCase = coarse() && el.id !== 'statusInfo' && el.dataset.cond == null;
+    // The date label reads for its whole day rather than for one block. It
+    // shares every surface, every dismissal and the one open-reading rule
+    // with the block reading; only the trigger and the reduction differ.
+    const isDay = el.classList.contains('day-label');
     if (!cardCase) {
     // Prose explanation wraps and is interactive (so its link is
     // clickable); the fact tooltips stay single-line.
     tooltip.classList.toggle('explain', el.id === 'statusInfo');
     // Block tooltip gets the capped-width, hero-line layout; legend and
     // freshness tooltips keep the plain single-line style.
-    tooltip.classList.toggle('block', el.id !== 'statusInfo' && el.dataset.cond == null);
+    tooltip.classList.toggle('block', !isDay && el.id !== 'statusInfo' && el.dataset.cond == null);
+    // The day reading is its own layout again: same width cap, three
+    // sections instead of hero lines.
+    tooltip.classList.toggle('day', isDay);
     // Always interactive, not click-through. #tooltip lives
     // outside .chart in the DOM (a sibling, absolutely positioned),
     // so this can never be mistaken for a touch on the grid itself
@@ -2443,7 +2566,13 @@ const showTooltip = (el, anchor = null) => {
     // Cleared here; the grid-block branch re-arms it so a repaint (city
     // swap, view switch, background refresh) can re-render the open
     // tooltip against the new data at the same grid position.
+    //
+    // Both are cleared, and at most one is set below. That is the whole of
+    // the "one reading at a time" rule: the day reading and the block
+    // reading share this function, so opening either closes the other
+    // without anything having to know the other exists.
     activeBlock = null;
+    activeDay = null;
     // Built here, written once at the bottom, only if it differs from what
     // is on screen. waveFrame re-reads an open tooltip on every frame of a
     // sweep where any cell changed hands, and nearly all of those frames
@@ -2466,6 +2595,20 @@ const showTooltip = (el, anchor = null) => {
                'The model run time is unavailable right now.'];
         html =
             title + body.map(l => `<div class="tip-body">${l}</div>`).join('') + docs;
+    } else if (isDay) { // date label: the whole day, reduced from its own hours
+        const d = dayReduce(+el.dataset.day);
+        // No hours behind this date. Closing rather than half-changing is
+        // the same call the block branch makes for the same reason: the
+        // layout classes above have already been toggled, so leaving early
+        // would strand a resized box at the old position.
+        if (!d) { hideTooltip(); return; }
+        activeDay = d.di;
+        if (coarse()) {
+            showDayCard(d);
+            markSelection();
+            return;
+        }
+        html = dayTipHTML(d);
     } else if (el.dataset.cond != null) { // legend cell: exact condition names
         const c = CONDITIONS[+el.dataset.cond];
         html =
@@ -2512,14 +2655,11 @@ const showTooltip = (el, anchor = null) => {
         // stats block below.
         const range = wholeDay ? 'all day'
             : `${hourLabel(h0)}–${hourLabel((h0 + span) % 24)}`;
-        // "Yesterday" is named outright, the way "Today" already is. It
-        // is the past day the drawer is opened for most of the time, and
-        // reading a weekday letter back as a date is the step the header
-        // exists to save. Two days back keeps its weekday, since
-        // "the day before yesterday" is longer than the date it replaces.
-        const yesterday = dateDaysBefore(cityNow().date, 1);
-        const dayName = day.isToday ? 'Today'
-            : day.date === yesterday ? 'Yesterday' : day.text;
+        // Named by the same rule the day reading names its date with: see
+        // readingTitle. It used to inline the rule here and fall back to
+        // the strip's one-letter abbreviation, which put "TH 21 Aug" at the
+        // top of a reading that had all the room it needed for "Thu".
+        const dayName = readingTitle(day);
         const when = `<div class="tip-when"><span class="d">${dayName} ${dateLabel(day.date)}</span><span class="t">${range}</span></div>`;
 
         // Three main lines, fixed order (temp, rain, wind) in every
@@ -2657,7 +2797,7 @@ const showTooltip = (el, anchor = null) => {
             }
         }
         const chipHtml = chips.length
-            ? `<div class="tip-chips">${chips.map(c => `<span class="tip-chip">${esc(c)}</span>`).join('')}</div>` : '';
+            ? `<div class="rc-chips">${readingChips(chips)}</div>` : '';
 
         // The comparison sits directly under the detail line and above the
         // hazard chips: it is a reading, not a warning, and a chip row
@@ -2675,7 +2815,7 @@ const showTooltip = (el, anchor = null) => {
         // differently — three columns, a head and an expanded foot — but
         // every value below came from the lines above.
         if (coarse()) {
-            showCard({
+            showHourCard({
                 day, h, span, wholeDay, sun, h0, dayName, range,
                 activeDetail, claimedCondition, chips, chgLines, compare,
                 mmVal, snowVal, liquidVal, per
@@ -2719,6 +2859,11 @@ const showTooltip = (el, anchor = null) => {
 };
 let tappedBlock = null; // element whose tooltip was opened by a tap/click (shared by mouse and touch again)
 let activeBlock = null; // {day,hour} of the open block tooltip, for re-render on repaint
+// Absolute day index of the open DAY reading, the date label's counterpart
+// to activeBlock. Absolute, so it survives a city swap, a view switch and
+// every width the elastic can put the column at. Never set at the same
+// time as activeBlock: showTooltip clears both before setting either.
+let activeDay = null;
 // The live block standing for activeBlock's hour. The DOM half of
 // coversActive, for the same reason: the hour peek, allHours and the
 // tail-fold in blockSpans all re-phase spans, so the hour a reading was
@@ -2739,10 +2884,33 @@ const blockCovering = (day, hour) => {
 // written by hand for that case; every repaint after it goes through
 // cellClass. Both read activeBlock, so they cannot disagree.
 const markSelection = () => {
+    markDaySelection();
     const want = activeBlock ? blockCovering(activeBlock.day, activeBlock.hour) : null;
     const have = $('grid').querySelectorAll('.weather-block.sel');
     // Already right: touch nothing. On the sweep path cellClass has usually
     // just written the same class, and mutating would dirty style for free.
+    if (have.length === (want ? 1 : 0) && (!want || have[0] === want)) return;
+    have.forEach(n => n.classList.remove('sel'));
+    want?.classList.add('sel');
+};
+
+// The live label for a day index, or null when the elastic has squeezed
+// that column out of the row. Every one of the sixteen stays in the DOM
+// with its dataset intact and applyDayWidths hides the out-of-reach ones,
+// so presence in the row is not the same question as being on screen —
+// the same distinction blockCovering makes, for the same reason.
+const dayLabelFor = di => {
+    for (const el of $('days').querySelectorAll(`.day-label[data-day="${di}"]`)) {
+        if (el.getClientRects().length) return el;
+    }
+    return null;
+};
+// The day half of the same rule: one reading, one mark. Folded into
+// markSelection rather than called beside it, so nothing can mark a block
+// and leave a date marked from the reading before it.
+const markDaySelection = () => {
+    const want = activeDay != null ? dayLabelFor(activeDay) : null;
+    const have = $('days').querySelectorAll('.day-label.sel');
     if (have.length === (want ? 1 : 0) && (!want || have[0] === want)) return;
     have.forEach(n => n.classList.remove('sel'));
     want?.classList.add('sel');
@@ -3090,20 +3258,56 @@ const applyVeil = v => {
     card.style.setProperty('--card-a', (VEIL_TOP - (VEIL_TOP - VEIL_FLOOR) * v).toFixed(3));
 };
 
+// --- Shared by both readings --------------------------------------
+// The hour reading and the day reading are the same three sections said
+// about different spans of time, so the parts that are the same shape live
+// here once and each reading passes its own values through them. What
+// differs between the two is which values there are, not how a value is
+// drawn, and that is the line these three helpers hold.
+
+// Which day, named. "Yesterday" is spelled out the way "Today" is: it is
+// the past day the drawer is opened for most of the time, and reading a
+// weekday letter back as a date is the step this exists to save. Two days
+// back keeps its weekday, since "the day before yesterday" is longer than
+// the date it replaces. Three letters rather than the strip's one or two:
+// the strip abbreviates for a width problem a reading does not have.
+const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const readingTitle = day => day.isToday ? 'Today'
+    : day.date === dateDaysBefore(cityNow().date, 1) ? 'Yesterday'
+    : DAY_FULL[dowOf(day.date)].slice(0, 3);
+
+// The hazard chips, one class and one shape on every surface. Callers wrap
+// them: the hour card and the day card run them inline at the end of a
+// header line, the tooltips give them a row of their own.
+const readingChips = chips => chips.map(c => `<span class="rc-chip">${esc(c)}</span>`).join('');
+
+// The three view-ordered columns. `cells` is [{k, lb, big, sub}] and `hero`
+// is the view whose value is bright, or null when there is no hero to pick.
+//
+// The hour reading passes `view`, because a reading taken while the temp
+// view is up is a reading in the temp view's terms. The day reading passes
+// null: a whole-day summary is not taken in any view's terms, so all three
+// stay level and none is dimmed.
+const readingCells = (cells, hero) => `<div class="rc-cells">` + cells.map(c =>
+    `<div class="rc-cell rc-${c.k}${c.k === hero ? ' on' : ''}">`
+    + (c.lb ? `<span class="rc-lb">${c.lb}</span>` : '')
+    + `<span class="rc-val${hero && c.k !== hero ? ' dim' : ''}">${c.big}</span>`
+    + (c.sub ? `<span class="rc-sub">${c.sub}</span>` : '')
+    + `</div>`).join('') + `</div>`;
+
+// The quiet tail of dim facts. Same line on both readings; only what goes
+// in it differs, which is the reading's business rather than this one's.
+const readingTail = bits => bits.length ? `<div class="rc-foot">${bits.join(' · ')}</div>` : '';
+
 const cardCells = (f) => {
-    const dim = k => k === view ? '' : ' dim';
-    const cell = (k, lb, big, sub) =>
-        `<div class="rc-cell rc-${k}${k === view ? ' on' : ''}">`
-        + `<span class="rc-lb">${lb}</span>`
-        + `<span class="rc-val${dim(k)}">${big}</span>`
-        + (sub ? `<span class="rc-sub">${sub}</span>` : '')
-        + `</div>`;
     const h = f.h;
     // Temperature: the reading, with the apparent temperature under it. The
     // band the figure draws comes from the same feels-like.
-    const temp = cell('temp', 'Temp',
-        h.temp != null ? `${displayTemp(h.temp)}°` : '—',
-        h.feels != null ? `feels ${displayTemp(h.feels)}°` : '');
+    const temp = {
+        k: 'temp', lb: 'Temp',
+        big: h.temp != null ? `${displayTemp(h.temp)}°` : '—',
+        sub: h.feels != null ? `feels ${displayTemp(h.feels)}°` : ''
+    };
     // Rain: the amount leads, because that is what the block is drawing;
     // the chance follows it. A snowing hour puts the snow depth in front
     // and keeps its liquid equivalent in the second line, which is the
@@ -3117,11 +3321,13 @@ const cardCells = (f) => {
     // prediction about the past.
     if (!f.day.past && h.pop != null) rainSub.push(`${h.pop}%`);
     if (snowing && f.liquidVal != null && f.liquidVal >= 0.1) rainSub.push(`${f.liquidVal} mm${f.per}`);
-    const rain = cell('rain', 'Rain', rainBig, rainSub.join(' · '));
-    const wind = cell('wind', 'Wind',
-        h.wind != null ? `${displayWind(h.wind)} ${windUnitLabel()}` : '—',
-        h.windDir != null ? COMPASS[windOctant(h.windDir)] : '');
-    return `<div class="rc-cells">${temp}${rain}${wind}</div>`;
+    const rain = { k: 'rain', lb: 'Rain', big: rainBig, sub: rainSub.join(' · ') };
+    const wind = {
+        k: 'wind', lb: 'Wind',
+        big: h.wind != null ? `${displayWind(h.wind)} ${windUnitLabel()}` : '—',
+        sub: h.windDir != null ? COMPASS[windOctant(h.windDir)] : ''
+    };
+    return readingCells([temp, rain, wind], view);
 };
 
 // The expanded state's own facts: the three the columns had no room for,
@@ -3140,7 +3346,7 @@ const cardFoot = (f) => {
     if (21 >= f.h0 && 21 < f.h0 + f.span) {
         const sky = skyEventFor(f.day.date); if (sky) bits.push(esc(sky.label));
     }
-    return bits.length ? `<div class="rc-foot">${bits.join(' · ')}</div>` : '';
+    return readingTail(bits);
 };
 
 // --- What the hour means for walking out of the door --------------
@@ -3173,9 +3379,18 @@ const dressFor = (h, past) => {
     if (feels == null) return null;
     const i = bandIndex(feels);
     const gusty = h.gust != null && h.gust >= GEAR_GUST;
-    const wet = (h.mm != null && h.mm > 0) || (h.snow != null && h.snow > 0);
+    const snowing = h.snow != null && h.snow > 0;
+    const wet = (h.mm != null && h.mm > 0) || snowing;
     let gear = null;
-    if (wet && h.mm > 2)
+    // Snow takes the branch before rain does, because an umbrella is the
+    // one answer that is wrong in it: snow does not run off, it sits, and a
+    // canopy held over a head collects it. So the hood goes up whatever the
+    // wind is doing, and the figure draws falling snow rather than rain
+    // beside it. This used to fall through to the rain branches and offer
+    // an umbrella for a blizzard.
+    if (snowing)
+        gear = ['hood', 'snow, so a hood rather than an umbrella'];
+    else if (wet && h.mm > 2)
         gear = gusty ? ['hood', 'rain jacket. the gusts will turn an umbrella out']
                      : ['umbrella', 'umbrella, or arrive soaked'];
     else if (wet)
@@ -3188,7 +3403,7 @@ const dressFor = (h, past) => {
     else if (h.uv != null && h.uv >= GEAR_UV) gear = ['sun', 'strong sun. hat, or sunscreen'];
     else if (gusty) gear = ['wind', 'gusty enough to hold on to a hat'];
     return {
-        wear: WEAR_BANDS[i], gear: gear && gear[0], wet,
+        wear: WEAR_BANDS[i], gear: gear && gear[0], wet, snow: snowing,
         lines: gear ? [TEMP_BANDS[i].cue, gear[1]] : [TEMP_BANDS[i].cue]
     };
 };
@@ -3320,6 +3535,16 @@ const FIGURE = (() => {
         + '<path d="M9.6 13.0 L10.9 15.8"/><path d="M20.4 13.0 L19.1 15.8"/>';
     const RAIN = '<path d="M4.6 13.8 L3 17.6"/><path d="M7.2 16.4 L5.6 20.2"/>'
         + '<path d="M4.2 23 L2.6 26.8"/>';
+    // Snow stands where rain falls, on the midpoint of each of the three
+    // strokes above, so the two read as the same weather in the same place
+    // and only the mark changes. A flake is three crossing strokes rather
+    // than a dot: at 1.5 weight a dot of this size is a blob, and a blob
+    // beside a figure is not obviously frozen. 2.4 across, which is the
+    // smallest that still resolves as six points on a phone.
+    const flake = (x, y) => `<path d="M${f(x)} ${f(y - 1.2)} V${f(y + 1.2)} `
+        + `M${f(x - 1.05)} ${f(y - 0.6)} L${f(x + 1.05)} ${f(y + 0.6)} `
+        + `M${f(x - 1.05)} ${f(y + 0.6)} L${f(x + 1.05)} ${f(y - 0.6)}"/>`;
+    const SNOW = flake(3.8, 15.7) + flake(6.4, 18.3) + flake(3.4, 24.9);
     const BROLLY = '<path d="M17.2 9.6 A6.3 6.3 0 0 1 29.8 9.6 Z"/><path d="M23.5 2.6 V4"/>'
         + '<path d="M23.5 9.6 V15.4"/>';
     const SUN = '<circle cx="27" cy="7" r="2.8"/>'
@@ -3341,6 +3566,12 @@ const FIGURE = (() => {
         jum: '#E07A5F', coat: '#5BA8D8', acc: '#6FCF97'
     };
     const GEARC = { umbrella: '#87CEEB', hood: '#87CEEB', sun: '#F0C060', wind: '#50C878' };
+    // Snow gets its own colour rather than the hood's sky blue: the hood is
+    // the garment and stays the garment colour, and the thing falling past
+    // it is nearly white because that is the one property of snow a mark
+    // this small can carry. Held off pure white, which on a near-black
+    // panel outshines the figure it is meant to be falling beside.
+    const SNOWC = '#DCE6F0';
 
     // Both ends of the scale saturate, and not symmetrically. At the cold end
     // there is always one more thing to put on. At the hot end there is not:
@@ -3400,12 +3631,16 @@ const FIGURE = (() => {
         const raised = a.gear === 'umbrella';
         let body = build(a.wear, raised)
             .map(([k, s]) => `<g stroke="${WEARC[k]}" color="${WEARC[k]}">${s}</g>`).join('');
+        // What is falling, if anything is. Snow never reaches the raised
+        // arm: dressFor sends a snowing hour to the hood before the
+        // umbrella branches can see it.
+        const falling = a.snow ? SNOW : RAIN;
         let extra = '';
-        if (raised) extra = BROLLY + (a.wet ? RAIN : '');
-        else if (a.gear === 'hood') { body += `<g stroke="${GEARC.hood}">${HOOD}</g>`; extra = RAIN; }
+        if (raised) extra = BROLLY + (a.wet ? falling : '');
+        else if (a.gear === 'hood') { body += `<g stroke="${GEARC.hood}">${HOOD}</g>`; extra = falling; }
         else if (a.gear === 'sun') extra = SUN;
         else if (a.gear === 'wind') extra = WIND;
-        const gc = a.gear && GEARC[a.gear];
+        const gc = a.snow ? SNOWC : (a.gear && GEARC[a.gear]);
         if (extra && gc) extra = `<g stroke="${gc}">${extra}</g>`;
         return `<svg viewBox="0 0 34 44" fill="none" stroke="currentColor" stroke-width="1.5" `
             + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}${extra}</svg>`;
@@ -3422,14 +3657,193 @@ const cardAdvice = (f) => {
         + `<span class="rc-lines">${a.lines.map(l => `<span class="rc-a">${esc(l)}</span>`).join('')}</span></div>`;
 };
 
+// --- The day reading ----------------------------------------------
+// Three sections, in the order the question is asked: which day and what
+// kind of day, the day's numbers, then what to put on. Both surfaces
+// render the same three from the same reduction, laid out differently —
+// columns on the card, a stack on the tooltip — so they cannot come to
+// disagree about what the day says.
+//
+// Nothing is said twice. The figures ARE the garment sentence, so the
+// TEMP_BANDS cue the hour reading prints beside them is dropped here and
+// only the gear half survives; the two temperatures are printed once, in
+// the temp column. The hour-by-hour shape is not drawn at all, because the
+// grid behind the reading is already that drawing.
+// What the day asks you to carry. `dressFor` owns every threshold, so the
+// day runs it over a synthetic worst hour rather than restating GEAR_GUST
+// and friends: the worst rain rate, the worst gust, the day's peak chance
+// and its peak UV, on the cold end's feels-like.
+//
+// A past day keeps its gear and loses only the chance behind it, which is
+// what `dressFor`'s own `past` argument already does: rain that fell still
+// wanted an umbrella, a probability that never resolved does not.
+const dayDress = d => dressFor({
+    feels: d.fMin != null ? d.fMin : d.tMin,
+    temp: d.tMin,
+    mm: maxOf(d.hours, 'mm'),
+    snow: maxOf(d.hours, 'snow'),
+    gust: d.gust,
+    pop: d.pop,
+    uv: d.uv
+}, d.day.past);
+
+// The gear line for a day: the thing to take, and the hour it starts
+// mattering. `dressFor`'s own lines are written for a single hour and say
+// what to take INSTEAD of what ("rain jacket rather than an umbrella"),
+// which a day has no room for and the figure has already answered — the
+// drawing puts a hood on rather than an umbrella up, so writing the
+// contrast out is the drawing said twice. What is left is the noun and the
+// time, and the time is the part no drawing can carry.
+const DAY_GEAR = { umbrella: 'umbrella', hood: 'rain jacket', snow: 'hood up' };
+const dayGearLine = (d, a) => {
+    if (!a || !a.gear) return '';
+    if (a.gear === 'sun') return 'strong sun. hat, or sunscreen';
+    if (a.gear === 'wind') return 'gusty enough to hold on to a hat';
+    const what = DAY_GEAR[a.snow ? 'snow' : a.gear];
+    // No onset to give: the gear is being carried against a chance, not
+    // against something that starts at an hour.
+    if (!a.wet) return `${what}, on the chance it turns`;
+    return d.onset != null ? `${what} from ${hourLabel(d.onset)}` : what;
+};
+
+// Two figures, the warm end of the day and the cold end, at 0.86 so the
+// pair occupies about the width one figure did. The gear rides the cold
+// one, which is the figure you are carrying it against — except sun, which
+// belongs to the hour the sun is actually out.
+//
+// They collapse to a single figure when both extremes land in the same
+// band: two identical drawings say "the day does not change" less clearly
+// than one drawing does, and the times under them would then be labelling
+// a difference that is not there.
+const dayFigure = d => {
+    const a = dayDress(d);
+    if (!a) return '';
+    const iWarm = bandIndex(d.fMax != null ? d.fMax : d.tMax);
+    const iCold = bandIndex(d.fMin != null ? d.fMin : d.tMin);
+    const sun = a.gear === 'sun';
+    if (iWarm === iCold) {
+        return `<span class="rc-fig">${FIGURE({ ...a, wear: WEAR_BANDS[iCold] })}</span>`;
+    }
+    const warm = FIGURE({ wear: WEAR_BANDS[iWarm], gear: sun ? 'sun' : null, wet: false, snow: false });
+    const cold = FIGURE({ wear: WEAR_BANDS[iCold], gear: sun ? null : a.gear, wet: a.wet, snow: a.snow });
+    const strip = s => s.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+    const svg = `<svg viewBox="0 0 60 44" fill="none" stroke="currentColor" stroke-width="1.5" `
+        + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
+        + `<g transform="scale(0.86) translate(0,3.5)">${strip(warm)}</g>`
+        + `<g transform="translate(29,0) scale(0.86) translate(0,3.5)">${strip(cold)}</g></svg>`;
+    // The only text the drawing cannot carry: when each end of the day
+    // falls. Omitted when the reduction could not place them.
+    const cap = d.warmAt != null && d.coldAt != null
+        ? `<span class="dr-cap"><i>${hourLabel(d.warmAt)}</i><i>${hourLabel(d.coldAt)}</i></span>` : '';
+    return `<span class="rc-fig pair">${svg}${cap}</span>`;
+};
+
+// The three numbers, as the cell descriptors `readingCells` takes, in the
+// app's fixed view order. Both surfaces take the same three and only differ
+// in how they stack them. No labels, because the units already say which
+// column is which and the line they would take is the line this layout is
+// saving; and no hero, which readingCells reads as "dim nothing".
+const dayNumbers = d => {
+    const temp = {
+        k: 'temp',
+        big: d.tMax != null ? `${displayTemp(d.tMax)}°/${displayTemp(d.tMin)}°` : '—',
+        sub: d.fMax != null ? `feels ${displayTemp(d.fMax)}/${displayTemp(d.fMin)}` : ''
+    };
+    const snowing = d.snow != null && d.snow > 0;
+    const rainSub = [];
+    // Dropped on a past day: the day has happened, so a probability beside
+    // what fell is a prediction about a known outcome.
+    if (!d.day.past && d.pop != null) rainSub.push(`${d.pop}%`);
+    if (snowing && d.liquid != null && d.liquid >= 0.1) rainSub.push(`${d.liquid} mm`);
+    if (d.wetHours) rainSub.push(`${d.wetHours}h wet`);
+    const rain = {
+        k: 'rain',
+        big: snowing ? `${d.snow} cm` : d.mm != null ? `${+d.mm.toFixed(1)} mm` : '—',
+        sub: rainSub.join(' · ')
+    };
+    const windSub = [];
+    if (d.gust != null && d.wind != null && d.gust - d.wind >= GUST_MIN)
+        windSub.push(`gust ${displayWind(d.gust)}`);
+    if (d.dir != null) windSub.push(COMPASS[d.dir]);
+    const wind = {
+        k: 'wind',
+        big: d.wind != null ? `${displayWind(d.wind)} ${windUnitLabel()}` : '—',
+        sub: windSub.join(' · ')
+    };
+    return [temp, rain, wind];
+};
+
+// What kind of day it was, in one clause: the worst hour's own words, and
+// when it starts if it does not start at the first hour on hand.
+const dayCondition = d => esc(d.worst.description)
+    + (d.onset != null ? ` from ${hourLabel(d.onset)}` : '');
+
+// The quiet tail: the ambient figures that have no column, and the two
+// admissions — a short day, and murk worth naming.
+const dayAmbient = d => {
+    const bits = [];
+    if (d.cloud != null) bits.push(`cloud ${Math.round(d.cloud)}%`);
+    if (d.humidity != null) bits.push(`humidity ${Math.round(d.humidity)}%`);
+    if (d.uv != null) bits.push(`UV ${Math.round(d.uv)}`);
+    // Only when an hour was actually murky, on the same `misty` test the
+    // blocks draw their texture from. A low visibility with no fog code
+    // behind it is not the reason anything on screen looks the way it does.
+    const mist = d.hours.filter(misty);
+    if (mist.length) bits.push(`visibility ${(minOf(mist, 'vis') / 1000).toFixed(1)} km`);
+    if (d.sun.rise && d.sun.set)
+        bits.push(`sun ${timeLabel(d.sun.rise.h, d.sun.rise.m)}–${timeLabel(d.sun.set.h, d.sun.set.m)}`);
+    const sky = skyEventFor(d.day.date);
+    if (sky) bits.push(esc(sky.label));
+    // Said outright rather than left to be inferred from a small total: a
+    // day the payload only half covers is not a day whose rain adds up.
+    if (d.partial) bits.push(`${d.hours.length} of 24 hours`);
+    return readingTail(bits);
+};
+
+// Coarse pointer: the docked card. The figure sits beside the two header
+// lines rather than under the numbers, which is where the compaction comes
+// from — the header already held that vertical space and was spending it
+// on nothing. The chips run inline at the end of the condition line for the
+// same reason: a row of their own is a third header line, and the header is
+// where the two figures are standing.
+const dayCardHTML = d => {
+    const gear = dayGearLine(d, dayDress(d));
+    const tail = dayAmbient(d);
+    return `<div class="dr-hd"><div class="dr-txt">`
+        + `<div class="dr-l1">${readingTitle(d.day)} ${dateLabel(d.day.date)} <em>· all day</em></div>`
+        + `<div class="dr-l2">${dayCondition(d)}${readingChips(dayChips(d))}</div>`
+        + `</div>${dayFigure(d)}</div>`
+        + `<div class="dr-rule"></div>`
+        + readingCells(dayNumbers(d), null)
+        + (gear || tail ? `<div class="dr-rule"></div>` : '')
+        + (gear ? `<div class="dr-gear">${esc(gear)}</div>` : '')
+        + tail;
+};
+
+// Fine pointer: the floating tooltip. The numbers stack instead of going in
+// columns, and the condition joins the gear line because a 250px box has no
+// header room for it beside the date. The chips get a row of their own at
+// the foot for the same reason.
+const dayTipHTML = d => {
+    const chips = readingChips(dayChips(d));
+    const lead = [dayCondition(d), esc(dayGearLine(d, dayDress(d)))].filter(Boolean).join('. ');
+    return `<div class="tip-when"><span class="d">${readingTitle(d.day)} ${dateLabel(d.day.date)}</span>`
+        + `<span class="t">all day</span></div>`
+        + `<div class="dr-row"><div class="dr-stack">${readingCells(dayNumbers(d), null)}</div>`
+        + `${dayFigure(d)}</div>`
+        + `<div class="tip-divider"></div>`
+        + (lead ? `<div class="dr-gear">${lead}</div>` : '')
+        + dayAmbient(d)
+        + (chips ? `<div class="rc-chips">${chips}</div>` : '');
+};
+
 const cardHTML = (f, expanded) => {
     // What the active view makes of this block, then what the block is.
     // In the rain view those are the same sentence and the detail line
     // says so, so it is not printed twice.
     const cond = [f.activeDetail, f.claimedCondition ? '' : esc(f.h.description)]
         .filter(Boolean).join(' · ');
-    const chips = f.chips.length
-        ? `<div class="rc-chips">${f.chips.map(c => `<span class="rc-chip">${esc(c)}</span>`).join('')}</div>` : '';
+    const chips = f.chips.length ? `<div class="rc-chips">${readingChips(f.chips)}</div>` : '';
     const head = `<div class="rc-head">`
         + `<span class="rc-when">${f.dayName} ${dateLabel(f.day.date)}</span>`
         + `<span class="rc-hr">${f.range}</span>`
@@ -3448,28 +3862,37 @@ const cardHTML = (f, expanded) => {
     return head + cardCells(f) + notes + (expanded ? cardAdvice(f) + cardFoot(f) : '');
 };
 
-const showCard = (f) => {
+// One way into the docked card, for both readings. `key` identifies the
+// reading so the expansion state can tell "the same reading again" from a
+// new one, and `isDay` is the only thing the two kinds disagree about here:
+// the day reading has no expanded state, because the hour reading only has
+// one to give its columns' overflow somewhere to go and the day layout
+// holds every fact at once. So a tap on an open day card closes it instead
+// of expanding it, the way a tap on the open tooltip already does.
+const showCard = (key, html, isDay) => {
     const card = $('readingCard');
-    // Keyed on the DATE, not on the day index: a preview sweep can put two
-    // columns on the same index for a frame, and an index is a position in
-    // the window rather than a property of the reading.
-    const key = `${f.day.date}|${activeBlock.hour}`;
     // Expansion is a property of the reading that was expanded, not a
     // preference the next one inherits — except during a hold-scrub,
     // which always opens, and stays, expanded: that is the whole point
     // of holding rather than tapping.
-    if (key !== cardKey) { cardExpanded = holdScrubActive; cardKey = key; }
-    const html = cardHTML(f, cardExpanded);
+    if (key !== cardKey) { cardExpanded = !isDay && holdScrubActive; cardKey = key; }
     // Written only when it differs. A repaint mid-sweep re-reads the open
     // card on every frame and nearly all of them produce the same words.
     if (html !== cardHtml) { card.innerHTML = html; cardHtml = html; }
-    card.classList.remove('orphan', 'out-up', 'out-left', 'out-right');
+    card.classList.remove('orphan', 'out-up', 'out-left', 'out-right', 'day');
+    card.classList.toggle('day', !!isDay);
     card.classList.add('open');
     // At open time, never mid-gesture: see the .chart.reading-open note in
     // the stylesheet for why the scope is the whole chart and not the card.
     document.querySelector('.chart')?.classList.add('reading-open');
     placeCard();
 };
+// Keyed on the DATE, not on the day index: a preview sweep can put two
+// columns on the same index for a frame, and an index is a position in the
+// window rather than a property of the reading.
+const showHourCard = f => showCard(`${f.day.date}|${activeBlock.hour}`,
+    cardHTML(f, cardExpanded), false);
+const showDayCard = d => showCard(`day|${d.day.date}`, dayCardHTML(d), true);
 
 const hideCard = () => {
     const card = $('readingCard');
@@ -3478,7 +3901,7 @@ const hideCard = () => {
     // The exit classes stay: closing is what plays them, and the next open
     // clears them. `veiling` goes, so a card thinned by the gesture that
     // dismissed it does not open again on the fast transition.
-    card.classList.remove('open', 'orphan', 'veiling');
+    card.classList.remove('open', 'orphan', 'veiling', 'day');
     cardHtml = '';
     cardKey = '';
     cardExpanded = false;
@@ -3520,8 +3943,10 @@ const hideTooltip = () => {
     hideCard();                     // one reading, one way to close it
     tappedBlock = null;
     activeBlock = null;
-    // Nothing is being read, so nothing is selected. After activeBlock is
-    // cleared, which is what markSelection reads to know there is no ring.
+    activeDay = null;
+    // Nothing is being read, so nothing is selected. After activeBlock and
+    // activeDay are cleared, which is what markSelection reads to know
+    // there is neither a ring nor a marked date.
     markSelection();
     // Next open is an open, not a re-read: build and measure from scratch
     // rather than trust a size taken for different words.
@@ -3545,7 +3970,27 @@ const hideTooltip = () => {
 // would otherwise leave the old city's tooltip on screen. Re-target the
 // block covering the same hour and re-show it from fresh state.
 const refreshActiveTooltip = () => {
-    if (!activeBlock || !(cardOpen() || $('tooltip').style.opacity === '1')) return;
+    const live = cardOpen() || $('tooltip').style.opacity === '1';
+    // The day reading re-reads the same way, against the same date. Its
+    // label is rebuilt wholesale by renderDayStrip on every repaint, so the
+    // element `tappedBlock` is holding goes stale exactly as a block's
+    // does, and is re-pointed for the same reason.
+    if (activeDay != null) {
+        if (!live) return;
+        const lab = dayLabelFor(activeDay);
+        if (!lab) {
+            // Pulled out of the row. The card keeps its numbers, which are
+            // still true, and stops claiming to point at a date on screen;
+            // a floating tooltip has no way to say that, so it closes.
+            if (cardOpen()) { $('readingCard').classList.add('orphan'); markSelection(); return; }
+            return hideTooltip();
+        }
+        const wasPinned = tappedBlock != null;
+        showTooltip(lab);
+        if (wasPinned && activeDay != null) tappedBlock = lab;
+        return;
+    }
+    if (!activeBlock || !live) return;
     // By coverage. The old exact [data-hour] match tied a reading to a
     // block's start hour, which is a property of where the hour window
     // happens to be standing, not of the forecast. One notch of hour peek
@@ -3902,6 +4347,15 @@ document.addEventListener('click', e => {
         cancelTipHover();
         cardExpanded = !cardExpanded;
         refreshActiveTooltip();
+        return;
+    }
+    // The day reading has no expanded state to toggle, so the same tap
+    // closes it. Without this the tap reads through the card to whatever
+    // block is under it and opens an hour reading, which is the tap-through
+    // the branch above exists to prevent.
+    if (downInCard && cardOpen() && activeDay != null) {
+        cancelTipHover();
+        hideTooltip();
         return;
     }
     const el = e.target.closest(TIP_SEL);

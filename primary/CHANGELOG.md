@@ -2,6 +2,16 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.7 (2026-08-20)
+
+- tapping the date at the top of a column now reads the whole day: the high and low, the day's rain total with its peak chance and how many hours were wet, and the fastest wind with its worst gust and prevailing direction
+- the day reading draws two figures, one dressed for the warmest part of the day and one for the coldest, each labelled with the hour it falls on. they collapse to one figure when the day stays in a single band
+- it covers all 24 hours of the date, not just the hours on screen, and a day the forecast only part covers says how many hours it had
+- a past day drops the rain chance but keeps the advice
+- only one reading is open at a time: opening a day closes an open hour, and the other way round
+- snow no longer suggests an umbrella. a snowing hour now advises a hood, and the figure draws falling snow instead of rain beside it
+- the reading header names the weekday in full ("Thu 21 Aug" instead of "TH 21 Aug")
+
 ## v2.6.6 (2026-08-19)
 
 - on phones and tablets, holding a block for a moment now opens its reading already expanded, with a light buzz. dragging while still holding scrubs it live across other blocks, with a lighter buzz on each one crossed; the grid dims as the drag nears the reading. releasing closes it

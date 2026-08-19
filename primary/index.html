@@ -915,6 +915,19 @@
             color: var(--accent);
             font-weight: 500;
         }
+        /* The label is a target now: tapping it reads the whole day. An
+           absent column has no date to read, so it keeps the default
+           cursor and never carries the attributes that make it one. */
+        .day-label[data-day] { cursor: pointer; }
+        /* The date this reading is of. An underline rather than a colour,
+           because today's label is already gold and a colour would say
+           nothing on the one day most likely to be tapped. Inset, so it
+           costs the row no height and cannot move the grid under it. */
+        .day-label.sel { box-shadow: inset 0 -2px 0 var(--accent); }
+        .day-label:focus-visible {
+            outline: 1px solid var(--marker);
+            outline-offset: -1px;
+        }
 
         /* --- Where the row changes region ------------------------------
            Two boundaries: the week seam, at the Monday that opens a week,
@@ -1741,18 +1754,6 @@
         /* Detail line: active-view fact leads, shared facts trail on the same
            line, wrapping to a second line only when it doesn't fit. */
         .tooltip .tip-detail { color: var(--text-muted); }
-        .tooltip .tip-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-        /* Reuse the amber status button (see .status.outdated) for the chips. */
-        .tooltip .tip-chip {
-            color: var(--warn);
-            background: var(--warn-bg);
-            border: 1px solid var(--warn);
-            border-radius: var(--radius);
-            padding: 3px 9px;
-            font-size: 11px;
-            line-height: 1.35;
-        }
-
         /* --- The docked reading -----------------------------------------
            A coarse pointer gets this instead of the floating tooltip: a
            full-width card resting under the date strip, in the app's own
@@ -1889,8 +1890,13 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .reading-card .rc-chips { display: flex; flex: none; gap: 5px; }
-        .reading-card .rc-chip {
+        /* The hazard chips. One rule for every reading on every surface:
+           the hour card, the day card and both tooltips draw the same chip,
+           and only where it is placed differs. */
+        .rc-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+        .reading-card .rc-chips { flex: none; flex-wrap: nowrap; }
+        .tooltip .rc-chips { margin-top: 8px; }
+        .rc-chip {
             color: var(--warn);
             background: var(--warn-bg);
             border: 1px solid var(--warn);
@@ -1905,9 +1911,15 @@
            width gives each column about 110px at 390 and 100px at 360,
            enough for the value and its second fact without either wrapping.
            Only the active view's value is bright; the other two share one
-           quieter size and weight, the same rule the tooltip uses. */
-        .reading-card .rc-cells { display: flex; align-items: flex-start; }
-        .reading-card .rc-cell {
+           quieter size and weight, the same rule the tooltip uses.
+
+           Shared by both readings and both surfaces, which is why it is not
+           scoped to .reading-card any more. The day reading passes no hero,
+           so none of its cells takes .dim; it overrides only the size below,
+           because "24°/11°" is three characters longer than "24°" and three
+           of those at 20px collide at 360. */
+        .rc-cells { display: flex; align-items: flex-start; }
+        .rc-cell {
             flex: 1 1 0;
             min-width: 0;
             display: flex;
@@ -1916,21 +1928,21 @@
             padding-left: 11px;
             border-left: 1px solid var(--divider);
         }
-        .reading-card .rc-cell:first-child { padding-left: 0; border-left: 0; }
-        .reading-card .rc-lb {
+        .rc-cell:first-child { padding-left: 0; border-left: 0; }
+        .rc-lb {
             font-size: 9px;
             letter-spacing: 0.09em;
             text-transform: uppercase;
             color: var(--text-dim);
             white-space: nowrap;
         }
-        .reading-card .rc-cell.on .rc-lb { color: var(--text-muted); }
-        .reading-card .rc-val { font-size: 20px; font-weight: 600; line-height: 1.1; white-space: nowrap; }
-        .reading-card .rc-val.dim { font-size: 14px; font-weight: 500; color: #eee; }
-        .reading-card .rc-temp .rc-val:not(.dim) { color: var(--tip-temp); }
-        .reading-card .rc-rain .rc-val:not(.dim) { color: var(--tip-rain); }
-        .reading-card .rc-wind .rc-val:not(.dim) { color: var(--tip-wind); }
-        .reading-card .rc-sub { font-size: 10.5px; color: #b4b4b4; white-space: nowrap; }
+        .rc-cell.on .rc-lb { color: var(--text-muted); }
+        .rc-val { font-size: 20px; font-weight: 600; line-height: 1.1; white-space: nowrap; }
+        .rc-val.dim { font-size: 14px; font-weight: 500; color: #eee; }
+        .rc-temp .rc-val:not(.dim) { color: var(--tip-temp); }
+        .rc-rain .rc-val:not(.dim) { color: var(--tip-rain); }
+        .rc-wind .rc-val:not(.dim) { color: var(--tip-wind); }
+        .rc-sub { font-size: 10.5px; color: #b4b4b4; white-space: nowrap; }
 
         /* What this block IS, and what it is being compared with. Both are
            reasons the reading exists rather than detail the expansion
@@ -1956,15 +1968,20 @@
             padding-top: 7px;
             border-top: 1px solid var(--divider);
         }
-        .reading-card .rc-fig { flex: none; width: 36px; height: 47px; color: var(--text-muted); }
-        .reading-card .rc-fig svg { display: block; width: 36px; height: 47px; }
+        /* One figure by default; `.pair` is the day reading's two, side by
+           side in about the width one occupied. Not scoped to the card:
+           the day reading puts the same element in the tooltip. */
+        .rc-fig { flex: none; width: 36px; height: 47px; color: var(--text-muted); }
+        .rc-fig svg { display: block; width: 36px; height: 47px; }
+        .rc-fig.pair, .rc-fig.pair svg { width: 58px; height: 43px; }
         .reading-card .rc-lines { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
         .reading-card .rc-a { font-size: 12px; color: var(--text); line-height: 1.35; }
 
-        /* The foot is the expanded state's own facts: the three that did not
-           fit in the columns, plus the ambient ones. Nothing here appears
-           above it. */
-        .reading-card .rc-foot {
+        /* The quiet tail of dim facts. On the hour reading it is the
+           expanded state's own: the three that did not fit in the columns
+           plus the ambient ones, none of which appears above it. On the day
+           reading it is the ambient line. Same rule, both surfaces. */
+        .rc-foot {
             font-size: 10.5px;
             color: var(--text-dim);
             line-height: 1.45;
@@ -1972,6 +1989,64 @@
             padding-top: 4px;
             border-top: 1px solid var(--divider);
         }
+        /* The day reading's tail sits under its own rule, so it does not
+           draw a second one three pixels below it. */
+        .dr-gear + .rc-foot { margin-top: 2px; padding-top: 0; border-top: 0; }
+
+        /* --- The day reading --------------------------------------------
+           What a date label opens. Three sections in one .dr, on both
+           surfaces: the header with the figures beside it, the numbers,
+           then the gear line over the ambient tail.
+
+           The figures sit next to the two header lines rather than under
+           the numbers, which is the whole of the compaction: the header
+           already held that vertical space and was spending it on nothing,
+           so the advice row the hour card needs disappears as a row.
+
+           Every rule here is scoped to .dr, so the card and the tooltip
+           share one set and only their two containers differ (the widths
+           below, and the stack instead of columns). */
+        .dr-hd { display: flex; gap: 10px; align-items: flex-start; }
+        .dr-txt { flex: 1; min-width: 0; }
+        .dr-l1 { font-size: 12px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+        .dr-l1 em { font-style: normal; font-weight: 400; color: var(--text-faint); }
+        /* The one line here that may wrap: a condition plus an onset is
+           two facts, so a break between them is fine. */
+        .dr-l2 { font-size: 11px; color: var(--text-muted); white-space: normal; line-height: 1.35; margin-top: 2px; }
+        /* The hours each figure stands for, under the pair. The only text
+           the drawing cannot carry. */
+        .dr-cap { display: flex; justify-content: space-between; margin-top: -1px; }
+        .dr-cap i { font-style: normal; font-size: 8px; color: var(--text-dim); width: 28px; text-align: center; }
+        .dr-rule { border-top: 1px solid var(--divider); margin: 8px 0 7px; }
+        /* The shared columns, one size down. "24°/11°" is three characters
+           longer than the hour reading's "24°", and three of those at 20px
+           collide before 360. No labels either: the units already say which
+           column is which, and the line they would take is the line this
+           layout is saving. */
+        .reading-card.day .rc-val { font-size: 17px; line-height: 1.2; }
+        .reading-card.day .rc-cell { padding-left: 9px; }
+        .reading-card.day .rc-cell:first-child { padding-left: 0; }
+        .reading-card.day .rc-sub { font-size: 9.5px; }
+        /* The one line on the reading you act on, so it stays at full
+           strength while the ambient facts under it recede. */
+        .dr-gear { font-size: 11.5px; color: var(--text); white-space: normal; line-height: 1.4; }
+        /* Tooltip only: the numbers stack instead of going in columns, and
+           the figures sit beside the stack. Same cells, turned. */
+        .dr-row { display: flex; gap: 9px; align-items: flex-start; }
+        .dr-stack { flex: 1; min-width: 0; }
+        .tooltip.day { width: max-content; max-width: min(260px, calc(100vw - 16px)); }
+        .tooltip.day div { white-space: normal; }
+        .tooltip.day .rc-val, .tooltip.day .rc-sub, .tooltip.day .dr-l1 { white-space: nowrap; }
+        .tooltip.day .rc-cells { display: block; }
+        .tooltip.day .rc-cell { padding-left: 0; border-left: 0; margin-bottom: 3px; }
+        .tooltip.day .rc-val { font-size: 18px; }
+        .tooltip.day .rc-sub { font-size: 9.5px; }
+        .tooltip.day .rc-fig.pair, .tooltip.day .rc-fig.pair svg { width: 52px; height: 38px; }
+        .tooltip.day .dr-cap i { font-size: 7.5px; width: 25px; }
+        /* The card's own orphan mark, when the elastic has pulled the date
+           this reading is of out of the row. Same ellipsis the hour
+           reading uses on .rc-when. */
+        .reading-card.orphan .dr-l1::after { content: '…'; color: var(--text-dim); }
 
         /* Shared modal shell: a panel over a scrim, opened only from the
            settings menu so nothing steals attention on its own. Both the

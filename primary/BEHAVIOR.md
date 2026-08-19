@@ -286,6 +286,69 @@ range instead of the hour, the rain and snow figures are totals across the block
 rather than rates, and a line says what the block is — `3-hour block · beyond
 native hourly`, or `daily value` on the single daily bar.
 
+### The day reading
+
+Tapping the date label reads the whole day instead of one block. It uses the same
+two surfaces as the block reading — the docked card on a coarse pointer, the
+floating tooltip on a fine one — and every dismissal path is shared, so only one
+reading of either kind is ever open. Hover, focus and the keyboard reach it the
+same way they reach a block. The tapped date takes a gold underline for as long
+as it is being read.
+
+**All 24 hours of the date**, not the hours the grid is showing: the label is a
+date, so the date is what it answers for, and a summary that moved with the hour
+window would be a summary of the window. Every figure is reduced from that day's
+own hours — Open-Meteo's daily block is not read at all, so the reading and the
+grid cannot drift. A day the payload only part covers reduces over the hours on
+hand, is never padded, and says how short it is.
+
+Three sections. The date and what kind of day it is, with any hazard as a chip;
+the three numbers, one per view, with no hero among them because a whole-day
+summary is not taken in one view's terms; then the gear line over the ambient
+tail. Temperature is the day's spread, rain is the total with the peak chance and
+a count of wet hours, wind is the day's fastest with its worst gust and the
+octant most of it blew from. The condition is the day's worst hour's own words,
+with the hour it starts when it does not start at the first hour on hand.
+
+The figure is two figures: the warm end of the day and the cold end, side by
+side, with the hour each falls on under it. They collapse to one when both ends
+land in the same band. Rain and wind gear rides the cold figure, sun rides the
+warm one. The `TEMP_BANDS` cue the block reading prints beside its figure is not
+printed here — the drawing is that sentence, and only the gear half is written
+out. The hour-by-hour shape is not drawn at all: the grid behind the reading
+already is that drawing.
+
+A past day drops the chance and keeps the gear: rain that fell still wanted an
+umbrella, a probability that never resolved advises nothing. The day reading has
+no expanded state, because this layout holds every fact the hour card has to
+expand to reach; a tap on it closes it.
+
+The gear line here names the thing and the hour it starts mattering, and stops
+there. `dressFor`'s own sentences say what to take **instead of** what — "rain
+jacket rather than an umbrella" — which the figure has already answered by
+putting a hood up rather than an umbrella, so writing the contrast out would be
+the drawing said twice.
+
+Snow takes the gear branch before rain does, on both readings. An umbrella is
+the one answer that is wrong in snow: it does not run off, it sits, and a canopy
+held over a head collects it. So a snowing hour advises a hood whatever the wind
+is doing, and the figure draws falling snow — three pale flakes where the rain
+strokes would be — instead of rain.
+
+### What the two readings share
+
+They are the same three sections said about different spans of time, so the parts
+that are the same shape are written once: which day it is (`readingTitle`), the
+hazard chips, the three view-ordered number columns (`readingCells`), the quiet
+tail of dim facts, and the one path that opens the docked card. What differs is
+which values there are, not how a value is drawn.
+
+Two parameters carry the whole difference. `readingCells` takes a **hero** — the
+view whose value is bright, with the other two dimmed — and the day reading
+passes none, because a whole-day summary is not taken in any view's terms. And
+the card's open path takes an **isDay** flag, which only decides whether there is
+an expanded state to toggle.
+
 ## The sheet
 
 Everything that is not the grid. Three bodies, one at a time, all opening from
