@@ -854,6 +854,13 @@
                marker left here, which is why it is not optional. */
             .pf-fall, .pf-mist, .pf-wave,
             .fx-strike, .fx-glint i, .fx-cloud i, .fx-neutral i { animation: none; }
+            /* The dressing figure's own cues: an accessory, a hood or an
+               umbrella settling on (one-shot); the wind mark loading, the
+               scarf tail, falling rain or snow, and the sun's rays turning
+               (all loops, since they are conditions rather than arrivals). */
+            .rc-fig .wf-wind path, .rc-fig .wf-tail,
+            .rc-fig .wf-fall path, .rc-fig .wf-rays,
+            .rc-fig .wf-sun circle { animation: none; rotate: none; translate: none; scale: none; }
         }
         html.reduce-motion .weather-block.skeleton,
         html.reduce-motion .status.updating { animation: none; opacity: 0.7; }
@@ -881,6 +888,13 @@
         html.reduce-motion .fx-glint i,
         html.reduce-motion .fx-cloud i,
         html.reduce-motion .fx-neutral i { animation: none; }
+        html.reduce-motion .rc-fig .wf-wind path,
+        html.reduce-motion .rc-fig .wf-tail,
+        html.reduce-motion .rc-fig .wf-fall path,
+        html.reduce-motion .rc-fig .wf-rays,
+        html.reduce-motion .rc-fig .wf-sun circle {
+            animation: none; rotate: none; translate: none; scale: none;
+        }
         /* Day labels.
            The label row and the grid columns share the same left gutter, gap,
            and flex:1 items, so they stay column-aligned at every width. */
@@ -1976,6 +1990,122 @@
         .rc-fig.pair, .rc-fig.pair svg { width: 58px; height: 43px; }
         .reading-card .rc-lines { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
         .reading-card .rc-a { font-size: 12px; color: var(--text); line-height: 1.35; }
+
+        /* The figure's own cues, and only the conditions.
+
+           Nothing arrives. A reading opens with its clothes already on, its
+           umbrella already up and its condition already looping: a garment
+           dropping onto a figure is a thing to watch, and the reading is a
+           thing to read. The one motion between two readings is the figure
+           becoming the other figure, which is `figureMorph` in app.js and
+           not a keyframe — the drawing is a continuous function of its
+           state, so the position between two bands is a real drawing rather
+           than a crossfade of two.
+
+           What is left below runs for as long as the reading is open,
+           because a condition is something the hour is doing rather than
+           something that happened when the card opened. Every rule has a
+           reduce-motion twin further up the stylesheet, same as the grid's
+           own arrivals. */
+
+        /* Wind: the mark loads along its own outline in place rather than
+           sliding. `pathLength="1"` is set on the paths, so the dash is a
+           fraction of the shape and needs no measured lengths; this used to
+           carry 15.35 and 4.6, measured offline, which are correct exactly
+           until the glyph is redrawn. */
+        .rc-fig .wf-wind path { stroke-dasharray: 1; stroke-dashoffset: 0; animation: figGust 3.2s ease-in-out infinite; }
+        .rc-fig .wf-wind path:nth-child(2) { animation-delay: .5s; }
+        @keyframes figGust {
+            0%        { stroke-dashoffset: 1; opacity: 0; }
+            14%       { opacity: 1; }
+            55%, 80%  { stroke-dashoffset: 0; opacity: 1; }
+            100%      { stroke-dashoffset: 0; opacity: 0; }
+        }
+
+        /* The scarf streams on a gusty hour, and only on a gusty hour: it
+           hangs still on every other cold day. Two things about it.
+
+           It blows RIGHT, away from the mark and out past the body. SVG y
+           points down, so clockwise is positive and a tail hanging below its
+           pivot swings left on a positive angle — the previous +9° and +10°
+           were blowing it into the wind. At the peak the tip reaches x 22.8
+           against a coat that ends at 20.1.
+
+           And it bends. The tail is one closed shape; splitting it in two to
+           make the lower half lag drew a seam straight across the cloth, so
+           the lag is a shear instead. skewX displaces a point in proportion
+           to how far below the pivot it is, which is a bend with no joint in
+           it. Turn and shear are two animations on one group, the shear
+           120ms behind, so the tail lays out flat after the neck has
+           committed.
+
+           Both start 300ms after the wind mark begins drawing. That delay is
+           the only thing making the wind read as the cause and the scarf as
+           the effect. */
+        /* `wf-gusty` rides the svg the figure builder emits, not the span
+           around it, and on the day reading's pair it rides the group each
+           figure is placed in. Descendant either way. */
+        .rc-fig .wf-gusty .wf-tail {
+            transform-origin: 17.5px 15.4px;
+            animation: figTailTurn 3.2s cubic-bezier(.3, .1, .3, 1) .30s infinite,
+                       figTailBend 3.2s cubic-bezier(.3, .1, .3, 1) .42s infinite;
+        }
+        @keyframes figTailTurn {
+            0%   { rotate: -3deg; }
+            20%  { rotate: -34deg; }
+            38%  { rotate: -21deg; }
+            54%  { rotate: -46deg; }
+            76%  { rotate: -12deg; }
+            90%  { rotate: 3deg; }
+            100% { rotate: -3deg; }
+        }
+        @keyframes figTailBend {
+            0%   { transform: skewX(0deg); }
+            22%  { transform: skewX(11deg); }
+            40%  { transform: skewX(5deg); }
+            58%  { transform: skewX(15deg); }
+            80%  { transform: skewX(2deg); }
+            100% { transform: skewX(0deg); }
+        }
+
+        /* Rain accelerates, because gravity is the one easing it never uses;
+           this fell on `linear`. The three marks are offset so they do not
+           fall in lockstep. */
+        .rc-fig .wf-fall path { animation: figFall 1.05s cubic-bezier(.35, 0, .75, .55) infinite; }
+        .rc-fig .wf-fall path:nth-child(2) { animation-delay: -.36s; }
+        .rc-fig .wf-fall path:nth-child(3) { animation-delay: -.7s; }
+        @keyframes figFall {
+            0%   { opacity: 0; translate: 0 -3px; }
+            20%  { opacity: 1; }
+            100% { opacity: 0; translate: -0.5px 5.4px; }
+        }
+        /* Snow does not accelerate. It is slow, it drifts sideways and it
+           turns, which is most of what tells it apart from rain at this
+           size. Each flake turns about its own centre, so the mark stays
+           where the rain mark stood. */
+        .rc-fig .wf-snow path {
+            animation: figSnow 2.9s ease-in-out infinite;
+            transform-box: fill-box; transform-origin: 50% 50%;
+        }
+        .rc-fig .wf-snow path:nth-child(2) { animation-delay: -.95s; }
+        .rc-fig .wf-snow path:nth-child(3) { animation-delay: -1.9s; }
+        @keyframes figSnow {
+            0%   { opacity: 0; translate: 0 -3px; rotate: -18deg; }
+            18%  { opacity: 1; }
+            50%  { translate: .9px 1.2px; }
+            100% { opacity: 0; translate: -.6px 5px; rotate: 26deg; }
+        }
+
+        /* Strong sun: the rays turn around a circle that stays put, so the
+           sun reads as shining rather than leaving. The core breathes on its
+           own period, so the two never line up. */
+        .rc-fig .wf-rays { animation: figSunTurn 21s linear infinite; transform-origin: 27px 7px; }
+        .rc-fig .wf-sun circle {
+            animation: figSunPulse 4.7s ease-in-out infinite;
+            transform-box: fill-box; transform-origin: 50% 50%;
+        }
+        @keyframes figSunTurn { from { rotate: 0deg; } to { rotate: 360deg; } }
+        @keyframes figSunPulse { 0%, 100% { scale: 1; } 50% { scale: 1.045; } }
 
         /* The quiet tail of dim facts. On the hour reading it is the
            expanded state's own: the three that did not fit in the columns

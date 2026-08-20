@@ -2,6 +2,16 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.8 (2026-08-21) - experimental
+
+- the dressing figure is redrawn. the hood clears the head instead of crossing the face, the hats sit on the head rather than inside it, and the umbrella no longer overlaps the head
+- the weather beside the figure now animates for as long as the reading is open: a gusty hour loads its wind mark in and streams the scarf away from it, rain or snow keeps falling, the sun's rays turn around a circle that stays put. off under reduced motion like everything else that moves in the app
+- scrubbing between hours morphs one figure into the next instead of cutting. the hem descends, the sleeve grows down the arm, the colour crosses and the umbrella opens
+- the advice no longer offers an umbrella in a thunderstorm. storm and hail hours say to get under cover instead, on both the hour and the day reading
+- freezing rain is no longer treated as ordinary rain. it says to watch your footing, and the figure wears boots wherever it is in trousers rather than only at the coldest band
+- heavy rain reads as heavy. the advice used a local 2 mm threshold, so a 24 mm hour and a 3 mm hour got the same sentence; it now uses the same 20 mm the rain view marks
+- strong sun outranks an umbrella carried on a chance, and its threshold follows the UV warning level in settings instead of a fixed 6
+
 ## v2.6.7 (2026-08-20)
 
 - tapping the date at the top of a column now reads the whole day: the high and low, the day's rain total with its peak chance and how many hours were wet, and the fastest wind with its worst gust and prevailing direction

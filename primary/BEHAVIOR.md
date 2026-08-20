@@ -251,8 +251,17 @@ the day, the hour range, what the active view makes of the block, any warning,
 and the three numbers in three columns. A tap expands it, and expanding **adds**
 facts rather than repeating any: a figure dressed for the hour with what to wear
 and whether rain means an umbrella or a jacket, then gusts, humidity, cloud,
-visibility and the sun times. The warning belongs to both states, because it is
-the reason to look. The card moves only when the block it reads is entirely
+visibility and the sun times. Nothing arrives: the figure opens with its
+clothes already on, its umbrella already up and its weather already running.
+What moves is the weather beside it, for as long as the reading is open — a
+gusty hour loads its wind mark in and streams the scarf away from it, rain or
+snow keeps falling, the sun's rays turn around a circle that stays put. Off
+under `prefers-reduced-motion`, same as every other animation in the app.
+Scrubbing from one hour to the next morphs the figure into the next figure
+rather than cutting to it: the hem descends, the sleeve grows down the arm,
+the colour crosses and the umbrella opens, because the drawing is a
+continuous function of the band rather than eight separate drawings. The
+warning belongs to both states, because it is the reason to look. The card moves only when the block it reads is entirely
 behind the **collapsed** card, so expanding it never relocates it; it thins as
 a gesture comes near it so the grid can be read through.
 While it is open the grid gives up vertical page scrolling; the day row, the

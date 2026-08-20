@@ -3386,6 +3386,25 @@ const GEAR_GUST = 35, GEAR_CHANCE = 30, GEAR_UV = 6;
 // Band index to the garment it puts on. One entry per TEMP_BANDS band, cold
 // to hot; each step is one garment against the step below it.
 const WEAR_BANDS = ['bitter', 'freezing', 'cold', 'cool', 'comfort', 'warm', 'hot', 'veryhot'];
+
+// Which hazard an hour is carrying, read off HAZARD_GLYPH exactly the way
+// the chips read it. The gear branches below and the chip rows in
+// cardBlock and dayChips therefore cannot come to disagree about whether
+// an hour is a thunderstorm: there is one mapping and both sides call it.
+// Priority matches the chip rows: storm, then fog, then freezing.
+const hazardOf = h => h.glyph || HAZARD_GLYPH[h.code] || null;
+// The day runs the gear branches over a synthetic worst hour, so it needs
+// the day's worst hazard on the same terms. Same order dayChips uses.
+const dayHazard = d => {
+    if (d.code === 96 || d.code === 99) return { glyph: 'storm', code: d.code };
+    if (d.hours.some(h => hazardOf(h) === 'storm')) return { glyph: 'storm', code: 95 };
+    if (d.hours.some(h => hazardOf(h) === 'freeze')) return { glyph: 'freeze', code: 66 };
+    // Deliberately not falling back to d.code. dayChips only chips a storm
+    // it can find in an hour, so inferring one from the daily code here
+    // would put a hood on a day carrying no thunderstorm chip.
+    return { glyph: null, code: null };
+};
+
 const dressFor = (h, past) => {
     const feels = h.feels != null ? h.feels : h.temp;
     if (feels == null) return null;
@@ -3393,29 +3412,92 @@ const dressFor = (h, past) => {
     const gusty = h.gust != null && h.gust >= GEAR_GUST;
     const snowing = h.snow != null && h.snow > 0;
     const wet = (h.mm != null && h.mm > 0) || snowing;
-    let gear = null;
+    const haz = hazardOf(h);
+    const hail = h.code === 96 || h.code === 99;
+    // The heavy step is LN.warn, which is the number the rain view draws its
+    // warning mark at and the chips call "heavy rain". It used to be a local
+    // 2 mm, so a 24 mm hour and a 3 mm hour got the same sentence while the
+    // chip beside them said one of them was heavy.
+    const downpour = h.mm != null && h.mm >= LN.warn;
+    // Strong sun tracks the reader's own warning level rather than sitting
+    // at a fixed 6: lowering uvWarn to 4 used to move the chip and leave the
+    // figure silent until 6. It only ever gets more sensitive, never less.
+    const uvGear = Math.min(GEAR_UV, settings.uvWarn);
+    let gear = null, why = null;
+
+    // Hazards first, because each of the three below is a case where the
+    // ordinary rain answer is not merely incomplete but wrong.
+    //
+    // A raised umbrella in a thunderstorm is a conductor held over a head,
+    // and in hail it is a poor shield that the hail comes through sideways
+    // anyway. Both used to fall through to the rain branches and be handed
+    // an umbrella.
+    if (haz === 'storm') {
+        gear = ['hood', hail ? 'thunderstorm and hail. get under cover, not under an umbrella'
+                             : 'thunderstorm. a hood, and nothing raised over your head'];
+        why = 'storm';
+    }
+    // Freezing rain is the one hazard whose dressing consequence is under
+    // the reader rather than over them: it glazes the ground. The umbrella
+    // it used to be given is not wrong for the wet, it is just answering the
+    // wrong question, and the line said nothing about footing at all.
+    else if (haz === 'freeze') {
+        gear = ['hood', 'freezing rain. boots, and watch your footing'];
+        why = 'ice';
+    }
     // Snow takes the branch before rain does, because an umbrella is the
     // one answer that is wrong in it: snow does not run off, it sits, and a
     // canopy held over a head collects it. So the hood goes up whatever the
     // wind is doing, and the figure draws falling snow rather than rain
     // beside it. This used to fall through to the rain branches and offer
     // an umbrella for a blizzard.
-    if (snowing)
+    else if (snowing) {
         gear = ['hood', 'snow, so a hood rather than an umbrella'];
-    else if (wet && h.mm > 2)
+        why = 'snow';
+    }
+    else if (downpour) {
+        gear = ['hood', 'heavy enough that an umbrella will not keep up'];
+        why = 'downpour';
+    }
+    else if (wet && h.mm > 2) {
         gear = gusty ? ['hood', 'rain jacket. the gusts will turn an umbrella out']
                      : ['umbrella', 'umbrella, or arrive soaked'];
-    else if (wet)
+        why = 'rain';
+    }
+    else if (wet) {
         gear = gusty ? ['hood', 'rain jacket rather than an umbrella']
                      : ['umbrella', 'umbrella'];
+        why = 'rain';
+    }
+    // Sun now outranks the carried umbrella. A dry hour at UV 9 with a 40%
+    // chance of rain later used to be told to carry an umbrella and never
+    // told about the sun, while the chip beside it said very high UV.
+    // Burning now beats perhaps raining later. Where it IS raining the
+    // branches above win and the hood or umbrella already answers the sun,
+    // which is why this sits under them and not over them.
+    else if (h.uv != null && h.uv >= uvGear) {
+        gear = ['sun', 'strong sun. hat, or sunscreen'];
+        why = 'sun';
+    }
     // A past hour has no chance left to advise on, the same reason the rain
     // column drops the percentage there.
-    else if (!past && h.pop != null && h.pop >= GEAR_CHANCE)
+    else if (!past && h.pop != null && h.pop >= GEAR_CHANCE) {
         gear = ['umbrella', 'umbrella, on the chance it turns'];
-    else if (h.uv != null && h.uv >= GEAR_UV) gear = ['sun', 'strong sun. hat, or sunscreen'];
-    else if (gusty) gear = ['wind', 'gusty enough to hold on to a hat'];
+        why = 'chance';
+    }
+    else if (gusty) {
+        gear = ['wind', 'gusty enough to hold on to a hat'];
+        why = 'wind';
+    }
     return {
-        wear: WEAR_BANDS[i], gear: gear && gear[0], wet, snow: snowing,
+        wear: WEAR_BANDS[i], gear: gear && gear[0], wet, snow: snowing, why,
+        // Boots. The bitter band already wears them for the cold; ice earns
+        // them anywhere the figure is in trousers, which is every band down
+        // to comfort and therefore every band freezing rain can fall in.
+        // Above comfort the figure is in shorts and boots would be a
+        // costume, so the flag stops and the line carries it alone — the
+        // ground is glazed whether or not the drawing can say so.
+        ice: why === 'ice' && i <= 4,
         lines: gear ? [TEMP_BANDS[i].cue, gear[1]] : [TEMP_BANDS[i].cue]
     };
 };
@@ -3433,29 +3515,74 @@ const dressFor = (h, past) => {
 //    Uniform 1.5 everywhere and no fills, which has a consequence: with no
 //    fill, drawing something later does not hide what is under it, so
 //    z-order is meaningless and every garment is drawn as the part of it
-//    that can actually be seen. Pants start at the hem of whatever is over
-//    them, the coat loses its neckline when the scarf is on, and trouser
-//    legs stop at the top of the shoe — a round cap puts half its width
-//    past its own endpoint, which reads as a spur below the foot.
+//    that can actually be seen. Trouser legs stop at the top of the shoe, a
+//    hatted head loses its crown, and the coat loses its neckline when the
+//    hat is on.
 // 2. THE ARM IS AN AXIS FIRST AND A SLEEVE SECOND. The axis runs from the
 //    centre of the armhole to the wrist, the sleeve is generated as a quad
 //    around it, and the bare forearm is that same line continued past the
-//    cuff, so the two cannot disagree. Drawing the sleeve as a shape and
-//    aiming the forearm at it afterwards makes them agree only as well as
-//    they were nudged, which on the t-shirt was visibly not.
-// 3. THE HEAD IS A CIRCLE, hatted or not, and the brim crosses the crown,
-//    which is what a brim does.
+//    cuff, so the two cannot disagree.
+// 3. THE HEAD IS A CIRCLE, and anything worn on it cuts the circle rather
+//    than being drawn over it.
+//
+// THE WHOLE FIGURE IS ONE CONTINUOUS FUNCTION OF ITS STATE. There is no
+// separate "draw band 4" and "draw band 5"; there is one drawing whose
+// numbers are a position on the scale, and the eight bands are eight
+// integers on it. Everything that varies is a coordinate: the hem
+// descends, the sleeve grows down the arm, the shorts become trousers, the
+// canopy opens. That is what lets a scrub flow instead of cutting, and it
+// is only possible because the four torso garments were written with one
+// command sequence and the sleeve is generated from five numbers.
 //
 // Colour is a second channel and never the carrier: remove it and the
 // ladder still reads, which is the only version that survives greyscale, a
 // colour-blind reader or a thinned panel.
+//
+// The frame starts at y -2.6 rather than 0. The body never reaches below
+// 38.6 of 44, and everything that used to overflow did so upward — the
+// wind curl by 1.10, the beanie's bobble by 0.55 — so the headroom already
+// existed, in the wrong place.
 const FIGURE = (() => {
-    const f = n => n.toFixed(2);
-    // side is +1 left, -1 right; it keeps the polygon from self-intersecting
-    // on the mirrored arm. cut is the fraction of the axis the sleeve covers
-    // and is the only thing separating a t-shirt sleeve from a jumper's:
-    // below about 0.6 the wrist is bare and the forearm is drawn, above it
-    // the sleeve reaches the wrist and a hand closes it.
+    const f = n => (Math.round(n * 100) / 100).toString();
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+    // 1 while x is at or below lo, 0 at or above hi. Band runs cold to hot,
+    // so every garment ramp is written as "how cold is it still".
+    const upto = (x, lo, hi) => clamp((hi - x) / (hi - lo), 0, 1);
+    const rad = d => d * Math.PI / 180;
+    const polar = (cx, cy, r, a) => [cx + r * Math.cos(rad(a)), cy + r * Math.sin(rad(a))];
+    // Screen angles: 0 right, 90 down, 180 left, 270 up; a1 > a0 sweeps
+    // clockwise. Curves are written as centre plus two angles rather than
+    // endpoints plus arc flags, because the flags are what put the first
+    // hood's apex at y 10.33, which is inside the face.
+    const arcD = (cx, cy, r, a0, a1) => {
+        const p0 = polar(cx, cy, r, a0), p1 = polar(cx, cy, r, a1), d = a1 - a0;
+        return `M${f(p0[0])} ${f(p0[1])} A${f(r)} ${f(r)} 0 ${Math.abs(d) > 180 ? 1 : 0} `
+            + `${d > 0 ? 1 : 0} ${f(p1[0])} ${f(p1[1])}`;
+    };
+    // Two paths of the same shape, mixed. The command letters have to match
+    // or the numbers mean different things; every pair fed to this was
+    // written to match.
+    const NUM = /-?\d*\.?\d+/g;
+    const mixD = (a, b, t) => {
+        if (t <= 0.001) return a;
+        if (t >= 0.999) return b;
+        const n = b.match(NUM); let i = 0;
+        return a.replace(NUM, m => f(lerp(parseFloat(m), parseFloat(n[i++] ?? m), t)));
+    };
+    const hx = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+    // Mixed through the square of each channel: yellow to blue straight
+    // through sRGB passes via a grey darker than either end.
+    const mixC = (a, b, t) => t <= 0.001 ? a : t >= 0.999 ? b : '#' + hx(a).map((v, i) =>
+        Math.round(Math.sqrt(lerp(v * v, hx(b)[i] * hx(b)[i], t))).toString(16).padStart(2, '0')).join('');
+
+    const UP = [24.80, 13.40];   // where the umbrella handle runs
+
+    // The sleeve is a quad around the arm's own axis; the bare forearm is
+    // that same axis continued past the cuff. `cut` is the fraction of the
+    // axis the sleeve covers and is the only thing separating a t-shirt
+    // sleeve from a jumper's. `w` at 0 collapses the quad to nothing, which
+    // is how a bare arm is the same construction as a sleeved one.
     const arm = (side, st, ua, wrist, cut, w) => {
         const m = [(st[0] + ua[0]) / 2, (st[1] + ua[1]) / 2];
         const d = [wrist[0] - m[0], wrist[1] - m[1]];
@@ -3463,209 +3590,365 @@ const FIGURE = (() => {
         const ox = -side * d[1] * w / len, oy = side * d[0] * w / len;
         const h = [m[0] + d[0] * cut, m[1] + d[1] * cut];
         return {
-            sleeve: `<path d="M${f(st[0])} ${f(st[1])} L${f(h[0] + ox)} ${f(h[1] + oy)} `
-                + `L${f(h[0] - ox)} ${f(h[1] - oy)} L${f(ua[0])} ${f(ua[1])} Z"/>`,
+            sleeve: w > 0.02 ? `<path d="M${f(st[0])} ${f(st[1])} L${f(h[0] + ox)} ${f(h[1] + oy)} `
+                + `L${f(h[0] - ox)} ${f(h[1] - oy)} L${f(ua[0])} ${f(ua[1])} Z"/>` : '',
             fore: `<path d="M${f(h[0])} ${f(h[1])} L${f(wrist[0])} ${f(wrist[1])}"/>`,
             wrist
         };
     };
-    const UP = [22.90, 13.40];          // where the umbrella handle runs
-    // The armhole is 4.2 long against a 3.0 cuff, so the sleeve tapers
-    // rather than flares. It still read as a wing at first: a wrist at x 8.6
-    // puts the sleeve more than a unit outside the coat hem at 9.9 and the
-    // eye takes the overhang for the garment. The wrist came in rather than
-    // the shape changing.
-    const GEOM = {
-        tshirt: { st: [11.2, 14.0], ua: [12.6, 18.6], wr: [9.40, 25.40], cut: 0.42, w: 1.50 },
-        jumper: { st: [11.0, 13.9], ua: [12.4, 17.9], wr: [9.50, 25.70], cut: 0.88, w: 1.40 },
-        jacket: { st: [11.0, 13.8], ua: [12.4, 17.8], wr: [9.45, 26.00], cut: 0.89, w: 1.45 },
-        coat: { st: [10.8, 13.7], ua: [12.2, 17.7], wr: [9.40, 26.40], cut: 0.90, w: 1.50 }
-    };
     const mirror = p => [30 - p[0], p[1]];
-    const arms = (garment, raised) => {
-        const g = GEOM[garment];
-        const L = arm(1, g.st, g.ua, g.wr, g.cut, g.w);
-        const R = raised
-            ? arm(-1, mirror(g.st), mirror(g.ua), UP, g.cut, g.w)
-            : arm(-1, mirror(g.st), mirror(g.ua), mirror(g.wr), g.cut, g.w);
-        return {
-            sleeve: L.sleeve + R.sleeve,
-            bare: g.cut < 0.6 ? L.fore + R.fore : '',
-            hands: [L.wrist, R.wrist]
-        };
-    };
 
-    const HEAD = '<circle cx="15" cy="7.6" r="4"/><path d="M15 11.6 V13.6"/>';
-    const HAT = '<path d="M11.6 5.2 A3.5 3.5 0 0 1 18.4 5.2"/>'
-        + '<path d="M10.7 5.3 H19.3"/><circle cx="15" cy="1.4" r="1.2"/>';
-    // A sun hat is a shallow crown over a brim that overhangs the head by two
-    // units either side; the winter hat is a tall crown over a narrow brim.
-    // Shape tells them apart, which matters because they share the accessory
-    // colour and sit at opposite ends of the same scale.
-    const SUNHAT = '<path d="M12.3 5.6 A2.8 2.8 0 0 1 17.7 5.6"/>'
-        + '<path d="M9.4 5.7 H20.6"/>';
-    const SCARF = '<path d="M11.2 12.2 H18.8 V15.4 H11.2 Z"/>'
-        + '<path d="M16.2 15.4 H18.8 V21.8 L17.5 22.8 L16.2 21.8 Z"/>';
-    const TEE = '<path d="M11.2 14.0 L12.6 18.6 L12.0 24.8 H18.0 L17.4 18.6 '
-        + 'L18.8 14.0 Q15 16.4 11.2 14.0 Z"/>';
-    const JUM = '<path d="M11.0 13.9 L12.4 17.9 L11.9 26.6 H18.1 L17.6 17.9 '
-        + 'L19.0 13.9 Q15 16.3 11.0 13.9 Z"/>';
-    // The Cool band's light jacket: the same blue as the coat, three units
-    // shorter, and no scarf. Cool to Cold is the scarf arriving.
-    const JKT = '<path d="M11.0 13.8 L12.4 17.8 L10.7 28.4 H19.3 L17.6 17.8 '
-        + 'L19.0 13.8 Q15 16.3 11.0 13.8 Z"/><path d="M15 15.3 V28.0"/>';
-    const CTC = '<path d="M10.8 13.7 L12.2 17.7 L9.9 30.4 H20.1 L17.8 17.7 '
-        + 'L19.2 13.7 Q15 16.2 10.8 13.7 Z"/><path d="M15 15.2 V30.0"/>';
-    // The same coat with no neckline: the scarf is sitting on it.
-    const CTO = '<path d="M10.8 13.7 L12.2 17.7 L9.9 30.4 H20.1 L17.8 17.7 '
-        + 'L19.2 13.7"/><path d="M15 15.8 V30.0"/>';
-    const BARE = {
-        L: '<path d="M15 15.6 L10.2 23.4"/>',
-        R: '<path d="M15 15.6 L19.8 23.4"/>',
-        up: '<path d="M15 15.6 L22.4 13.2"/>'
-    };
-    const shortsBare = '<path d="M11.4 23.2 H18.6 L19.2 29.2 H15.8 L15 26.8 '
-        + 'L14.2 29.2 H10.8 Z"/>';
-    const shortsTee = '<path d="M11.1 24.8 L10.6 29.4 H14.2 L15 26.9 L15.8 29.4 '
-        + 'H19.4 L18.9 24.8"/>';
-    const bareLegs = '<path d="M13.5 29.3 L13.1 35.8"/><path d="M16.5 29.3 L16.9 35.8"/>';
-    const trousers = (y, to) =>
-        `<path d="M12.0 ${y} L11.6 ${to}"/><path d="M14.6 ${y} L14.2 ${to}"/>`
-        + `<path d="M18.0 ${y} L18.4 ${to}"/><path d="M15.4 ${y} L15.8 ${to}"/>`;
-    const SHOE_T = '<path d="M11.6 35.8 H14.2 V37.6 H9.8 V36.6 Z"/>'
-        + '<path d="M18.4 35.8 H15.8 V37.6 H20.2 V36.6 Z"/>';
-    const SHOE_B = '<path d="M12.3 35.8 H14.0 V37.6 H10.4 V36.6 Z"/>'
-        + '<path d="M17.7 35.8 H16.0 V37.6 H19.6 V36.6 Z"/>';
-    const BOOTS = '<path d="M11.6 33.4 H14.2 V37.8 H9.6 V36.4 Z"/>'
-        + '<path d="M18.4 33.4 H15.8 V37.8 H20.4 V36.4 Z"/>';
-    const dot = (p, r) => `<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${r}"/>`;
+    // The garment ladder, warm end first. `bare` is a real rung rather than
+    // a special case: st and ua collapsed onto one point with zero width is
+    // a sleeve of nothing, so warm-to-hot is the sleeve shrinking to zero
+    // rather than two drawings crossfading.
+    const LADDER = [
+        { k: 'bare', st: [15, 15.6], ua: [15, 15.6], wr: [10.2, 23.4], cut: 0, w: 0,
+          hem: 23.4, col: '#E8E1D4',
+          body: '', neck: '' },
+        { k: 'tshirt', st: [11.2, 14.0], ua: [12.6, 18.6], wr: [9.40, 25.40], cut: 0.42, w: 1.50,
+          hem: 24.8, col: '#F2C14E',
+          body: 'M11.2 14 L12.6 18.6 L12 24.8 H18 L17.4 18.6 L18.8 14',
+          neck: 'M18.8 14 Q15 16.4 11.2 14' },
+        { k: 'jumper', st: [11.0, 13.9], ua: [12.4, 17.9], wr: [9.50, 25.70], cut: 0.88, w: 1.40,
+          hem: 26.6, col: '#E07A5F',
+          body: 'M11 13.9 L12.4 17.9 L11.9 26.6 H18.1 L17.6 17.9 L19 13.9',
+          neck: 'M19 13.9 Q15 16.3 11 13.9' },
+        { k: 'jacket', st: [11.0, 13.8], ua: [12.4, 17.8], wr: [9.45, 26.00], cut: 0.89, w: 1.45,
+          hem: 28.4, col: '#5BA8D8',
+          body: 'M11 13.8 L12.4 17.8 L10.7 28.4 H19.3 L17.6 17.8 L19 13.8',
+          neck: 'M19 13.8 Q15 16.3 11 13.8', zip: 'M15 15.3 V28' },
+        { k: 'coat', st: [10.8, 13.7], ua: [12.2, 17.7], wr: [9.40, 26.40], cut: 0.90, w: 1.50,
+          hem: 30.4, col: '#5BA8D8',
+          body: 'M10.8 13.7 L12.2 17.7 L9.9 30.4 H20.1 L17.8 17.7 L19.2 13.7',
+          neck: 'M19.2 13.7 Q15 16.2 10.8 13.7', zip: 'M15 15.2 V30' }
+    ];
+    // The t-shirt has no zip and `bare` has no body, so both borrow the
+    // shape of the rung above them at zero opacity. A shape has to exist to
+    // be mixed with; only whether it is drawn changes.
+    LADDER[0].body = LADDER[1].body; LADDER[0].neck = LADDER[1].neck;
+    LADDER[0].zip = LADDER[1].zip = LADDER[2].zip = LADDER[3].zip;
 
-    // The hood is rain and the hat is cold; neither has to be read in the
-    // light of the other. This hood is the figure's own: the shared one arcs
-    // to y 4.9 against a crown at 3.6 and cuts across the face.
-    const HOOD = '<path d="M9.6 13.0 A6.8 6.8 0 0 1 20.4 13.0"/>'
-        + '<path d="M9.6 13.0 L10.9 15.8"/><path d="M20.4 13.0 L19.1 15.8"/>';
-    const RAIN = '<path d="M4.6 13.8 L3 17.6"/><path d="M7.2 16.4 L5.6 20.2"/>'
-        + '<path d="M4.2 23 L2.6 26.8"/>';
-    // Snow stands where rain falls, on the midpoint of each of the three
-    // strokes above, so the two read as the same weather in the same place
-    // and only the mark changes. A flake is three crossing strokes rather
-    // than a dot: at 1.5 weight a dot of this size is a blob, and a blob
-    // beside a figure is not obviously frozen. 2.4 across, which is the
-    // smallest that still resolves as six points on a phone.
-    const flake = (x, y) => `<path d="M${f(x)} ${f(y - 1.2)} V${f(y + 1.2)} `
+    const NECK = '<path d="M15 11.6 V13.6"/>';
+    const BARE_TORSO = '<path d="M15 13.4 V23.4"/>';
+
+    // Beanie: a band across the head, a crown that is a cap sitting on the
+    // band rather than an arc drawn through the skull, and the bobble on
+    // top. The previous crown arced to 2.53 against a head top of 3.6, and
+    // at 1.5 weight two arcs one unit apart are one blob.
+    const HAT_Y = 5.75;
+    const HAT = '<path d="M11.15 5.75 H18.85"/>'
+        + `<path d="${arcD(15, 5.415, 3.715, 175.2, 364.8)}"/>`
+        + '<circle cx="15" cy="0.9" r="1"/>';
+    // Sun hat: the same problem and the same fix. Its crown used to peak at
+    // 3.54 against a head top of 3.6.
+    const BRIM_Y = 5.19;
+    const SUNHAT = `<path d="${arcD(15, 5.15, 2.8, 180, 360)}"/><path d="M9.4 5.7 H20.6"/>`;
+
+    // The hood, in straight segments: nothing else in this drawing is a
+    // curve that is not a circle, and a round hood reads as a helmet. It
+    // clears the head instead of crossing it, and it ends ON the wearer's
+    // own shoulder — the previous one ran both drapes to a fixed y 15.8,
+    // which is why it sat right on a coat and wrong on a t-shirt, where the
+    // shoulder is 0.3 higher.
+    const hood = sy => `<path d="M10.75 ${f(sy + 2.2)} L9.5 11.2 L10.5 4.9 L15 2.1 `
+        + `L19.5 4.9 L20.5 11.2 L19.25 ${f(sy + 2.2)}"/>`;
+
+    const SCARF_WRAP = '<path d="M11.2 12.2 H18.8 V15.4 H11.2 Z"/>';
+    // One closed shape. Splitting it to make the lower half lag drew a seam
+    // across the cloth; the bend is a shear on the whole tail instead.
+    const TAIL = '<path d="M16.2 15.4 H18.8 V21.8 L17.5 22.8 L16.2 21.8 Z"/>';
+
+    // Shorts, with the waistband as its own segment: bare-chested the band
+    // shows and the shorts ride 1.6 higher, dressed the shirt covers both.
+    // One shape either way rather than two that have to crossfade.
+    const shorts = top => `<path d="M11.1 ${f(top)} L10.6 29.4 H14.2 L15 26.9 L15.8 29.4 `
+        + `H19.4 L18.9 ${f(top)}"/>`;
+    const waist = top => `<path d="M11.1 ${f(top)} H18.9"/>`;
+    // Legs. The outer pair of trouser lines is the same two lines as the
+    // bare legs, only further apart, so those lerp and only the inseam has
+    // to arrive. Crossfading two-line legs against four-line trousers draws
+    // both at once through the middle, which reads as four shins.
+    const legPair = (x0, x1, y, to) =>
+        `<path d="M${f(x0)} ${f(y)} L${f(x0 - 0.4)} ${f(to)}"/>`
+        + `<path d="M${f(x1)} ${f(y)} L${f(x1 + 0.4)} ${f(to)}"/>`;
+    // Low shoe, high shoe, boot: one command sequence, so the three are one
+    // lerp rather than three drawings.
+    const SHOES = [
+        'M12.3 35.8 H14 V37.6 H10.4 V36.6 Z M17.7 35.8 H16 V37.6 H19.6 V36.6 Z',
+        'M11.6 35.8 H14.2 V37.6 H9.8 V36.6 Z M18.4 35.8 H15.8 V37.6 H20.2 V36.6 Z',
+        'M11.6 33.4 H14.2 V37.8 H9.6 V36.4 Z M18.4 33.4 H15.8 V37.8 H20.4 V36.4 Z'
+    ];
+    const dot = (p, r) => `<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${f(r)}"/>`;
+
+    const RAIN = ['M4.6 13.8 L3 17.6', 'M7.2 16.4 L5.6 20.2', 'M4.2 23 L2.6 26.8'];
+    // Snow stands where rain falls, on the same three points, so the two are
+    // one mark changing rather than one leaving while another arrives. A
+    // flake is three crossing strokes because at 1.5 weight a dot this size
+    // is a blob, and a blob beside a figure is not obviously frozen.
+    const flake = (x, y) => `M${f(x)} ${f(y - 1.2)} V${f(y + 1.2)} `
         + `M${f(x - 1.05)} ${f(y - 0.6)} L${f(x + 1.05)} ${f(y + 0.6)} `
-        + `M${f(x - 1.05)} ${f(y + 0.6)} L${f(x + 1.05)} ${f(y - 0.6)}"/>`;
-    const SNOW = flake(3.8, 15.7) + flake(6.4, 18.3) + flake(3.4, 24.9);
-    const BROLLY = '<path d="M17.2 9.6 A6.3 6.3 0 0 1 29.8 9.6 Z"/><path d="M23.5 2.6 V4"/>'
-        + '<path d="M23.5 9.6 V15.4"/>';
-    const SUN = '<circle cx="27" cy="7" r="2.8"/>'
-        + '<path d="M27 2.2 V3.4 M27 10.6 V11.8 M22.2 7 H23.4 M30.6 7 H31.8 '
-        + 'M23.6 3.6 L24.4 4.4 M29.6 9.6 L30.4 10.4 M30.4 3.6 L29.6 4.4 M24.4 9.6 L23.6 10.4"/>';
-    const WIND = '<path d="M2 15.5 H8.4 A1.9 1.9 0 1 0 6.5 13.6"/><path d="M2 20.5 H6.6"/>';
+        + `M${f(x - 1.05)} ${f(y + 0.6)} L${f(x + 1.05)} ${f(y - 0.6)}`;
+    const SNOW = [flake(3.8, 15.7), flake(6.4, 18.3), flake(3.4, 24.9)];
 
-    // A colour per garment rather than a colour per temperature. A ramp says
-    // how cold it is, which the words beside the figure already say; this
-    // says what is on the figure, which is the only thing the drawing is for.
-    // One accessory colour covers scarf, hat, mittens and boots together,
-    // because those are read as a count and not as four separate things.
-    // Legwear is 11 and 15 points darker than any body garment on purpose: at
-    // its first value it sat within 3% lightness of both the jumper and the
-    // coat, a hue difference and nothing else, so in greyscale the trousers
-    // merged into the coat above them.
-    const WEARC = {
-        skin: '#E8E1D4', leg: '#6E7C96', tee: '#F2C14E',
-        jum: '#E07A5F', coat: '#5BA8D8', acc: '#6FCF97'
-    };
+    const SUN_CORE = '<circle cx="27" cy="7" r="2.8"/>';
+    const SUN_RAYS = '<path d="M27 2.2 V3.4 M27 10.6 V11.8 M22.2 7 H23.4 M30.6 7 H31.8 '
+        + 'M23.6 3.6 L24.4 4.4 M29.6 9.6 L30.4 10.4 M30.4 3.6 L29.6 4.4 M24.4 9.6 L23.6 10.4"/>';
+    // Two strokes with the curl on the end, unchanged. The curl reaches
+    // y -1.05 including its stroke and the frame now starts at -2.6, so it
+    // clears the top by 1.55 without being moved. pathLength normalises the
+    // dash, which used to be two lengths measured offline and pasted in.
+    const WIND = ['M1 3.5 H7.4 A1.9 1.9 0 1 0 5.5 1.6', 'M1 8.5 H5.6'];
+
+    // The umbrella: a dome closed by a straight hem, cut into three panels
+    // only so it can open. The panels butt back together at rest, so an open
+    // umbrella is the same silhouette it has always been. Centre moved from
+    // (23.5, 9.6) r 6.3, whose left edge at y 9.6 is x 17.2 against a head
+    // reaching 18.46 there — 1.3 units of canopy inside the skull. The hem
+    // now clears the top of the head and the hand moves with the shaft.
+    const BROLLY = (() => {
+        const DC = [25.4, 6.6], R = 5.5, AP = [DC[0], DC[1] - R];
+        const bx = [180, 240, 300, 360].map(a => polar(DC[0], DC[1], R, a)[0]);
+        return {
+            apex: AP,
+            // Each panel is a third of the dome plus the hem under it, split
+            // on the same x, so the three stay in register while they scale.
+            panels: [0, 1, 2].map(i => arcD(DC[0], DC[1], R, 180 + 60 * i, 240 + 60 * i)
+                + ` M${f(bx[i])} ${f(DC[1])} H${f(bx[i + 1])}`),
+            stick: `M${f(DC[0])} -0.4 V14.9`,
+            runner: `M${f(DC[0] - 1.2)} 8.6 H${f(DC[0] + 1.2)}`
+        };
+    })();
+
+    const C = { skin: '#E8E1D4', leg: '#6E7C96', acc: '#6FCF97' };
     const GEARC = { umbrella: '#87CEEB', hood: '#87CEEB', sun: '#F0C060', wind: '#50C878' };
-    // Snow gets its own colour rather than the hood's sky blue: the hood is
-    // the garment and stays the garment colour, and the thing falling past
-    // it is nearly white because that is the one property of snow a mark
-    // this small can carry. Held off pure white, which on a near-black
-    // panel outshines the figure it is meant to be falling beside.
     const SNOWC = '#DCE6F0';
 
-    // Both ends of the scale saturate, and not symmetrically. At the cold end
-    // there is always one more thing to put on. At the hot end there is not:
-    // `hot` has already removed everything a figure can remove, so `veryhot`
-    // has to ADD the only garment that gets worn for heat.
-    const build = (band, raised) => {
-        const p = [], add = (k, s) => p.push([k, s]);
-        const hatted = band === 'freezing' || band === 'bitter';
-        const mitts = band === 'bitter';
-        const hr = mitts ? 1.7 : 1.3, hk = mitts ? 'acc' : 'skin';
+    const g = (col, body, op) => !body || op < 0.004 ? ''
+        : `<g stroke="${col}" color="${col}"${op < 0.996 ? ` opacity="${f(op)}"` : ''}>${body}</g>`;
 
-        if (band === 'hot' || band === 'veryhot') {
-            add('leg', shortsBare + bareLegs + SHOE_B);
-            add('skin', HEAD + '<path d="M15 13.4 V23.4"/>');
-            add('skin', BARE.L + (raised ? BARE.up : BARE.R));
-            if (band === 'veryhot') add('acc', SUNHAT);
-            return p;
+    // `s.band` is a position on TEMP_BANDS' own scale, 0 Bitter to 7 Very
+    // hot, and may sit anywhere between two of them. Everything else is a
+    // weight from 0 to 1.
+    const draw = s => {
+        const band = clamp(s.band, 0, 7);
+        const wet = clamp(s.wet || 0, 0, 1), snow = clamp(s.snow || 0, 0, 1);
+        const umb = clamp(s.umbrella || 0, 0, 1), hd = clamp(s.hood || 0, 0, 1);
+        const sun = clamp(s.sun || 0, 0, 1), wind = clamp(s.wind || 0, 0, 1);
+
+        // Which rung, and how far between it and the next.
+        const p = clamp(6 - band, 0, 4);
+        const i0 = Math.floor(p), i1 = Math.min(4, i0 + 1), t = p - i0;
+        const A = LADDER[i0], B = LADDER[i1];
+        const mixP = k => A[k].map ? A[k].map((n, j) => lerp(n, B[k][j], t)) : lerp(A[k], B[k], t);
+
+        // What is on, as weights rather than as branches. Each edge is a
+        // band boundary with a fifth of a band of blend either side, which
+        // is invisible when the figure is standing on an integer and is the
+        // whole of the transition when it is not.
+        const dressed = upto(band, 5.1, 5.9);      // a torso garment at all
+        const legged = upto(band, 4.1, 4.9);       // trousers rather than shorts
+        const zipped = upto(band, 3.1, 3.9);       // the jacket and coat seam
+        const scarfed = upto(band, 2.1, 2.9);
+        const hatted = upto(band, 1.1, 1.9);
+        const mitts = upto(band, 0.1, 0.9);
+        const sunhat = 1 - upto(band, 6.1, 6.9);
+        const boots = Math.max(mitts, clamp(s.ice || 0, 0, 1));
+
+        const col = mixC(A.col, B.col, t);
+        const hem = mixP('hem');
+        const shoulderY = mixP('st')[1];
+
+        // --- arms. The raised arm is the same arm with its wrist somewhere
+        // else, so raising it is a lerp of one point: at half way the elbow
+        // is really half way up, and there is no in-between pose to key.
+        const cut = mixP('cut'), w = mixP('w'), st = mixP('st'), ua = mixP('ua'), wr = mixP('wr');
+        const wrR = mirror(wr).map((n, j) => lerp(n, UP[j], umb));
+        const L = arm(1, st, ua, wr, cut, w);
+        const R = arm(-1, mirror(st), mirror(ua), wrR, cut, w);
+        // Below about 0.6 of the axis the cuff leaves the wrist bare and the
+        // forearm is drawn; above it a hand closes the sleeve.
+        const bared = 1 - clamp((cut - 0.5) / 0.3, 0, 1);
+        const handR = lerp(1.3, 1.7, mitts);
+        const handC = mixC(C.skin, C.acc, mitts);
+
+        // --- legs
+        const legTop = lerp(29.3, hem, legged);
+        const legBot = lerp(35.8, 33.4, boots);
+        const shoe = boots > 0 ? mixD(SHOES[1], SHOES[2], boots) : mixD(SHOES[0], SHOES[1], legged);
+        const shortTop = lerp(23.2, 24.8, dressed);
+
+        let out = '';
+        // legs, then torso, then head: nothing overlaps, so the order is
+        // only about reading the source.
+        out += g(C.leg,
+            g(C.leg, shorts(shortTop), 1 - legged)
+            + g(C.leg, waist(shortTop), (1 - legged) * (1 - dressed))
+            + legPair(lerp(13.5, 12.0, legged), lerp(16.5, 18.0, legged), legTop, legBot)
+            + g(C.leg, legPair(lerp(14.2, 14.6, legged), lerp(15.8, 15.4, legged), legTop, legBot), legged)
+            + g(boots > 0.5 ? C.acc : C.leg, `<path d="${shoe}"/>`, 1), 1);
+
+        out += g(C.skin, BARE_TORSO, 1 - dressed);
+        out += g(col, `<path d="${mixD(A.body, B.body, t)}"/>`, dressed);
+        // The neckline goes when the hat comes on, the same omission the
+        // crown of the head makes: with no fills, whatever is covered is not
+        // drawn.
+        out += g(col, `<path d="${mixD(A.neck, B.neck, t)}"/>`, dressed * (1 - hatted));
+        out += g(col, `<path d="${mixD(A.zip, B.zip, t)}"/>`, zipped);
+        out += g(col, L.sleeve, dressed) + g(col, R.sleeve, dressed);
+        out += g(C.skin, L.fore + R.fore, bared);
+        out += g(handC, dot(L.wrist, handR) + dot(wrR, handR), 1 - bared);
+
+        // --- head. Anything worn on it cuts the circle rather than sitting
+        // over it, so the cut angle is derived from whichever brim is on.
+        const cover = Math.max(hatted, sunhat);
+        const cutY = lerp(3.6, hatted >= sunhat ? HAT_Y : BRIM_Y, cover);
+        const head = cover < 0.03 ? '<circle cx="15" cy="7.6" r="4"/>'
+            : `<path d="${arcD(15, 7.6, 4, -Math.asin(clamp((7.6 - cutY) / 4, -1, 1)) * 180 / Math.PI,
+                180 + Math.asin(clamp((7.6 - cutY) / 4, -1, 1)) * 180 / Math.PI)}"/>`;
+        out += g(C.skin, head + NECK, 1);
+        out += g(C.acc, HAT, hatted);
+        out += g(C.acc, SUNHAT, sunhat);
+        out += g(C.acc, SCARF_WRAP, scarfed);
+        // The tail is the one part of the body that moves, and only on a
+        // gusty hour. `wf-tail` is the hook; the motion is in the stylesheet.
+        if (scarfed > 0.004)
+            out += `<g class="wf-tail" stroke="${C.acc}" color="${C.acc}"`
+                + `${scarfed < 0.996 ? ` opacity="${f(scarfed)}"` : ''}>${TAIL}</g>`;
+        if (hd > 0.004)
+            out += g(GEARC.hood, hood(shoulderY), hd);
+
+        // --- what is falling or shining, beside the figure rather than on
+        // it. Rain and snow share their three points, so snow is the rain
+        // changing rather than a second mark arriving.
+        let amb = '';
+        if (wet > 0.004) {
+            amb += g(GEARC.hood, `<g class="wf-fall">`
+                + RAIN.map(d => `<path d="${d}"/>`).join('') + `</g>`, wet * (1 - snow));
+            amb += g(SNOWC, `<g class="wf-fall wf-snow">`
+                + SNOW.map(d => `<path d="${d}"/>`).join('') + `</g>`, wet * snow);
         }
-        if (band === 'warm') {
-            const a = arms('tshirt', raised);
-            add('leg', shortsTee + bareLegs + SHOE_B);
-            add('skin', HEAD);
-            add('tee', TEE); add('tee', a.sleeve);
-            add('skin', a.bare);
-            return p;
+        if (umb > 0.004) {
+            // The canopy opens as it arrives. In a front view an umbrella
+            // opening IS a horizontal expansion about the apex, so scaling
+            // each panel in X is not a shortcut for the motion, it is the
+            // motion. It runs off the gear weight, so a scrub opens it and a
+            // reading that is already on an umbrella hour opens with it up.
+            const k = clamp(umb * 1.4 - 0.4, 0, 1);
+            const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+            amb += g(GEARC.umbrella,
+                `<path d="${BROLLY.stick}"/>`
+                + `<g style="transform:translateY(${f(2.8 * (1 - e))}px)">`
+                + `<path d="${BROLLY.runner}"/></g>`
+                + `<g style="transform-origin:${f(BROLLY.apex[0])}px ${f(BROLLY.apex[1])}px;`
+                + `transform:translateY(${f(0.7 * (1 - e))}px) `
+                + `scale(${f(lerp(0.14, 1, e))},${f(lerp(1.14, 1, e))})">`
+                + BROLLY.panels.map(d => `<path d="${d}"/>`).join('') + `</g>`, umb);
         }
-        if (band === 'comfort') {
-            const a = arms('jumper', raised);
-            add('leg', trousers(26.6, 35.8) + SHOE_T);
-            add('skin', HEAD);
-            add('jum', JUM); add('jum', a.sleeve);
-            add('skin', a.hands.map(w => dot(w, 1.3)).join(''));
-            return p;
-        }
-        if (band === 'cool') {
-            const a = arms('jacket', raised);
-            add('leg', trousers(28.4, 35.8) + SHOE_T);
-            add('skin', HEAD);
-            add('coat', JKT); add('coat', a.sleeve);
-            add('skin', a.hands.map(w => dot(w, 1.3)).join(''));
-            return p;
-        }
-        const a = arms('coat', raised);
-        add('leg', trousers(30.4, mitts ? 33.4 : 35.8) + (mitts ? '' : SHOE_T));
-        if (mitts) add('acc', BOOTS);
-        add('skin', HEAD);
-        add('coat', hatted ? CTO : CTC); add('coat', a.sleeve);
-        add(hk, a.hands.map(w => dot(w, hr)).join(''));
-        add('acc', SCARF + (hatted ? HAT : ''));
-        return p;
+        if (sun > 0.004)
+            amb += g(GEARC.sun, `<g class="wf-sun"><g class="wf-rays">${SUN_RAYS}</g>`
+                + SUN_CORE + `</g>`, sun);
+        if (wind > 0.004)
+            amb += g(GEARC.wind, `<g class="wf-wind">`
+                + WIND.map(d => `<path pathLength="1" d="${d}"/>`).join('') + `</g>`, wind);
+
+        return `<svg class="wfig${wind > 0.5 ? ' wf-gusty' : ''}" viewBox="0 -2.6 34 44" `
+            + `fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" `
+            + `stroke-linejoin="round" aria-hidden="true">${out}${amb}</svg>`;
     };
 
-    // The raised arm is the same call with the wrist replaced by the
-    // umbrella handle, so the whole limb — cuff, hand and mitten — swaps as
-    // one piece rather than a second arm being added beside the first.
-    return (a) => {
-        const raised = a.gear === 'umbrella';
-        let body = build(a.wear, raised)
-            .map(([k, s]) => `<g stroke="${WEARC[k]}" color="${WEARC[k]}">${s}</g>`).join('');
-        // What is falling, if anything is. Snow never reaches the raised
-        // arm: dressFor sends a snowing hour to the hood before the
-        // umbrella branches can see it.
-        const falling = a.snow ? SNOW : RAIN;
-        let extra = '';
-        if (raised) extra = BROLLY + (a.wet ? falling : '');
-        else if (a.gear === 'hood') { body += `<g stroke="${GEARC.hood}">${HOOD}</g>`; extra = falling; }
-        else if (a.gear === 'sun') extra = SUN;
-        else if (a.gear === 'wind') extra = WIND;
-        const gc = a.snow ? SNOWC : (a.gear && GEARC[a.gear]);
-        if (extra && gc) extra = `<g stroke="${gc}">${extra}</g>`;
-        return `<svg viewBox="0 0 34 44" fill="none" stroke="currentColor" stroke-width="1.5" `
-            + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}${extra}</svg>`;
+    // What a reading is, as a state. Every weight is 0 or 1 here; only a
+    // scrub ever puts one in between.
+    draw.of = a => a && {
+        band: WEAR_BANDS.indexOf(a.wear),
+        wet: a.wet ? 1 : 0, snow: a.snow ? 1 : 0, ice: a.ice ? 1 : 0,
+        umbrella: a.gear === 'umbrella' ? 1 : 0, hood: a.gear === 'hood' ? 1 : 0,
+        sun: a.gear === 'sun' ? 1 : 0, wind: a.gear === 'wind' ? 1 : 0
+    };
+    draw.KEYS = ['band', 'wet', 'snow', 'ice', 'umbrella', 'hood', 'sun', 'wind'];
+    return draw;
+})();
+
+// --- Moving from one reading to the next ---------------------------
+// Nothing arrives. A reading opens with its clothes already on, its
+// umbrella already up and its condition already looping, because a garment
+// dropping onto a figure is a thing to watch and the reading is a thing to
+// read. The only motion between two readings is the figure becoming the
+// other figure.
+//
+// That is possible because the drawing is one continuous function of its
+// state (see FIGURE), so the position between two bands is a real drawing
+// rather than a crossfade of two. A critically damped spring chases the
+// hour under the finger on each of the eight channels, so scrubbing an
+// hour strip is one garment changing rather than eight cutting past.
+//
+// The spring's state lives here and not in the DOM, which is what makes it
+// survive `showCard` rewriting the whole card: the element is new every
+// time, the motion is not.
+const figureMorph = (() => {
+    const TAU = 0.15;                  // catches up in about a third of a second
+    let cur = null, target = null, raf = 0, last = 0;
+    const paint = () => {
+        // Re-found every frame. The card's innerHTML is rewritten whenever
+        // its words change, so holding a reference would paint into an
+        // element that is no longer on the page.
+        const el = $('readingCard')?.querySelector('.rc-fig[data-morph]');
+        if (!el) { stop(); return false; }
+        el.innerHTML = FIGURE(cur);
+        return true;
+    };
+    const stop = () => { cancelAnimationFrame(raf); raf = 0; };
+    const step = now => {
+        raf = 0;
+        const dt = Math.min((now - last) / 1000, 0.05); last = now;
+        let moving = false;
+        for (const k of FIGURE.KEYS) {
+            const d = target[k] - cur[k];
+            if (Math.abs(d) < 0.002) { cur[k] = target[k]; continue; }
+            // Critically damped: it never overshoots the hour the finger is
+            // on, and it always arrives.
+            cur[k] += d * Math.min(1, dt / TAU * 2.2);
+            moving = true;
+        }
+        if (!paint()) return;
+        if (moving) { raf = requestAnimationFrame(step); }
+    };
+    return {
+        // Jumping is the default. Only a reading that replaces one already
+        // on screen earns the morph; opening cold has nothing to travel
+        // from, and the clothes are meant to be on before it is looked at.
+        to(a, animate) {
+            const next = FIGURE.of(a);
+            if (!next) { cur = target = null; stop(); return; }
+            target = next;
+            if (!cur || !animate) cur = { ...next };
+            // Painted now rather than on the next frame: the card's words
+            // were just rewritten, so this element is new and empty, and a
+            // frame of nothing beside the words reads as a flicker.
+            paint();
+            const moving = FIGURE.KEYS.some(k => Math.abs(target[k] - cur[k]) > 0.002);
+            if (!moving) { stop(); return; }
+            if (!raf) { last = performance.now(); raf = requestAnimationFrame(step); }
+        },
+        // The reading closed, so the next one starts where it stands.
+        reset() { cur = target = null; stop(); }
     };
 })();
 
 // The advice row. Expanded state only, and nothing in it is tappable: it
-// lives inside a pointer-events:none element and must stay that way. It does
-// not animate, so prefers-reduced-motion is honoured by construction.
+// lives inside a pointer-events:none element and must stay that way. The
+// figure is written empty and filled by figureMorph after the card is in
+// the DOM, so the drawing survives the rewrite the words do not.
+//
+// Only the conditions move: a gusty hour's wind mark loads along its own
+// outline and the scarf's tail streams, rain or snow keeps falling, strong
+// sun turns its rays around a circle that stays put. All of it loops for as
+// long as the reading is open, all of it is CSS, and all of it is gated by
+// prefers-reduced-motion the same way as the grid's own arrivals.
 const cardAdvice = (f) => {
     const a = dressFor(f.h, f.day.past);
     if (!a) return '';
-    return `<div class="rc-adv"><span class="rc-fig">${FIGURE(a)}</span>`
+    return `<div class="rc-adv"><span class="rc-fig" data-morph></span>`
         + `<span class="rc-lines">${a.lines.map(l => `<span class="rc-a">${esc(l)}</span>`).join('')}</span></div>`;
 };
 
@@ -3689,6 +3972,8 @@ const cardAdvice = (f) => {
 // A past day keeps its gear and loses only the chance behind it, which is
 // what `dressFor`'s own `past` argument already does: rain that fell still
 // wanted an umbrella, a probability that never resolved does not.
+// The worst hour carries the day's worst hazard too, or a stormy day would
+// draw a raised umbrella under a chip that says thunderstorm.
 const dayDress = d => dressFor({
     feels: d.fMin != null ? d.fMin : d.tMin,
     temp: d.tMin,
@@ -3696,7 +3981,8 @@ const dayDress = d => dressFor({
     snow: maxOf(d.hours, 'snow'),
     gust: d.gust,
     pop: d.pop,
-    uv: d.uv
+    uv: d.uv,
+    ...dayHazard(d)
 }, d.day.past);
 
 // The gear line for a day: the thing to take, and the hour it starts
@@ -3706,12 +3992,25 @@ const dayDress = d => dressFor({
 // drawing puts a hood on rather than an umbrella up, so writing the
 // contrast out is the drawing said twice. What is left is the noun and the
 // time, and the time is the part no drawing can carry.
-const DAY_GEAR = { umbrella: 'umbrella', hood: 'rain jacket', snow: 'hood up' };
+// Keyed on `why` rather than on the gear, because storm, ice, snow and a
+// downpour all draw the same hood and a day that says "rain jacket" under a
+// chip reading thunderstorm has answered the wrong question. Ice is the one
+// the drawing genuinely cannot carry: boots are on the figure, but "the
+// ground is glazed" is not a garment.
+// Each of these has to survive having " from 14:00" put after it, and each
+// has to be the part the drawing did not already say. The figure shows a
+// hood for a storm, a downpour and ice alike, so the noun is what separates
+// them: shelter, more than an umbrella, and the ground.
+const DAY_GEAR = {
+    umbrella: 'umbrella', chance: 'umbrella', rain: 'umbrella', hood: 'rain jacket',
+    snow: 'hood up', storm: 'shelter', downpour: 'more than an umbrella',
+    ice: 'care underfoot'
+};
 const dayGearLine = (d, a) => {
     if (!a || !a.gear) return '';
     if (a.gear === 'sun') return 'strong sun. hat, or sunscreen';
     if (a.gear === 'wind') return 'gusty enough to hold on to a hat';
-    const what = DAY_GEAR[a.snow ? 'snow' : a.gear];
+    const what = DAY_GEAR[a.why] || DAY_GEAR[a.snow ? 'snow' : a.gear];
     // No onset to give: the gear is being carried against a chance, not
     // against something that starts at an hour.
     if (!a.wet) return `${what}, on the chance it turns`;
@@ -3734,15 +4033,22 @@ const dayFigure = d => {
     const iCold = bandIndex(d.fMin != null ? d.fMin : d.tMin);
     const sun = a.gear === 'sun';
     if (iWarm === iCold) {
-        return `<span class="rc-fig">${FIGURE({ ...a, wear: WEAR_BANDS[iCold] })}</span>`;
+        return `<span class="rc-fig">${FIGURE(FIGURE.of({ ...a, wear: WEAR_BANDS[iCold] }))}</span>`;
     }
-    const warm = FIGURE({ wear: WEAR_BANDS[iWarm], gear: sun ? 'sun' : null, wet: false, snow: false });
-    const cold = FIGURE({ wear: WEAR_BANDS[iCold], gear: sun ? null : a.gear, wet: a.wet, snow: a.snow });
+    const warm = FIGURE(FIGURE.of({ wear: WEAR_BANDS[iWarm], gear: sun ? 'sun' : null }));
+    const cold = FIGURE(FIGURE.of({ wear: WEAR_BANDS[iCold], gear: sun ? null : a.gear,
+        wet: a.wet, snow: a.snow, ice: a.ice }));
     const strip = s => s.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-    const svg = `<svg viewBox="0 0 60 44" fill="none" stroke="currentColor" stroke-width="1.5" `
+    // The svg wrapper goes, and `wf-gusty` with it, so the class the scarf
+    // animation hangs off moves onto the group each figure is placed in.
+    const gusty = a.gear === 'wind' ? ' wf-gusty' : '';
+    // Each figure's own frame starts at y -2.6, so the pair box is 4 taller
+    // than the 44 one figure stands in and both are pushed down into it.
+    const svg = `<svg viewBox="0 0 60 48" fill="none" stroke="currentColor" stroke-width="1.5" `
         + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
-        + `<g transform="scale(0.86) translate(0,3.5)">${strip(warm)}</g>`
-        + `<g transform="translate(29,0) scale(0.86) translate(0,3.5)">${strip(cold)}</g></svg>`;
+        + `<g class="wfig${gusty}" transform="scale(0.86) translate(0,6.5)">${strip(warm)}</g>`
+        + `<g class="wfig${gusty}" transform="translate(29,0) scale(0.86) translate(0,6.5)">`
+        + `${strip(cold)}</g></svg>`;
     // The only text the drawing cannot carry: when each end of the day
     // falls. Omitted when the reduction could not place them.
     const cap = d.warmAt != null && d.coldAt != null
@@ -3881,8 +4187,11 @@ const cardHTML = (f, expanded) => {
 // one to give its columns' overflow somewhere to go and the day layout
 // holds every fact at once. So a tap on an open day card closes it instead
 // of expanding it, the way a tap on the open tooltip already does.
-const showCard = (key, html, isDay) => {
+const showCard = (key, html, isDay, advice) => {
     const card = $('readingCard');
+    // Whether a reading was already on screen when this one arrived, which
+    // is the only thing that decides morph against jump.
+    const wasOpen = card.classList.contains('open');
     // Expansion is a property of the reading that was expanded, not a
     // preference the next one inherits — except during a hold-scrub,
     // which always opens, and stays, expanded: that is the whole point
@@ -3894,6 +4203,11 @@ const showCard = (key, html, isDay) => {
     card.classList.remove('orphan', 'out-up', 'out-left', 'out-right', 'day');
     card.classList.toggle('day', !!isDay);
     card.classList.add('open');
+    // The figure is painted after the card's words are in the DOM, because
+    // the words are what the rewrite above replaces. It morphs only when a
+    // hand is already on the grid: opening a reading cold has nothing to
+    // travel from, and the day reading draws its own pair.
+    if (!isDay && advice) figureMorph.to(advice, wasOpen);
     // At open time, never mid-gesture: see the .chart.reading-open note in
     // the stylesheet for why the scope is the whole chart and not the card.
     document.querySelector('.chart')?.classList.add('reading-open');
@@ -3903,7 +4217,7 @@ const showCard = (key, html, isDay) => {
 // columns on the same index for a frame, and an index is a position in the
 // window rather than a property of the reading.
 const showHourCard = f => showCard(`${f.day.date}|${activeBlock.hour}`,
-    cardHTML(f, cardExpanded), false);
+    cardHTML(f, cardExpanded), false, dressFor(f.h, f.day.past));
 const showDayCard = d => showCard(`day|${d.day.date}`, dayCardHTML(d), true);
 
 // --- The day note -------------------------------------------------
@@ -3973,6 +4287,9 @@ const hideCard = () => {
     cardKey = '';
     cardExpanded = false;
     cardBaseH = 0;
+    // Dropped with the reading, so the next one opens dressed for its own
+    // hour rather than travelling from an hour that is no longer on screen.
+    figureMorph.reset();
 };
 
 // The block just tapped plays its own weather once, the same arrival the
