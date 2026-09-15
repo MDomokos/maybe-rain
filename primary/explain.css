@@ -25,11 +25,16 @@
   flex:1 1 auto;min-height:0;overflow-y:auto;touch-action:pan-y;
   font-size:12px;line-height:1.5;
   padding-left:calc(var(--app-edge) + var(--gutter));
-  padding-right:calc(var(--app-edge) + var(--overhang));
-  scrollbar-width:thin;scrollbar-color:var(--accent) transparent}
-.ex-body::-webkit-scrollbar{width:6px}
+  padding-right:calc(var(--app-edge) + var(--overhang))}
+/* index.html's scrollbar, repeated because the sheet body is not in its
+   selector list. Standard props only where ::-webkit-scrollbar is missing;
+   see the comment there. */
+@supports not selector(::-webkit-scrollbar){
+  .ex-body{scrollbar-width:thin;scrollbar-color:var(--accent) transparent}
+}
+.ex-body::-webkit-scrollbar{width:7px}
 .ex-body::-webkit-scrollbar-track{background:transparent}
-.ex-body::-webkit-scrollbar-thumb{background:var(--accent);border:2px solid var(--bg);
+.ex-body::-webkit-scrollbar-thumb{background:var(--accent);border:3px solid var(--bg);
   background-clip:padding-box;border-radius:var(--radius)}
 
 /* .sheet-actions' spacing, inset to the grid's edges like the view toggle. */

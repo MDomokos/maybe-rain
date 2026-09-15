@@ -2540,31 +2540,49 @@
            scroll behaviour with the places list and the menu. */
         .search-results { background: var(--bg); }
         .search-results[hidden] { display: none; }
-        .search-results,
-        .changelog-body {
-            scrollbar-width: thin;
-            scrollbar-color: var(--accent) transparent;
+        /* Themed scrollbar, on every surface in the app that scrolls: the
+           places list, the search results, the settings menu, the changelog
+           and the explainer's body. The first and third were missing, so both
+           drew the browser's default grey.
+
+           The standard properties are gated. Chromium and Safari read
+           `scrollbar-color` as an opt-in to the standard scrollbar model and
+           stop applying ::-webkit-scrollbar at all. Setting both painted a
+           solid ~10px gold bar (`scrollbar-width: thin`, filled) and the
+           construction below never ran. Measured in Chromium 141: the same
+           element reserves 10px with the standard props set, 7px without.
+           They are now set only where the pseudo-elements do not exist.
+
+           7px track, 3px background border, clipped to the padding box: 1px
+           of gold, with a 7px hit area around it. */
+        @supports not selector(::-webkit-scrollbar) {
+            .sheet-list,
+            .search-results,
+            .settings,
+            .changelog-body {
+                scrollbar-width: thin;
+                scrollbar-color: var(--accent) transparent;
+            }
         }
+        .sheet-list::-webkit-scrollbar,
         .search-results::-webkit-scrollbar,
-        .changelog-body::-webkit-scrollbar { width: 6px; }
+        .settings::-webkit-scrollbar,
+        .changelog-body::-webkit-scrollbar { width: 7px; }
+        .sheet-list::-webkit-scrollbar-track,
         .search-results::-webkit-scrollbar-track,
+        .settings::-webkit-scrollbar-track,
         .changelog-body::-webkit-scrollbar-track {
             background: transparent;
         }
+        .sheet-list::-webkit-scrollbar-thumb,
         .search-results::-webkit-scrollbar-thumb,
+        .settings::-webkit-scrollbar-thumb,
         .changelog-body::-webkit-scrollbar-thumb {
-            /* 2px bg border + padding-box clip leaves a ~2px gold hairline,
-               floating clear of the panel edges */
             background: var(--accent);
-            border: 2px solid var(--bg);
+            border: 3px solid var(--bg);
             background-clip: padding-box;
             border-radius: var(--radius);
         }
-        /* A result row and a switch row are the same row: the switch list and
-           the search list are one list shown in two modes of one sheet, so
-           they share height, gutter, type size and the hairline whose colour
-           travels with the selection. Only the actions on the right and the
-           region text differ, because only those are actually different. */
         .search-result {
             border-bottom: 1px solid transparent;
             min-height: 44px;

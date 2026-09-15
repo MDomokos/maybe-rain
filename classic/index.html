@@ -1134,27 +1134,36 @@
             overflow-y: auto;
             z-index: 1000;
         }
-        /* Themed scrollbar, shared by the search results and the changelog
-           body: a hairline-thin gold thumb on a transparent track, matching
-           the app's sunshine accent and the UI's thin lines. Firefox uses the
-           standard props; Chromium/Safari use the ::-webkit-scrollbar pseudos. */
-        .search-results,
-        .changelog-body {
-            scrollbar-width: thin;
-            scrollbar-color: var(--accent) transparent;
+        /* Themed scrollbar, on every surface in the app that scrolls: the
+           search results and the changelog body.
+
+           The standard properties are gated. Chromium and Safari read
+           `scrollbar-color` as an opt-in to the standard scrollbar model and
+           stop applying ::-webkit-scrollbar at all. Setting both painted a
+           solid ~10px gold bar (`scrollbar-width: thin`, filled) and the
+           construction below never ran. Measured in Chromium 141: the same
+           element reserves 10px with the standard props set, 7px without.
+           They are now set only where the pseudo-elements do not exist.
+
+           7px track, 3px background border, clipped to the padding box: 1px
+           of gold, with a 7px hit area around it. */
+        @supports not selector(::-webkit-scrollbar) {
+            .search-results,
+            .changelog-body {
+                scrollbar-width: thin;
+                scrollbar-color: var(--accent) transparent;
+            }
         }
         .search-results::-webkit-scrollbar,
-        .changelog-body::-webkit-scrollbar { width: 6px; }
+        .changelog-body::-webkit-scrollbar { width: 7px; }
         .search-results::-webkit-scrollbar-track,
         .changelog-body::-webkit-scrollbar-track {
             background: transparent;
         }
         .search-results::-webkit-scrollbar-thumb,
         .changelog-body::-webkit-scrollbar-thumb {
-            /* 2px bg border + padding-box clip leaves a ~2px gold hairline,
-               floating clear of the panel edges */
             background: var(--accent);
-            border: 2px solid var(--bg);
+            border: 3px solid var(--bg);
             background-clip: padding-box;
             border-radius: var(--radius);
         }
