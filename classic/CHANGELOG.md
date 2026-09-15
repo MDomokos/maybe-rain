@@ -6,6 +6,11 @@ this is the classic variant. its versions start `1.0.` and count on their
 own; primary starts `2.0.`. everything below v1.0.0 is the old flat
 numbering from before the two variants split.
 
+## v1.2.2 (2026-09-15)
+
+- pressing enter in city search no longer opens whichever city sat at the top of the list. it dismisses the keyboard and loads the results for what was typed
+- the first result is no longer preselected on touch, where there is no enter key to explain the highlight
+
 ## v1.2.1 (2026-08-13)
 
 - primary gained a two-day look back, so the shared forecast now carries past

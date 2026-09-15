@@ -1093,12 +1093,17 @@ const closeSearch = () => {
     $('searchInput').blur();
 };
 
+// The pointer. Read through a function rather than a stored boolean so a
+// device that changes primary pointer mid-session (a tablet gaining a
+// trackpad) answers with what is true now.
+const COARSE_Q = matchMedia('(pointer: coarse)');
+const coarse = () => COARSE_Q.matches;
+
 // Native share sheet only on touch devices. On desktop, Web Share is
 // redundant and some Chromium builds *kill the tab*
 // (RESULT_CODE_KILLED_BAD_MESSAGE) when navigator.share is invoked (a
 // renderer crash no try/catch can catch), so desktop copies the link.
-const nativeShareOK = () =>
-    !!navigator.share && matchMedia('(pointer: coarse)').matches;
+const nativeShareOK = () => !!navigator.share && coarse();
 
 // Share (touch) or copy (desktop) a link. Its preview when pasted into
 // a messenger comes from the Open Graph tags in <head> + og.png.
@@ -1210,10 +1215,17 @@ const renderSuggestions = async query => {
             </div>`
         ).join('');
     // Preselect the first result so pressing Enter has an obvious,
-    // visible target. Hover or arrow keys move it from here.
+    // visible target. Touch has no Enter key, so the gold highlight had
+    // nothing to explain itself there — just a row lit up for no reason a
+    // finger could find. Skip it on coarse pointers; hover or arrow keys
+    // still set it for mouse and keyboard.
     const firstRow = $('searchResults').querySelector('.search-result');
-    searchHighlight = firstRow ? 0 : -1;
-    if (firstRow) firstRow.classList.add('highlighted');
+    if (firstRow && !coarse()) {
+        searchHighlight = 0;
+        firstRow.classList.add('highlighted');
+    } else {
+        searchHighlight = -1;
+    }
 };
 
 // --- Events -------------------------------------------------------
@@ -1688,8 +1700,13 @@ const preconnectGeocoding = () => {
 // Search intent: warm on focus, before the first keystroke fires a lookup.
 $('searchInput').addEventListener('focus', preconnectGeocoding, { once: true });
 
-// Arrow keys walk the results list; Enter picks the highlighted row,
-// or the first city if none is highlighted.
+// Arrow keys walk the results list. Enter commits only a row that is
+// explicitly highlighted, by an arrow key or by hover; with nothing
+// highlighted it means "done typing", not "take the top row" — that row
+// is the favorites tier before it is the geocoding hits, so the fallback
+// could open a city that had nothing to do with what was typed. Enter
+// flushes the 250ms input debounce instead, so the results for what is
+// in the field are on their way, and lets the soft keyboard go.
 $('searchInput').addEventListener('keydown', e => {
     const rows = [...$('searchResults').querySelectorAll('.search-result')];
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1702,12 +1719,17 @@ $('searchInput').addEventListener('keydown', e => {
         rows.forEach((r, i) => r.classList.toggle('highlighted', i === searchHighlight));
         rows[searchHighlight].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter') {
-        if (!rows.length) return;
         e.preventDefault();
-        const target = searchHighlight >= 0
-            ? rows[searchHighlight]
-            : rows[0];
-        target?.click();
+        if (searchHighlight >= 0 && rows[searchHighlight]) {
+            rows[searchHighlight].click();
+            return;
+        }
+        clearTimeout(searchTimeout);
+        renderSuggestions($('searchInput').value);
+        // Touch only: on a fine pointer the field keeps focus, or the
+        // global keydown guard stops covering it and the arrows would
+        // aim the app instead of walking this list.
+        if (coarse()) $('searchInput').blur();
     }
 });
 

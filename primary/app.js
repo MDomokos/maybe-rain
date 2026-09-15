@@ -7613,8 +7613,22 @@ const preconnectGeocoding = () => {
 // Search intent: warm on focus, before the first keystroke fires a lookup.
 $('searchInput').addEventListener('focus', preconnectGeocoding, { once: true });
 
-// Arrow keys walk the results list; Enter picks the highlighted row,
-// or the first city if none is highlighted.
+// Arrow keys walk the results list. Enter commits only a row that is
+// explicitly highlighted, by an arrow key or by hover; with nothing
+// highlighted it means "done typing", not "take the top row".
+//
+// It used to fall back to rows[0], which on touch was the only branch
+// that ever ran: renderSuggestions skips the preselect on a coarse
+// pointer, so searchHighlight is always -1 there. The row it took was
+// whatever sat at the top of the list, which is the pinned tier before
+// it is the geocoding hits, so Enter could open a city that had nothing
+// to do with what was typed. The 250ms input debounce made it worse:
+// the list Enter read was often the one built from the previous
+// keystroke, or no list at all.
+//
+// So Enter now flushes that debounce and lets the keyboard go, which is
+// what the key means on a phone: the query is finished, show me the
+// results for it.
 $('searchInput').addEventListener('keydown', e => {
     const rows = [...$('searchResults').querySelectorAll('.search-result')];
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -7627,12 +7641,18 @@ $('searchInput').addEventListener('keydown', e => {
         rows.forEach((r, i) => r.classList.toggle('highlighted', i === searchHighlight));
         rows[searchHighlight].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter') {
-        if (!rows.length) return;
         e.preventDefault();
-        const target = searchHighlight >= 0
-            ? rows[searchHighlight]
-            : rows[0];
-        target?.click();
+        if (searchHighlight >= 0 && rows[searchHighlight]) {
+            rows[searchHighlight].click();
+            return;
+        }
+        clearTimeout(searchTimeout);
+        renderSuggestions($('searchInput').value);
+        // Dropping the keyboard is the point on touch. On a fine pointer
+        // the field keeps focus: the global keydown handler passes on
+        // anything aimed at an INPUT, and without that guard the arrows
+        // would start aiming the sheet instead of walking this list.
+        if (coarse()) $('searchInput').blur();
     }
 });
 

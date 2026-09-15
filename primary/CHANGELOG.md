@@ -2,6 +2,11 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.11 (2026-09-15)
+
+- unified scroll bar styling across the app
+- pressing enter in city search no longer opens whichever city sat at the top of the list. it dismisses the keyboard and loads the results for what was typed, so the city can be picked from the list
+
 ## v2.6.10 (2026-09-15)
 
 - three illustrated explainers, one per view, showing what the colours and the marks mean
