@@ -1,16 +1,21 @@
 // --- City search (Open-Meteo geocoding, URL-encoded) --------------
+// Returns { ok, results }. Its two empty answers mean opposite things to
+// the reader — "there is no such place" and "the lookup did not happen"
+// — and both used to come back as an empty array, so a search made with
+// no connection read as a place that does not exist. `ok` is false only
+// when the request itself failed.
 const searchCity = async query => {
-    if (query.length < 2) return [];
+    if (query.length < 2) return { ok: true, results: [] };
     try {
         const response = await fetch(
             'https://geocoding-api.open-meteo.com/v1/search' +
             `?name=${encodeURIComponent(query)}&count=5&language=en&format=json`
         );
         if (!response.ok) throw new Error('Search failed');
-        return (await response.json()).results || [];
+        return { ok: true, results: (await response.json()).results || [] };
     } catch (error) {
         console.error('Search error:', error);
-        return [];
+        return { ok: false, results: [] };
     }
 };
 

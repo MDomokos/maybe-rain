@@ -1168,6 +1168,15 @@
             background-clip: padding-box;
             border-radius: var(--radius);
         }
+        /* Nothing to show: the message takes the row's place rather than
+           leaving the panel blank. Quiet — no match is not an error. */
+        .search-empty {
+            display: flex;
+            align-items: center;
+            padding: 6px 0 6px 12px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
         /* Waiting on the geocoding request. Matches a row's metrics so the
            panel does not jump when the results land, and pulses on the same
            keyframe as the "Locating…" status. */

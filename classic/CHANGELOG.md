@@ -12,6 +12,7 @@ numbering from before the two variants split.
 - the first result is no longer preselected on touch, where there is no enter key to explain the highlight
 - city search shows a pulsing "Searching…" row while the lookup is out, instead of a blank panel
 - on desktop, enter no longer opens a city from the list as it stood before the current keystroke. it commits only a highlighted row belonging to the text in the field
+- the search list says why it is empty instead of showing a blank panel: no match names the query, one character asks for more, and a lookup that failed says so rather than reading as "no such place"
 
 ## v1.2.1 (2026-08-13)
 

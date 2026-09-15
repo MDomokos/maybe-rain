@@ -2608,6 +2608,16 @@
         }
         .rl-city { font-weight: 600; }
         .rl-region { opacity: 0.55; }
+        /* Nothing to show: the message takes the row's place rather than
+           leaving the panel blank. Quiet — no match is not an error. */
+        .search-empty {
+            display: flex;
+            align-items: center;
+            min-height: 44px;
+            padding: 0 var(--sp-1) 0 var(--gutter);
+            font-size: 15px;
+            color: var(--text-dim);
+        }
         /* Waiting on the geocoding request. A row's height so the list does
            not jump when the results land, and the same slow pulse the
            "Locating…" status uses — one waiting state, drawn one way. */

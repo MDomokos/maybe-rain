@@ -1200,6 +1200,16 @@ const suggestionRow = (p, i) =>
 // strip for the length of the round trip. Same keyframe and weight as
 // the "Locating…" status, so waiting reads the same way everywhere.
 const BUSY_ROW = '<div class="search-busy" role="status">Searching…</div>';
+// Nothing to show, said in the terms of whichever nothing it is. An empty
+// list used to render as an empty panel, which is the same picture for
+// "no match", "still typing", and "the lookup failed" — three different
+// things to do next. Quiet rather than an error: none of them is a fault.
+const EMPTY_ROW = msg => `<div class="search-empty" role="status">${esc(msg)}</div>`;
+const emptyMessage = (query, ok) =>
+    !ok ? 'Search unavailable. Check your connection'
+  : query.trim().length === 1 ? 'Keep typing…'
+  : query.trim() ? `No places match “${query.trim()}”`
+  : 'No saved places yet. Type a city name';
 // The query the list on screen was built for, or null when there is no
 // list. The debounce means the field and the list disagree for a moment
 // after every keystroke, and Enter has to know which it is looking at:
@@ -1215,6 +1225,7 @@ const renderSuggestions = async query => {
     const recents = q ? [] : savedCities.filter(c => !isFav(c));
     const shown = new Set([...favs, ...recents].map(placeKey));
     let hits = [];
+    let ok = true;   // the lookup ran (vacuously true when none was needed)
     if (q.length >= 2) {
         // Paint what is known before going to the network: the matching
         // favorites stay pickable while the lookup runs, at the same
@@ -1225,7 +1236,9 @@ const renderSuggestions = async query => {
         renderedQuery = null;
         $('searchResults').innerHTML =
             state.suggestions.map(suggestionRow).join('') + BUSY_ROW;
-        hits = (await searchCity(query)).map(h => ({
+        const lookup = await searchCity(query);
+        ok = lookup.ok;
+        hits = lookup.results.map(h => ({
             name: h.name, country: h.country_code || h.country || '',
             admin1: h.admin1 || '', latitude: h.latitude, longitude: h.longitude
         })).filter(p => !shown.has(placeKey(p)));
@@ -1238,7 +1251,9 @@ const renderSuggestions = async query => {
     ];
     searchHighlight = -1; // list rebuilt: drop any arrow-key highlight
     renderedQuery = query.trim();
-    $('searchResults').innerHTML = state.suggestions.map(suggestionRow).join('');
+    $('searchResults').innerHTML = state.suggestions.length
+        ? state.suggestions.map(suggestionRow).join('')
+        : EMPTY_ROW(emptyMessage(query, ok));
     // Preselect the first result so pressing Enter has an obvious,
     // visible target. Touch has no Enter key, so the gold highlight had
     // nothing to explain itself there — just a row lit up for no reason a
