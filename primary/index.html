@@ -522,6 +522,14 @@
             padding-bottom: 2px;
         }
         .swipe-hint[hidden] { display: none; }
+        /* The pressable hint: gold, like the freshness line it shares the slot
+           with. The slot is 26px, so neither of them is a 44px target. */
+        .swipe-hint.tappable {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
 
         /* --- The city sheet ---------------------------------------------
            Flush black with hairline rows, the treatment the settings menu and
@@ -3130,6 +3138,7 @@
     <script src="../shared/icons.js"></script>
     <script src="../shared/astro.js"></script>
     <script src="../shared/wmo.js"></script>
+    <script src="../shared/cadence.js"></script>
     <script src="../shared/forecast.js"></script>
     <script src="../shared/api.js"></script>
     <script src="../shared/places.js"></script>

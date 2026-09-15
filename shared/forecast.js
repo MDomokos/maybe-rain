@@ -4,6 +4,21 @@ const processData = payload => {
     state.utcOffset = payload.utc_offset_seconds || 0; // for city-local sky-event day windows
     const { time, temperature_2m, apparent_temperature, relative_humidity_2m, weather_code, cloud_cover, precipitation, rain, showers, snowfall, precipitation_probability, visibility, uv_index, wind_speed_10m, wind_direction_10m, wind_gusts_10m } = payload.hourly;
 
+    // Where the source model stopped computing one value per hour (DR-35),
+    // read here because this is the one place a payload becomes hours:
+    // after the parse, before anything paints. It is arithmetic over an
+    // array already in hand, so it costs no request and about a
+    // millisecond. Holding it on state IS the cache, and it is the only
+    // cache that is safe: the boundary's index moves with the age of the
+    // model run, so a reading must not outlive the payload it came from or
+    // reach the next city.
+    //
+    // Variant-gated the same way the precipitation renderer is.
+    // primary/index.html names shared/cadence.js, classic does not, and a
+    // variant that has not asked for the detector gets null rather than a
+    // ReferenceError.
+    state.cadence = typeof detectCadence === 'function' ? detectCadence(payload.hourly) : null;
+
     // Daily sunrise/sunset (local ISO strings) → per-date {h, m}.
     state.sun = {};
     const daily = payload.daily;

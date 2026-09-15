@@ -12,7 +12,7 @@
 // separately. The trailing minor.patch moves each release: bump the minor
 // for a larger change, the patch for a small one.
 const CACHE_PREFIX = 'maybe-rain-2.';
-const CACHE_NAME = CACHE_PREFIX + '6.8';
+const CACHE_NAME = CACHE_PREFIX + '6.10';
 // Caches written before the variant split were named maybe-rain-v45 and so
 // on, with no variant segment, and they sit at this scope. The prefix test
 // above no longer matches them, so without this they would leak forever.
@@ -24,6 +24,10 @@ const LEGACY_CACHE = /^maybe-rain-v\d/;
 // or under a subpath like GitHub Pages' /repo-name/).
 const BASE = new URL('./', self.location).pathname;
 const SHELL = [BASE, BASE + 'index.html', BASE + 'manifest.json'];
+// The view explainers. Not in the shell: app.js fetches them on first open, so
+// install still costs the three requests above. Warmed in after activation
+// instead, off the critical path, so later opens and offline ones are local.
+const EXTRAS = [BASE + 'explain.css', BASE + 'explain.js'];
 // How long the shell waits on the network before the stored copy answers
 // instead (see the fetch handler). Long enough that a merely slow connection
 // still delivers the current release rather than the last one, short enough
@@ -45,6 +49,9 @@ self.addEventListener('activate', event => {
       // any pre-split cache this scope left behind.
       .then(keys => Promise.all(keys.filter(k => (k.startsWith(CACHE_PREFIX) || LEGACY_CACHE.test(k)) && k !== CACHE_NAME).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+      // Warmed once the new version owns the page. Not awaited, and allowed
+      // to fail: the app works without them.
+      .then(() => caches.open(CACHE_NAME).then(cache => cache.addAll(EXTRAS)).catch(() => {}))
   );
 });
 
@@ -111,6 +118,20 @@ self.addEventListener('fetch', event => {
       ]);
       return won || stored;
     })());
+    return;
+  }
+
+  // The explainer's files. Not content-hashed like the icons below, and not
+  // independent of releases like the hourly explainer above, so neither rule
+  // fits. They are versioned by CACHE_NAME: the activate sweep drops the old
+  // cache and the warm refills it. Cache-first, network on a miss.
+  if (EXTRAS.includes(url.pathname)) {
+    event.respondWith(caches.match(event.request).then(cached =>
+      cached || fetch(event.request).then(response => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        return response;
+      })));
     return;
   }
 

@@ -2,7 +2,18 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
-## v2.6.8 (2026-08-21) - experimental
+## v2.6.10 (2026-09-15)
+
+- three illustrated explainers, one per view, showing what the colours and the marks mean
+- on a first launch the bottom line offers it ("what the colours mean") instead of naming a gesture, and retires once opened
+
+## v2.6.9 (2026-08-21) - experimental
+
+- an hour that was filled in rather than computed by the model now says so in its reading, whatever size block it is drawn in. the line used to appear only on blocks covering more than one hour, so it said nothing about the hours it mattered most for
+- the app now works out where the forecast stops being hourly by reading the response, instead of assuming it. nothing on the grid moves yet
+- ⚙ shows what it found for the city on screen, under Hourly data
+
+## v2.6.8 (2026-08-21)
 
 - the dressing figure is redrawn. the hood clears the head instead of crossing the face, the hats sit on the head rather than inside it, and the umbrella no longer overlaps the head
 - the weather beside the figure now animates for as long as the reading is open: a gusty hour loads its wind mark in and streams the scarf away from it, rain or snow keeps falling, the sun's rays turn around a circle that stays put. off under reduced motion like everything else that moves in the app

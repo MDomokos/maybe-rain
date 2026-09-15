@@ -1179,6 +1179,32 @@ const waveRelease = () => { if (wave) { wave.hold = false; kickWave(); } };
 const cadenceForLead = lead =>
     lead <= 6 ? 1 : lead <= 8 ? 3 : lead <= 10 ? 6 : 24;
 
+// What the detector found for the hours a block covers, as the sentence a
+// reading prints (DR-35, DR-44).
+//
+// This is the app's only honest channel about where its hours come from,
+// and it is driven by the reading rather than by the block's shape. Block
+// geometry was the old gate (`slots > 1`), and DR-44 makes hourly
+// rendering the default, so every block becomes one hour tall and a
+// geometry-gated line goes silent exactly where it is the only honesty
+// left. An hour the detector calls manufactured says so whatever shape it
+// is drawn in, and an hour it calls computed says nothing, because there
+// is nothing to disclose.
+//
+// A span reports its worst hour, which `over` works out; the wording is
+// here, where the rest of the app's copy is.
+//
+// It is the explainer's own vocabulary (`how-hourly-data-is-made.html`),
+// which has been read by real people: "computed by a model" against
+// "filled in afterwards". Never "interpolated", in anything user-facing.
+// A computed hour says nothing, because there is nothing to disclose.
+const provenanceFor = (date, hour, slots = 1) => {
+    const w = state.cadence && date ? state.cadence.over(date, hour, slots) : null;
+    if (!w || !w.state || w.state === 'hourly') return '';
+    if (w.state === 'unknown') return 'not computed hour by hour here';
+    return `1 hour in ${w.step} computed, the rest filled in`;
+};
+
 // The hour window cut into blocks of that many hours. A stub tail (under
 // half a block) folds into the block before it rather than drawing a
 // sliver; a longer tail is honestly its own, shorter block.
@@ -1694,10 +1720,9 @@ return Array.from({ length: days }, (_, dayIndex) => {
         const comfortText = view === 'temp' && feelsVal != null
             ? ` · ${TEMP_BANDS[bandIndex(feelsVal)].name.toLowerCase()}` : '';
         // What a block is FOR, said before what it says: an hourly
-        // block names its hour, a coarse one names the hours it covers,
-        // how wide it is, and that the data behind it is no longer
-        // hourly. A reading with no span on it would be read as an
-        // hour's reading, which past lead 7 it is not.
+        // block names its hour, a coarse one names the hours it covers
+        // and how wide it is. A reading with no span on it would be read
+        // as an hour's reading, which past lead 7 it is not.
         // End-exclusive, the same way the tooltip's header states it: a
         // three-hour block from 18:00 covers up to 21:00, not through it.
         const spanLabel = slots === 1 ? hourLabel(h.hour)
@@ -1705,7 +1730,10 @@ return Array.from({ length: days }, (_, dayIndex) => {
                 : `${hourLabel(hour)}–${hourLabel((hour + slots) % 24)}`;
         const cadText = slots === 1 ? ''
             : slots >= rows ? ' · daily value' : ` · ${slots}-hour block`;
-        const provText = slots === 1 ? '' : ' · beyond native hourly';
+        // Where the data came from, which is the detector's answer and
+        // not the cell's shape. See provenanceFor.
+        const prov = provenanceFor(meta.date, hour, slots);
+        const provText = prov ? ` · ${prov}` : '';
         const info = `${meta.date ? dateLabel(meta.date) + ', ' : ''}${spanLabel} - ${h.description}, ${displayTemp(h.temp)}°${settings.unit}${comfortText}${popText}${mmText}${snowText}${windText}${hazText}${sunText}${skyText}${cadText}${provText}${chText}`;
         // Marks: the precipitation overlay first (under the glyphs) +
         // the frost contour (temp view) + centred wind arrow (wind view)
@@ -2767,14 +2795,18 @@ const showTooltip = (el, anchor = null) => {
         const detailText = [activeDetail, ...shared].filter(Boolean).join(' · ');
         const detailLine = detailText ? `<div class="tip-ctx tip-detail">${detailText}</div>` : '';
 
-        // What the block IS, said in its own line rather than folded in
-        // with the weather: past the model's native hourly horizon the
-        // series is interpolated, so a block covering six hours
-        // has to say that it does and that the data behind it is no
-        // longer hourly. Silence there would let a coarse reading be
-        // read as an hour's reading.
-        const provenance = span === 1 ? ''
-            : `<div class="tip-ctx">${wholeDay ? 'daily value' : `${span}-hour block`} · beyond native hourly</div>`;
+        // What the block IS, in its own line rather than folded in with
+        // the weather. Two independent facts share it: how many hours the
+        // cell covers, which is geometry, and where those hours came
+        // from, which is the detector's reading (see provenanceFor).
+        // Either can be present without the other, and with DR-44's
+        // hourly default the second is usually the only one there is.
+        const provBits = [
+            span === 1 ? '' : wholeDay ? 'daily value' : `${span}-hour block`,
+            provenanceFor(day.date, h0, span)
+        ].filter(Boolean);
+        const provenance = provBits.length
+            ? `<div class="tip-ctx">${provBits.join(' · ')}</div>` : '';
 
         // The was/now detail, as small muted lines under the detail
         // line. Recorded per hour, so a span has nothing to report.
@@ -2820,7 +2852,7 @@ const showTooltip = (el, anchor = null) => {
         // every value below came from the lines above.
         if (coarse()) {
             showHourCard({
-                day, h, span, wholeDay, sun, h0, dayName, range,
+                day, h, span, wholeDay, sun, h0, dayName, range, provBits,
                 activeDetail, claimedCondition, chips, chgLines, compare,
                 mmVal, snowVal, liquidVal, per
             });
@@ -4172,8 +4204,7 @@ const cardHTML = (f, expanded) => {
     // than detail the expansion reveals, and the comparison in particular
     // is what makes an open reading the comparison tool.
     const notes = [
-        f.span === 1 ? ''
-            : `<div class="rc-note">${f.wholeDay ? 'daily value' : `${f.span}-hour block`} · beyond native hourly</div>`,
+        f.provBits.length ? `<div class="rc-note">${f.provBits.join(' · ')}</div>` : '',
         f.chgLines.map(l => `<div class="rc-note">${l}</div>`).join(''),
         f.compare
     ].filter(Boolean).join('');
@@ -4797,6 +4828,45 @@ const openSearch = () => {
 // a new toggle is one name in a set instead of one more clause in a chain.
 const BOOL_PREFS = new Set(['allHours', 'legend', 'sunLines', 'dayNotify']);
 const NUM_PREFS = new Set(['heatWarn', 'uvWarn']);
+
+// The DR-35 reading for the city on screen, as a readout rather than a
+// control. It moves no pixels in the grid; it exists so the detector can
+// be watched on a phone for a few days before it is allowed to.
+//
+// Four things are worth reading and all four are here. The two onsets as
+// local clock times, because that is what the rest of the app speaks. The
+// series index and phase beside each, because those are what the probe
+// prints and what a disagreement would show up in. The unknown band,
+// because it is what makes a late point estimate survivable. And the
+// detected 6-hourly phase against `offset mod 6`, which is the probe's own
+// verdict check: a mismatch there is a finding, not a rounding error.
+//
+// The index is expected to move between payloads. It is a function of the
+// age of the model run, not of the city, so two readings a day apart
+// naming the same instant at different indices is the detector working.
+const cadenceReadout = () => {
+    const cad = state.cadence;
+    if (!cad) return '';
+    const sc = (label, value) => `<div class="sc"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
+    const when = i => {
+        const t = cad.timeAt(i);
+        return t ? `${dateLabel(t.slice(0, 10))} ${hourLabel(+t.slice(11, 13))}` : `index ${i}`;
+    };
+    const seam = (idx, phase) => idx === null ? '' : `${when(idx)} · i${idx} ph${phase}`;
+    const offset = Math.round((state.utcOffset || 0) / 3600);
+    const rows = cad.three === null && cad.six === null
+        ? [sc('Cadence', state.place.name), sc('hourly', 'all the way out')]
+        : [
+            sc('Cadence', state.place.name),
+            sc('1 in 3 from', cad.three === null ? 'not found' : seam(cad.three, cad.threePhase)),
+            cad.unknownFrom === null ? ''
+                : sc('unsure', `${when(cad.unknownFrom)} – ${when(cad.unknownTo)}`),
+            sc('1 in 6 from', cad.six === null ? 'none in this window' : seam(cad.six, cad.sixPhase)),
+            cad.six === null ? ''
+                : sc('6h phase', `${cad.sixPhase} of ${((offset % 6) + 6) % 6} expected`)
+        ];
+    return `<div class="shortcuts-hint">${rows.filter(Boolean).join('')}</div>`;
+};
 const renderSettings = () => {
     const seg = (key, options) => `<div class="seg">${options.map(([val, label]) =>
         `<button data-key="${key}" data-val="${val}"
@@ -4831,6 +4901,13 @@ const renderSettings = () => {
         `<button class="btn" id="whatsNewBtn" style="padding:5px 10px;font-size:12px;" title="See what changed in recent versions">view</button></div>` +
         `<div class="setting-row"><span>Hourly data</span>` +
         `<button class="btn" id="hourlyBtn" style="padding:5px 10px;font-size:12px;" title="How hourly data is made">view</button></div>` +
+        // One row, not three: it opens whichever view is on screen, and the
+        // sheet's own tabs reach the other two.
+        `<div class="setting-row"><span>How to read this</span>` +
+        `<button class="btn" id="explainBtn" style="padding:5px 10px;font-size:12px;" title="What the colours and the marks mean">view</button></div>` +
+        // Under the explainer, which is what argues the case the readout
+        // reports on.
+        cadenceReadout() +
         (matchMedia('(pointer: fine)').matches
             ? `<div class="shortcuts-hint">
                  <div class="sc"><span>Search</span><span>${MOD}K</span></div>
@@ -4914,6 +4991,7 @@ $('settings').addEventListener('click', e => {
     if (e.target.id === 'shareSiteBtn') { shareSite(); return; }
     if (e.target.id === 'whatsNewBtn') { openChangelog(); return; }
     if (e.target.id === 'hourlyBtn') { openHourly(); return; }
+    if (e.target.id === 'explainBtn') { closeSheet(); openExplain(); return; }
 });
 
 // --- Modal shell (shared by the changelog and the hourly-data
@@ -5043,6 +5121,51 @@ const closeHourly = () => {
     closeModal('hourly');
 };
 registerModal('hourly', closeHourly);
+
+// --- The view explainers: what the colours and the marks mean -----
+// Three illustrated sheets, one per view. Not in the shell: explain.css and
+// explain.js are their own files, fetched on first open and warmed into the
+// cache by sw.js after activation, so the shell carries 0.7kb instead of 5.
+//
+// They draw with the app's own palette and renderer, so an explainer cannot
+// teach a colour the grid is not painting. build.mjs wraps this script in an
+// IIFE and mangles every name in it, so the way out is an explicit export:
+// one object, whose property names terser keeps.
+window.MR = {
+    skyBaseRGB, skyRGB, skySample, skyLegend, precipOverlay, conditionFor,
+    bandRGB, windRGB, textOn, windOctant, mrIcon, MR_ICON,
+    LN, SKY, TEMP_BANDS, COMPASS, FROST_POSSIBLE, TEMP_DANGER_COLD, TEMP_DANGER_HOT
+};
+// The promise is what is remembered, not a flag: two taps before it settles
+// wait on the same pair of requests.
+let explainAssets = null;
+const loadExplain = () => explainAssets || (explainAssets = Promise.all([
+    new Promise((ok, no) => {
+        const l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = 'explain.css';
+        l.onload = ok; l.onerror = no;
+        document.head.appendChild(l);
+    }),
+    new Promise((ok, no) => {
+        const t = document.createElement('script');
+        t.src = 'explain.js';
+        t.onload = ok; t.onerror = no;
+        document.head.appendChild(t);
+    })
+]).catch(err => { explainAssets = null; throw err; }));
+// Offline on a first run is the one failing case: the warm happens after the
+// first activation, so there is nothing cached yet to fall back to.
+const openExplain = async (v = view) => {
+    if (window.mrExplain && window.mrExplain.isOpen()) { window.mrExplain.close(); return; }
+    retireHint('explain');
+    try {
+        await loadExplain();
+        window.mrExplain.open(v);
+    } catch {
+        setStatus('explainer needs a connection the first time', '', { transient: true });
+    }
+};
 
 // --- Grid gestures: the elastic day axis --------------------------
 // One axis, one meaning. The grid field is the calendar surface, so a
@@ -6719,6 +6842,11 @@ $('sheetScrim').addEventListener('click', () => closeSheet(false));
 // state and no way to bring them back.
 const LS_HINTS = 'mr-hints-seen';
 const HINTS = [
+    // First, and the only one that is pressed rather than performed: on a
+    // first launch the slot offers the colours rather than a gesture. Retires
+    // on open, like a gesture hint retires on use; ⚙ keeps it reachable after.
+    // Nothing opens by itself, so the grid is never covered before it is seen.
+    { key: 'explain', text: 'what the colours mean', live: () => true, tap: true },
     { key: 'sheet', text: 'swipe up for cities', live: () => sheetLive() },
     { key: 'days', text: 'pull the grid sideways for more days', live: () => elasticLive() },
     { key: 'hours', text: 'pull the hours for more of the day', live: () => hourPeekLive() },
@@ -6767,6 +6895,11 @@ const retireHint = key => {
 // The sheet keeps its own name for this, since it is called from the two
 // places that open the sheet.
 const hideSwipeHint = () => retireHint('sheet');
+// Live only for a hint that declared itself pressable.
+$('swipeHint').addEventListener('click', () => {
+    const h = HINTS.find(x => x.key === hintKey);
+    if (hintLive && h && h.tap) openExplain();
+});
 const renderSwipeHint = () => {
     if (hintPicked) { syncCaption(); return; }
     // Not before there is a forecast. Whether a gesture leads anywhere is
@@ -6782,6 +6915,9 @@ const renderSwipeHint = () => {
     hintKey = pick ? pick.key : null;
     hintLive = !!pick;
     if (pick) $('swipeHint').textContent = pick.text;
+    // Gold and pressable, like the freshness line it shares the slot with.
+    // The gesture hints stay grey and inert.
+    $('swipeHint').classList.toggle('tappable', !!(pick && pick.tap));
     syncCaption();
 };
 
