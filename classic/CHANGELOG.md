@@ -10,6 +10,8 @@ numbering from before the two variants split.
 
 - pressing enter in city search no longer opens whichever city sat at the top of the list. it dismisses the keyboard and loads the results for what was typed
 - the first result is no longer preselected on touch, where there is no enter key to explain the highlight
+- city search shows a pulsing "Searching…" row while the lookup is out, instead of a blank panel
+- on desktop, enter no longer opens a city from the list as it stood before the current keystroke. it commits only a highlighted row belonging to the text in the field
 
 ## v1.2.1 (2026-08-13)
 

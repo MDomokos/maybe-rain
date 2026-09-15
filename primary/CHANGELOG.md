@@ -6,6 +6,8 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 - unified scroll bar styling across the app
 - pressing enter in city search no longer opens whichever city sat at the top of the list. it dismisses the keyboard and loads the results for what was typed, so the city can be picked from the list
+- city search shows a pulsing "Searching…" row while the lookup is out, instead of a blank panel. matching pinned cities stay visible and pickable underneath it
+- on desktop, enter no longer opens a city from the list as it stood before the current keystroke. it commits only a highlighted row belonging to the text in the field
 
 ## v2.6.10 (2026-09-15)
 

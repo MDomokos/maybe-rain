@@ -842,7 +842,8 @@
            should not get a page where half the rules have noticed and half
            have not. Every rule here is stated for both. */
         @media (prefers-reduced-motion: reduce) {
-            .weather-block.skeleton, .status.updating { animation: none; opacity: 0.7; }
+            .weather-block.skeleton, .status.updating,
+            .search-busy { animation: none; opacity: 0.7; }
             /* Entrances: nothing arrives by moving. */
             .city-sheet.sheet-in, .city-sheet.sheet-out,
             .sheet-scrim.sheet-in, .sheet-scrim.sheet-out,
@@ -871,7 +872,8 @@
             .rc-fig .wf-sun circle { animation: none; rotate: none; translate: none; scale: none; }
         }
         html.reduce-motion .weather-block.skeleton,
-        html.reduce-motion .status.updating { animation: none; opacity: 0.7; }
+        html.reduce-motion .status.updating,
+        html.reduce-motion .search-busy { animation: none; opacity: 0.7; }
         html.reduce-motion .city-sheet.sheet-in,
         html.reduce-motion .city-sheet.sheet-out,
         html.reduce-motion .sheet-scrim.sheet-in,
@@ -2606,6 +2608,18 @@
         }
         .rl-city { font-weight: 600; }
         .rl-region { opacity: 0.55; }
+        /* Waiting on the geocoding request. A row's height so the list does
+           not jump when the results land, and the same slow pulse the
+           "Locating…" status uses — one waiting state, drawn one way. */
+        .search-busy {
+            display: flex;
+            align-items: center;
+            min-height: 44px;
+            padding: 0 var(--sp-1) 0 var(--gutter);
+            font-size: 15px;
+            color: var(--text-faint);
+            animation: skeletonPulse 1.6s ease-in-out infinite;
+        }
         /* Favorites-cap advisory: amber, matching the app's "attention" accent,
            softer than an error. Sits above the results until it self-clears. */
         .fav-hint {

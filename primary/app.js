@@ -4452,6 +4452,7 @@ const closeSearch = () => {
     $('searchInput').value = '';
     $('searchResults').innerHTML = '';
     searchHighlight = -1;
+    renderedQuery = null;
     $('searchInput').blur();
     if (sheetMode !== 'search') return;
     if (sheetLive()) setSheetMode('places');
@@ -4556,6 +4557,46 @@ const changeCity = (place, remember = true, anim = null) => {
 // They are grouped and named now, with the same seam the switcher uses,
 // because the search list is where those lifetimes are decided.
 const SUGGEST_TIERS = { pinned: 'pinned', recent: 'recent', result: '' };
+// One row's markup. Split out of renderSuggestions because the list is
+// painted twice per query now: once with what is already known plus a
+// pending row, and again when the geocoding hits land.
+const suggestionRow = (p, i, all) => {
+    const first = i === 0 || all[i - 1].tier !== p.tier;
+    const label = first ? SUGGEST_TIERS[p.tier] : '';
+    // One action per row, and it is the one that applies. A pinned
+    // city can only be unpinned and everything else can only be
+    // pinned, so there is never a button here whose meaning has to
+    // be worked out from the row it is sitting on. The old ✕ meant
+    // three things at once — drop from recents, drop from
+    // favourites, and evict the cache — and none of them was the
+    // one thing anybody wanted, which was "not in my mains".
+    const action = p.tier === 'pinned'
+        ? `<button class="unpin" data-i="${i}" aria-label="Unpin ${esc(p.name)}" title="Unpin">${MR_ICON.unpin}</button>`
+        : `<button class="pin" data-i="${i}" aria-label="Pin ${esc(p.name)}" title="Pin to your mains">${MR_ICON.pin}</button>`;
+    return `<div class="search-result tier-${p.tier}${first && i > 0 ? ' seam' : ''}" data-i="${i}">
+        <span class="result-label"><span class="rl-city">${esc(p.name)}</span>${
+            (p.admin1 || p.country)
+                ? `<span class="rl-region">${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>`
+                : ''
+        }</span>
+        ${label ? `<span class="rl-tier">${esc(label)}</span>` : ''}
+        <span class="result-actions">${action}</span>
+    </div>`;
+};
+// Shown while the geocoding request is out. The panel used to hold
+// whatever the previous keystroke left, which for a typed query is
+// nothing — typing collapses the recents tier — so the sheet emptied to
+// a blank strip for the length of the round trip. It pulses on the same
+// keyframe and at the same weight as the "Locating…" status, so waiting
+// reads the same way everywhere in the app, and is a row's height so the
+// sheet does not jump when the results replace it.
+const BUSY_ROW = '<div class="search-busy" role="status">Searching…</div>';
+// The query the list on screen was built for, or null when there is no
+// list. The debounce means the field and the list disagree for a moment
+// after every keystroke, and Enter has to know which it is looking at:
+// a highlighted row belongs to this query, not to whatever is in the
+// field now.
+let renderedQuery = null;
 let suggestToken = 0;
 const renderSuggestions = async query => {
     const token = ++suggestToken;
@@ -4566,6 +4607,15 @@ const renderSuggestions = async query => {
     const shown = new Set([...favs, ...recents].map(placeKey));
     let hits = [];
     if (q.length >= 2) {
+        // Paint what is known before going to the network: the matching
+        // pinned cities are pickable while the lookup runs, and the
+        // indices are the same ones the final render uses, so a tap
+        // landing mid-flight aims at the city it is on.
+        state.suggestions = favs.map(p => ({ ...p, tier: 'pinned' }));
+        searchHighlight = -1;
+        renderedQuery = null;
+        $('searchResults').innerHTML =
+            state.suggestions.map(suggestionRow).join('') + BUSY_ROW;
         hits = (await searchCity(query)).map(h => ({
             name: h.name, country: h.country_code || h.country || '',
             admin1: h.admin1 || '', latitude: h.latitude, longitude: h.longitude
@@ -4578,30 +4628,8 @@ const renderSuggestions = async query => {
         ...hits.map(p => ({ ...p, tier: 'result' }))
     ];
     searchHighlight = -1; // list rebuilt: drop any arrow-key highlight
-    $('searchResults').innerHTML =
-        state.suggestions.map((p, i, all) => {
-            const first = i === 0 || all[i - 1].tier !== p.tier;
-            const label = first ? SUGGEST_TIERS[p.tier] : '';
-            // One action per row, and it is the one that applies. A pinned
-            // city can only be unpinned and everything else can only be
-            // pinned, so there is never a button here whose meaning has to
-            // be worked out from the row it is sitting on. The old ✕ meant
-            // three things at once — drop from recents, drop from
-            // favourites, and evict the cache — and none of them was the
-            // one thing anybody wanted, which was "not in my mains".
-            const action = p.tier === 'pinned'
-                ? `<button class="unpin" data-i="${i}" aria-label="Unpin ${esc(p.name)}" title="Unpin">${MR_ICON.unpin}</button>`
-                : `<button class="pin" data-i="${i}" aria-label="Pin ${esc(p.name)}" title="Pin to your mains">${MR_ICON.pin}</button>`;
-            return `<div class="search-result tier-${p.tier}${first && i > 0 ? ' seam' : ''}" data-i="${i}">
-                <span class="result-label"><span class="rl-city">${esc(p.name)}</span>${
-                    (p.admin1 || p.country)
-                        ? `<span class="rl-region">${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>`
-                        : ''
-                }</span>
-                ${label ? `<span class="rl-tier">${esc(label)}</span>` : ''}
-                <span class="result-actions">${action}</span>
-            </div>`;
-        }).join('');
+    renderedQuery = query.trim();
+    $('searchResults').innerHTML = state.suggestions.map(suggestionRow).join('');
     // Preselect the first result so pressing Enter has an obvious,
     // visible target. Touch has no Enter key, so the gold highlight had
     // nothing to explain itself there — just a row lit up for no reason a
@@ -7642,12 +7670,22 @@ $('searchInput').addEventListener('keydown', e => {
         rows[searchHighlight].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (searchHighlight >= 0 && rows[searchHighlight]) {
+        const value = $('searchInput').value;
+        // Is the list on screen the list for what is in the field? While the
+        // debounce is out it is not, and the highlighted row is then a row
+        // from the previous query — on a fine pointer, where the first result
+        // is preselected, that is how Enter could open the city sitting at the
+        // top of the resting list instead of a match for what was typed.
+        const current = value.trim() === renderedQuery;
+        if (current && searchHighlight >= 0 && rows[searchHighlight]) {
             rows[searchHighlight].click();
             return;
         }
         clearTimeout(searchTimeout);
-        renderSuggestions($('searchInput').value);
+        // Already showing this query's results with nothing highlighted:
+        // there is nothing to fetch, and re-rendering would replace a list
+        // that can be picked from with the pending row for half a second.
+        if (!current) renderSuggestions(value);
         // Dropping the keyboard is the point on touch. On a fine pointer
         // the field keeps focus: the global keydown handler passes on
         // anything aimed at an INPUT, and without that guard the arrows

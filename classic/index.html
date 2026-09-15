@@ -355,7 +355,8 @@
             100% { opacity: 0; }
         }
         @media (prefers-reduced-motion: reduce) {
-            .weather-block.skeleton, .status.updating { animation: none; opacity: 0.7; }
+            .weather-block.skeleton, .status.updating,
+            .search-busy { animation: none; opacity: 0.7; }
             .weather-block.reveal { animation: none; }
             /* No pulse; the was/now tooltip detail still works. */
             .weather-block.changed::after { display: none; }
@@ -1166,6 +1167,17 @@
             border: 3px solid var(--bg);
             background-clip: padding-box;
             border-radius: var(--radius);
+        }
+        /* Waiting on the geocoding request. Matches a row's metrics so the
+           panel does not jump when the results land, and pulses on the same
+           keyframe as the "Locating…" status. */
+        .search-busy {
+            display: flex;
+            align-items: center;
+            padding: 6px 0 6px 12px;
+            font-size: 13px;
+            color: var(--text-faint);
+            animation: skeletonPulse 1.6s ease-in-out infinite;
         }
         .search-result {
             /* Reserve a bottom hairline on every row; its colour is set below

@@ -1088,6 +1088,7 @@ const closeSearch = () => {
     $('searchInput').value = '';
     $('searchResults').innerHTML = '';
     searchHighlight = -1;
+    renderedQuery = null;
     // Drop focus off the (now hidden) input so the global keydown
     // guard stops treating keystrokes as typing, so arrows work at once.
     $('searchInput').blur();
@@ -1176,6 +1177,35 @@ const changeCity = (place, remember = true, anim = null) => {
 // (only in the resting list) recents, then live geocoding hits.
 // Typing collapses recents but keeps matching favorites above the
 // geocoding results, so a starred city is always one keystroke away.
+// One row's markup. Split out because the list is painted twice per
+// query now: once with what is already known plus a pending row, and
+// again when the geocoding hits land.
+const suggestionRow = (p, i) =>
+    `<div class="search-result" data-i="${i}">
+        <span class="result-label"><span class="rl-city">${esc(p.name)}</span>${
+            (p.admin1 || p.country)
+                ? `<span class="rl-region">${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>`
+                : ''
+        }</span>
+        <span class="result-actions">
+            <button class="fav${p.fav ? ' on' : ''}" data-i="${i}"
+                    aria-label="${p.fav ? 'Unfavorite' : 'Favorite'} ${esc(p.name)}"
+                    aria-pressed="${p.fav}">${p.fav ? MR_ICON_STAR_SAVED : MR_ICON.star}</button>
+            ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">${MR_ICON.close}</button>` : `<span class="forget-slot" aria-hidden="true"></span>`}
+        </span>
+    </div>`;
+// Shown while the geocoding request is out. The panel used to hold
+// whatever the previous keystroke left, which for a typed query is
+// nothing — typing collapses the recents — so it emptied to a blank
+// strip for the length of the round trip. Same keyframe and weight as
+// the "Locating…" status, so waiting reads the same way everywhere.
+const BUSY_ROW = '<div class="search-busy" role="status">Searching…</div>';
+// The query the list on screen was built for, or null when there is no
+// list. The debounce means the field and the list disagree for a moment
+// after every keystroke, and Enter has to know which it is looking at:
+// a highlighted row belongs to this query, not to whatever is in the
+// field now.
+let renderedQuery = null;
 let suggestToken = 0;
 const renderSuggestions = async query => {
     const token = ++suggestToken;
@@ -1186,6 +1216,15 @@ const renderSuggestions = async query => {
     const shown = new Set([...favs, ...recents].map(placeKey));
     let hits = [];
     if (q.length >= 2) {
+        // Paint what is known before going to the network: the matching
+        // favorites stay pickable while the lookup runs, at the same
+        // indices the final render uses, so a tap landing mid-flight
+        // aims at the city it is on.
+        state.suggestions = favs.map(p => ({ ...p, saved: true, fav: true }));
+        searchHighlight = -1;
+        renderedQuery = null;
+        $('searchResults').innerHTML =
+            state.suggestions.map(suggestionRow).join('') + BUSY_ROW;
         hits = (await searchCity(query)).map(h => ({
             name: h.name, country: h.country_code || h.country || '',
             admin1: h.admin1 || '', latitude: h.latitude, longitude: h.longitude
@@ -1198,22 +1237,8 @@ const renderSuggestions = async query => {
         ...hits.map(p => ({ ...p, saved: isRecent(p), fav: false }))
     ];
     searchHighlight = -1; // list rebuilt: drop any arrow-key highlight
-    $('searchResults').innerHTML =
-        state.suggestions.map((p, i) =>
-            `<div class="search-result" data-i="${i}">
-                <span class="result-label"><span class="rl-city">${esc(p.name)}</span>${
-                    (p.admin1 || p.country)
-                        ? `<span class="rl-region">${p.admin1 ? `, ${esc(p.admin1)}` : ''}${p.country ? `, ${esc(p.country)}` : ''}</span>`
-                        : ''
-                }</span>
-                <span class="result-actions">
-                    <button class="fav${p.fav ? ' on' : ''}" data-i="${i}"
-                            aria-label="${p.fav ? 'Unfavorite' : 'Favorite'} ${esc(p.name)}"
-                            aria-pressed="${p.fav}">${p.fav ? MR_ICON_STAR_SAVED : MR_ICON.star}</button>
-                    ${p.saved ? `<button class="forget" data-i="${i}" aria-label="Remove ${esc(p.name)}">${MR_ICON.close}</button>` : `<span class="forget-slot" aria-hidden="true"></span>`}
-                </span>
-            </div>`
-        ).join('');
+    renderedQuery = query.trim();
+    $('searchResults').innerHTML = state.suggestions.map(suggestionRow).join('');
     // Preselect the first result so pressing Enter has an obvious,
     // visible target. Touch has no Enter key, so the gold highlight had
     // nothing to explain itself there — just a row lit up for no reason a
@@ -1720,12 +1745,22 @@ $('searchInput').addEventListener('keydown', e => {
         rows[searchHighlight].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (searchHighlight >= 0 && rows[searchHighlight]) {
+        const value = $('searchInput').value;
+        // Is the list on screen the list for what is in the field? While the
+        // debounce is out it is not, and the highlighted row is then a row
+        // from the previous query — on a fine pointer, where the first result
+        // is preselected, that is how Enter could open the city sitting at the
+        // top of the resting list instead of a match for what was typed.
+        const current = value.trim() === renderedQuery;
+        if (current && searchHighlight >= 0 && rows[searchHighlight]) {
             rows[searchHighlight].click();
             return;
         }
         clearTimeout(searchTimeout);
-        renderSuggestions($('searchInput').value);
+        // Already showing this query's results with nothing highlighted:
+        // there is nothing to fetch, and re-rendering would replace a list
+        // that can be picked from with the pending row for half a second.
+        if (!current) renderSuggestions(value);
         // Touch only: on a fine pointer the field keeps focus, or the
         // global keydown guard stops covering it and the arrows would
         // aim the app instead of walking this list.
