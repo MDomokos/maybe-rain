@@ -843,7 +843,8 @@
            have not. Every rule here is stated for both. */
         @media (prefers-reduced-motion: reduce) {
             .weather-block.skeleton, .status.updating,
-            .search-busy { animation: none; opacity: 0.7; }
+            .search-busy,
+            .search-results.pending { animation: none; opacity: 0.7; }
             /* Entrances: nothing arrives by moving. */
             .city-sheet.sheet-in, .city-sheet.sheet-out,
             .sheet-scrim.sheet-in, .sheet-scrim.sheet-out,
@@ -873,7 +874,8 @@
         }
         html.reduce-motion .weather-block.skeleton,
         html.reduce-motion .status.updating,
-        html.reduce-motion .search-busy { animation: none; opacity: 0.7; }
+        html.reduce-motion .search-busy,
+        html.reduce-motion .search-results.pending { animation: none; opacity: 0.7; }
         html.reduce-motion .city-sheet.sheet-in,
         html.reduce-motion .city-sheet.sheet-out,
         html.reduce-motion .sheet-scrim.sheet-in,
@@ -2608,6 +2610,13 @@
         }
         .rl-city { font-weight: 600; }
         .rl-region { opacity: 0.55; }
+        /* A lookup is out and the list on screen is the previous query's.
+           The rows stay where they are, pickable, and the whole list pulses
+           on the pending row's keyframe: rebuilding the panel per keystroke
+           collapsed it to one row and back, which read as flashing. */
+        .search-results.pending {
+            animation: skeletonPulse 1.6s ease-in-out infinite;
+        }
         /* Nothing to show: the message takes the row's place rather than
            leaving the panel blank. Quiet — no match is not an error. */
         .search-empty {

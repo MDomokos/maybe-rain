@@ -1087,6 +1087,7 @@ const closeSearch = () => {
     document.querySelector('.container').classList.remove('search-active');
     $('searchInput').value = '';
     $('searchResults').innerHTML = '';
+    $('searchResults').classList.remove('pending');
     searchHighlight = -1;
     renderedQuery = null;
     // Drop focus off the (now hidden) input so the global keydown
@@ -1227,15 +1228,27 @@ const renderSuggestions = async query => {
     let hits = [];
     let ok = true;   // the lookup ran (vacuously true when none was needed)
     if (q.length >= 2) {
-        // Paint what is known before going to the network: the matching
-        // favorites stay pickable while the lookup runs, at the same
-        // indices the final render uses, so a tap landing mid-flight
-        // aims at the city it is on.
-        state.suggestions = favs.map(p => ({ ...p, saved: true, fav: true }));
-        searchHighlight = -1;
+        // Waiting, without throwing the list away. Replacing the panel with
+        // the matching favorites plus the pending row collapsed it to a
+        // single row on every keystroke and re-expanded it when the results
+        // landed, so refining a query flashed the whole panel once per
+        // letter. The rows already on screen are the best answer available
+        // until better ones arrive, so they stay, pickable, and the list
+        // pulses on the pending row's own keyframe instead. The pending row
+        // is for the case that has nothing to pulse: the first lookup after
+        // the panel opens.
+        //
+        // `renderedQuery` goes null either way, so Enter reads what is on
+        // screen as a list for a query that is no longer in the field.
+        const box = $('searchResults');
         renderedQuery = null;
-        $('searchResults').innerHTML =
-            state.suggestions.map(suggestionRow).join('') + BUSY_ROW;
+        if (box.querySelector('.search-result')) {
+            box.classList.add('pending');
+        } else {
+            state.suggestions = favs.map(p => ({ ...p, saved: true, fav: true }));
+            searchHighlight = -1;
+            box.innerHTML = state.suggestions.map(suggestionRow).join('') + BUSY_ROW;
+        }
         const lookup = await searchCity(query);
         ok = lookup.ok;
         hits = lookup.results.map(h => ({
@@ -1251,6 +1264,7 @@ const renderSuggestions = async query => {
     ];
     searchHighlight = -1; // list rebuilt: drop any arrow-key highlight
     renderedQuery = query.trim();
+    $('searchResults').classList.remove('pending');
     $('searchResults').innerHTML = state.suggestions.length
         ? state.suggestions.map(suggestionRow).join('')
         : EMPTY_ROW(emptyMessage(query, ok));
