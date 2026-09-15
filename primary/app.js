@@ -4866,6 +4866,7 @@ const openSearch = () => {
             aim: Math.max(0, rows.length - 1),
             moved: false,
             cache: new Map(),
+            reads: new Map(),
             live: !reduceMotion()
         };
         renderSheet();
@@ -6071,19 +6072,63 @@ const rowMark = (r, first) =>
   : first ? r.tier : '';
 
 // Built once, when the sheet opens.
+// A row's reading, remembered for the life of the opening. `placeReading`
+// runs that city's whole cached payload back through processData, which is
+// ~5ms a row on a phone and is paid again by every re-render inside one
+// opening (a tier reshuffle, a view step, the door reopening on the same
+// list). The view is in the key because it is what the reading reports.
+const readingKey = place => `${placeKey(place)}|${view}`;
+const cachedReading = (place, sh = sheet) => {
+    const key = readingKey(place);
+    if (sh.reads.has(key)) return sh.reads.get(key);
+    const val = placeReading(place);
+    sh.reads.set(key, val);
+    return val;
+};
+
+// The values, filled into slots the names are already sitting in. Split out
+// of the render because the first render of an opening happens in the same
+// task as the touchmove that armed the gesture, and reading every row there
+// put ~30ms between the finger and the sheet appearing. The slot is drawn
+// either way, so nothing moves when these land a frame later.
+let sheetValueFrame = null;
+const fillSheetValues = () => {
+    sheetValueFrame = null;
+    if (!sheet) return;
+    const sh = sheet;
+    sheetRows().forEach((r, i) => {
+        const el = $('sheetList').querySelector(`#sheetRow${i}`);
+        if (!el || el.dataset.valued) return;
+        const val = cachedReading(r.place, sh);
+        if (sheet !== sh) return;   // closed or reopened while we were reading
+        el.dataset.valued = '1';
+        if (!val) return;
+        el.querySelector('.sr-val').textContent = val;
+        // Aria takes the value with the name, in that order whatever the
+        // row's own order is: a screen reader is reading the same
+        // comparison, and the name is what identifies the row.
+        el.setAttribute('aria-label', `${r.place.name}, ${val}`);
+    });
+};
 const renderSheet = () => {
     if (!sheet) return;
+    const sh = sheet;
+    let pending = false;
     const rows = sheetRows().map((r, i, all) => {
         const first = i === 0 || all[i - 1].tier !== r.tier;
         const mark = rowMark(r, first);
-        const val = placeReading(r.place);
+        // Only a reading this opening has already paid for is drawn now;
+        // anything else waits for the fill a frame later, so the names go
+        // up at the speed the gesture asked for them.
+        const known = sh.reads.has(readingKey(r.place));
+        const val = known ? sh.reads.get(readingKey(r.place)) : null;
+        if (!known) pending = true;
         // The slot is drawn whether or not it has a value, so a city with
         // no cache does not shunt the name beside it out of line with the
-        // rest of the list. Aria takes the value with the name, in that
-        // order whatever the row's own order is: a screen reader is reading
-        // the same comparison, and the name is what identifies the row.
+        // rest of the list.
         return `<div class="sheet-row tier-${r.tier}${r.tier === TIER_HERE ? ' current' : ''}${r.seam ? ' seam' : ''}"`
             + ` id="sheetRow${i}" role="option" tabindex="-1" aria-selected="false" data-idx="${i}"`
+            + (known ? ' data-valued="1"' : '')
             + ` aria-label="${esc(r.place.name)}${val ? `, ${esc(val)}` : ''}">`
             + `<span class="sr-val">${val ? esc(val) : ''}</span>`
             + `<span class="sr-name">${esc(r.place.name)}</span>`
@@ -6093,6 +6138,7 @@ const renderSheet = () => {
     $('sheetList').innerHTML = rows.join('');
     renderActions();
     paintAim();
+    if (pending && !sheetValueFrame) sheetValueFrame = scheduleFrame(fillSheetValues);
 };
 
 // The action row. The wide slot on the left says which mode the sheet is in;
@@ -6251,18 +6297,35 @@ const setAim = idx => {
 // waiting behind. Walked outward from the opening aim, because the rows
 // nearest where the finger starts are the ones it reaches first, and
 // abandoned the moment the sheet it belongs to is gone.
-const IDLE = cb => (window.requestIdleCallback || (f => setTimeout(f, 24)))(cb);
-const warmSheet = (sh, k = 1) => {
-    if (!sh || sheet !== sh || k > sh.rows.length) return;
-    IDLE(() => {
-        if (sheet !== sh) return;
-        // A preview is already queued, so the finger is moving. Warming is
-        // the one thing here with no deadline; it waits.
-        if (aimFrame) { warmSheet(sh, k); return; }
-        for (const i of [sh.aim - k, sh.aim + k]) {
-            if (i >= 0 && i < sh.rows.length) previewCols(sh.rows[i].place, sh);
+const IDLE = cb => (window.requestIdleCallback
+    || (f => setTimeout(() => f({ timeRemaining: () => FRAME_MS, didTimeout: true }), 24)))(cb);
+// One city's grid is about a frame's worth of work on a phone, so the slice
+// has to have a frame in it. Warming two cities per callback against no
+// budget at all was the jank: idle time is granted in whatever is left of a
+// frame, and 150ms of work spent inside it lands on the next one, which
+// during a drag is the frame the highlight was going to move in.
+const WARM_BUDGET_MS = 10;
+const warmSheet = (sh, queue = null) => {
+    if (!sh || sheet !== sh) return;
+    // Built once: the rows either side of the opening aim, nearest first,
+    // because those are the ones the finger reaches first.
+    if (!queue) {
+        queue = [];
+        for (let k = 1; k <= sh.rows.length; k++) {
+            for (const i of [sh.aim - k, sh.aim + k]) {
+                if (i >= 0 && i < sh.rows.length) queue.push(i);
+            }
         }
-        warmSheet(sh, k + 1);
+    }
+    if (!queue.length) return;
+    IDLE(deadline => {
+        if (sheet !== sh) return;
+        // A preview is already queued, so the finger is moving; or this
+        // slice has no room for a whole city. Warming is the one thing here
+        // with no deadline, so either way it waits for a better slice.
+        if (aimFrame || deadline.timeRemaining() < WARM_BUDGET_MS) { warmSheet(sh, queue); return; }
+        previewCols(sh.rows[queue.shift()].place, sh);
+        warmSheet(sh, queue);
     });
 };
 
@@ -6308,6 +6371,7 @@ const openSheet = via => {
         swept: Math.max(0, rows.length - 1),
         moved: false,
         cache: new Map(),
+        reads: new Map(),
         live: !reduceMotion()
     };
     setSheetMode('places');
@@ -6315,8 +6379,14 @@ const openSheet = via => {
     renderSheet();
     pinListToBottom();
     // Build the neighbouring cities' grids while nothing is happening, so
-    // the first pass over them is a cache hit rather than a stall.
-    if (sheet.live) warmSheet(sheet);
+    // the first pass over them is a cache hit rather than a stall. Held
+    // until the entrance has landed: it is about a frame of work per city,
+    // and starting it in the task that opened the sheet put it in front of
+    // the animation and of the first moves of the finger that asked for it.
+    const opened = sheet;
+    if (opened.live) setTimeout(() => {
+        if (sheet === opened) warmSheet(opened);
+    }, SHEET_EXIT_MS + 20);
     // The one re-measure. renderSheet's alignment ran while the sheet was
     // still rising, so take the reading again once it has landed and let
     // every detent after this reuse it.
@@ -6534,6 +6604,8 @@ const hideSheetChrome = () => {
         sc.hidden = true;
         sh.classList.remove('sheet-in', 'sheet-out');
         sc.classList.remove('sheet-in', 'sheet-out');
+        cancelFrame(sheetValueFrame);
+        sheetValueFrame = null;
         $('sheetList').innerHTML = '';
         $('searchResults').innerHTML = '';
         $('searchResults').classList.remove('pending');

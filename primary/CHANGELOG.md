@@ -2,13 +2,19 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
-## v2.6.11 (2026-09-15)
+## v2.6.12 (2026-09-15) - performance
+
+- the city switcher opens faster on the swipe
+- the neighbouring cities' grids are warmed one per idle slice, and only once the sheet has landed
+
+## v2.6.11 (2026-09-15) - bugfix
 
 - unified scroll bar styling across the app
-- pressing enter in city search no longer opens whichever city sat at the top of the list. it dismisses the keyboard and loads the results for what was typed, so the city can be picked from the list
-- city search says when a lookup is out instead of showing a blank panel. the results already on screen stay put and pulse while the next ones load, so refining a query no longer collapses and re-expands the list; the "Searching…" row is for the first lookup, when there is nothing to pulse yet
+- pressing enter in city search no longer opens whichever city sat at the top of the list
+- city search says when a lookup is out instead of showing a blank panel
 - on desktop, enter no longer opens a city from the list as it stood before the current keystroke. it commits only a highlighted row belonging to the text in the field
 - the search list says why it is empty instead of showing a blank panel: no match names the query, one character asks for more, and a lookup that failed says so rather than reading as "no such place"
+
 
 ## v2.6.10 (2026-09-15)
 
