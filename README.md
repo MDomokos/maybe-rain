@@ -26,7 +26,7 @@ There is a minification step if you want to further reduce file size, that is wh
 > [!TIP]
 > **The whole app is one HTML file: 60.6kb over the wire.**
 >
-> 184.7kb minified, gzipped to 60.6kb, plus a 2.2kb service worker (0.9kb gzipped).
+> 184.8kb minified, gzipped to 60.6kb, plus a 2.2kb service worker (0.9kb gzipped).
 <!-- /sizes -->
 
 <details>
