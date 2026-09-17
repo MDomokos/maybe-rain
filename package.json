@@ -5,7 +5,8 @@
   "description": "Build tooling for the Maybe Rain? weather PWA (minify + gh-pages deploy).",
   "type": "module",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "build:check": "node build.mjs --check"
   },
   "devDependencies": {
     "html-minifier-terser": "7.2.0",

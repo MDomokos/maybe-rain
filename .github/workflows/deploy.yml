@@ -32,6 +32,30 @@ jobs:
       - name: Minify into dist/
         run: npm run build
 
+      # The build writes what the app costs into the <!-- sizes --> block in
+      # README.md, so the figures come from the release they describe rather
+      # than from whenever someone last edited them by hand. Committed here
+      # because the runner's copy is otherwise thrown away with it.
+      #
+      # [skip ci] keeps this commit from starting the workflow again. A push
+      # that lands behind a newer main is reported and swallowed rather than
+      # rebased: the checkout is shallow, and a README line is not worth
+      # failing a deploy that already produced the site. The next run to move
+      # the numbers carries them.
+      - name: Commit README sizes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "README sizes unchanged"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -qm "sizes: update README for ${GITHUB_SHA::7} [skip ci]"
+          git push -q origin HEAD:main \
+            || echo "push rejected (main moved); the next run picks the sizes up"
+
       - name: Publish dist/ to gh-pages
         run: |
           cd dist
