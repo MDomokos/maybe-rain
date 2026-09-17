@@ -1,45 +1,48 @@
 # changelog
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
+## v2.6.14b (2026-09-18) — fix
 
-## v2.6.14b (2026-09-18) - fix
+- fixed the app failing to start on a device that had used it before. 2.6.14 re-keyed the cached model metadata and the startup code still read the old shape, so it threw before the grid was drawn
+- the settings menu shows the running build at the foot of the list, as the service worker's cache name
 
-- fixed the app failing to start on a device that had used it before. the cached model metadata was re-keyed by model in 2.6.14, and the startup code still read the old shape, which threw before the grid was drawn and left nothing on screen. a first visit was unaffected, which is why it reached a release
-- the settings menu shows the running build at the foot of the list. it prints the service worker's cache name, the same string the deployed version is keyed on, so a device can be checked against what was published
+## v2.6.14 (2026-09-17) — refresh
 
-## v2.6.14 (2026-09-17) - refresh
-
-- switching to a city fetched a minute ago no longer refetches it. the switch still outranks a fetch in flight for the city being left, which is the only part of it that was needed
-- the run time and next-update countdown now read the model that actually serves the city on screen. a place in the americas was told icon's cycle while its forecast came from gfs, two hours apart on the day this was measured
+- switching to a city fetched a minute ago no longer refetches it
+- the run time and next-update countdown now read the model that actually serves the city on screen. a place in the americas was told icon's cycle while its forecast came from gfs
 - the app stops asking for a forecast at times the model provably has nothing new. it looks from half an hour before the next release until it lands, and once an hour regardless, instead of every thirty minutes around the clock
 - a run the api announces before all its servers are serving it gets one more look ten minutes on, then no more
-- the thirty-minute timer is gone. the app now sets one alarm for the moment its model is next due, moves it every time a forecast lands, and stops it entirely while the page is hidden
+- the thirty-minute timer is gone. the app sets one alarm for the moment its model is next due, moves it every time a forecast lands, and stops it while the page is hidden
 
-## v2.6.13 (2026-09-17) - performance
+## v2.6.13 (2026-09-17) — performance
 
-- the switcher dims the grid in the direction of the swipe while a city's grid is still building, then brings that city up out of the dim when it lands, instead of holding still
+- the switcher dims the grid in the direction of the swipe while a city's grid is still building, then brings that city up out of the dim when it lands
 - the switcher no longer gets slower the more cities are pinned. a row's reading is read out of the cached payload instead of rebuilding that city's whole forecast for one hour's value
-- grid previews are warmed one row either side of the aim and follow it as it moves, instead of the whole list. eight pinned cities used to queue seven grid builds behind the gesture
-- fixed the stored app shell staying on the previous release. the copy for the cache was cloned after the page had started reading the response, which throws, and the error was swallowed
+- grid previews are warmed one row either side of the aim and follow it as it moves. eight pinned cities used to queue seven grid builds behind the gesture
+- fixed the stored app shell staying on the previous release
 - the shell is fetched past the browser's own http cache, on install too, so network-first means the network
 - the shell is cached under one key instead of one per url. a shared place link used to add an entry of its own while the copy the offline fallback reads went stale
-- `?dev` loads network-only and stores nothing, for testing a deploy without bumping the cache version. `?nosw` unregisters the worker and drops its caches
-- debug switches survive the address-bar rewrite, so a reload keeps them. they are never part of a shared link
+
+### debug switches
+
+- `?dev` loads network-only and stores nothing, for testing a deploy without bumping the cache version
+- `?nosw` unregisters the worker and drops its caches
 - `?debug=perf,hold` turns several switches on at once; `?perf` and `?holddebug` still work on their own
 - `?perf` prints on-device timings for each switcher opening: rows drawn, touch wait, handler, first painted frame, and the worst long animation frame split into script, layout and render
+- the switches survive the address-bar rewrite, so a reload keeps them. they are never part of a shared link
 
-## v2.6.12 (2026-09-15) - performance
+## v2.6.12 (2026-09-15) — performance
 
 - the city switcher opens faster on the swipe
 - the neighbouring cities' grids are warmed one per idle slice, and only once the sheet has landed
 
-## v2.6.11 (2026-09-15) - bugfix
+## v2.6.11 (2026-09-15) — bugfix
 
 - unified scroll bar styling across the app
-- pressing enter in city search no longer opens whichever city sat at the top of the list
-- city search says when a lookup is out instead of showing a blank panel
-- on desktop, enter no longer opens a city from the list as it stood before the current keystroke. it commits only a highlighted row belonging to the text in the field
-- the search list says why it is empty instead of showing a blank panel. a failed lookup says so rather than reading as "no such place"
+- pressing enter in city search no longer opens whichever city sat at the top of the list. it dismisses the keyboard and loads the results for what was typed
+- on desktop, enter commits only a highlighted row belonging to the text in the field, not the list as it stood before the current keystroke
+- city search pulses the results already on screen while the next ones load, so refining a query no longer collapses and re-expands the list. a first lookup, with nothing to pulse yet, gets a "Searching…" row
+- the search list says why it is empty instead of showing a blank panel: no match names the query, one character asks for more, and a failed lookup says so rather than reading as "no such place"
 
 ## v2.6.10 (2026-09-15)
 
