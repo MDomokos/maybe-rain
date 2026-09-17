@@ -3138,7 +3138,7 @@ const veilFor = (x, y) => {
 
 // --- The hold-scrub -------------------------------------------------
 // A deliberate, owner-directed exception to "distance is the only
-// arbiter, no timers" (see DR-49 in research/SPEC.md, and the two prior
+// arbiter, no timers" (see DR-49 in SPEC.md, and the two prior
 // long-press tooltips this project shipped and reverted, DR-18/24 and
 // DR-25/28, both for feeling fiddly in daily use — this is a third
 // attempt, on the docked card rather than the old floating tooltip, and
@@ -3238,7 +3238,7 @@ const endHoldScrub = () => {
 // with `armed=yes` every time a scrub is dragged with any vertical
 // component, and with `armed=no` for a press that drifts vertically
 // before it can arm.
-// `typeof` guard because research/test-docked-reading.mjs evals this
+// `typeof` guard because scripts/test-docked-reading.mjs evals this
 // region with neither `location` nor the switch registry in scope.
 const HS_DEBUG = typeof dbg === 'function'
     ? dbg('hold')

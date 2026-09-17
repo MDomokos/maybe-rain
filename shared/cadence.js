@@ -5,10 +5,10 @@
 // hourly temperature series to find where that starts. No extra request:
 // the arithmetic runs over an array the app already has.
 //
-// This is a PORT of `research/tz-boundary-probe.py`, not a second
+// This is a PORT of `scripts/cadence/tz-boundary-probe.py`, not a second
 // derivation of it. Same function names, same argument order, same
 // constants, same control flow, so the two can be diffed by eye.
-// `research/test-cadence.mjs` holds it to the probe's own six planted
+// `scripts/cadence/test-cadence.mjs` holds it to the probe's own six planted
 // series, via the fixture `--dump-cases` writes. Change one and the other
 // has to move with it.
 //

@@ -4,7 +4,7 @@
 //
 // Every colour, threshold and mark comes from the app through `MR`, so an
 // explainer cannot describe a palette the grid is not painting. Opened directly
-// (the drafts in research/) there is no export and the modules load as plain
+// (the drafts in scripts/explain-preview/) there is no export and the modules load as plain
 // scripts, so the fallback below reads their global lexical bindings instead.
 const MR = window.MR || {
     skyBaseRGB, skyRGB, skySample, skyLegend, precipOverlay, conditionFor,
@@ -326,7 +326,7 @@ window.mrExplain = {
     close: explainClose,
     isOpen: () => !!exSheet && !exSheet.hidden,
     view: () => exView,
-    // For the drafts in research/, which render a body flat. Unused in the app.
+    // For the drafts in scripts/explain-preview/, which render a body flat. Unused in the app.
     body: v => EX_BODIES[v](),
     paint: paintExplain
 };
