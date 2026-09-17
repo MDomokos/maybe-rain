@@ -6,13 +6,17 @@ this is the classic variant. its versions start `1.0.` and count on their
 own; primary starts `2.0.`. everything below v1.0.0 is the old flat
 numbering from before the two variants split.
 
+## v1.2.3b (2026-09-18) - fix
+
+- fixed the app failing to start on a device that had used it before. the cached model metadata was re-keyed by model in 1.2.3, and the startup code still read the old shape, which threw before the grid was drawn
+- the settings menu shows the running build at the foot of the list, as the service worker's cache name
+
 ## v1.2.3 (2026-09-17) - refresh
 
 - the app asks for a forecast on its model's own schedule instead of every thirty minutes. it looks from half an hour before the next release until it lands, once an hour regardless, and not at all while the page is hidden
 - the run time and next-update countdown read the model that actually serves the city on screen. a place in the americas was told icon's cycle while its forecast came from gfs
 - switching to a city fetched a minute ago no longer refetches it
 - a run the api announces before all its servers are serving it gets one more look ten minutes on, then no more
-- the settings menu shows the running build at the foot of the list, as the service worker's cache name
 
 ## v1.2.2 (2026-09-15)
 

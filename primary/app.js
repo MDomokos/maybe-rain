@@ -8217,8 +8217,12 @@ const firstVisit = !urlPlace && !hasSaved;
 if (urlPlace) { state.place = urlPlace; saveJSON(LS_PLACE, urlPlace); rememberCity(urlPlace); }
 else if (hasSaved) state.place = savedPlace;
 
-const savedMeta = loadJSON(LS_META);
-if (savedMeta?.last_run_initialisation_time) setModelRun(savedMeta);
+// Keyed by slug since the global model follows the place, so this reads
+// the entry for the place resolved above, not whatever was cached last.
+const savedMeta = metaCache(LS_META);
+const startGlobal = globalModelFor(state.place.latitude, state.place.longitude);
+if (savedMeta[startGlobal.slug]?.last_run_initialisation_time)
+    setModelRun(savedMeta[startGlobal.slug], startGlobal);
 // Prime the local run from cache for the resolved place, so the two-model
 // line can paint immediately; fetchLocalMeta revalidates on first fetch.
 const savedLocal = loadJSON(LS_META_LOCAL);

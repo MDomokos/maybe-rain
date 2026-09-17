@@ -2,6 +2,11 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.14b (2026-09-18) - fix
+
+- fixed the app failing to start on a device that had used it before. the cached model metadata was re-keyed by model in 2.6.14, and the startup code still read the old shape, which threw before the grid was drawn and left nothing on screen. a first visit was unaffected, which is why it reached a release
+- the settings menu shows the running build at the foot of the list. it prints the service worker's cache name, the same string the deployed version is keyed on, so a device can be checked against what was published
+
 ## v2.6.14 (2026-09-17) - refresh
 
 - switching to a city fetched a minute ago no longer refetches it. the switch still outranks a fetch in flight for the city being left, which is the only part of it that was needed
@@ -9,7 +14,6 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the app stops asking for a forecast at times the model provably has nothing new. it looks from half an hour before the next release until it lands, and once an hour regardless, instead of every thirty minutes around the clock
 - a run the api announces before all its servers are serving it gets one more look ten minutes on, then no more
 - the thirty-minute timer is gone. the app now sets one alarm for the moment its model is next due, moves it every time a forecast lands, and stops it entirely while the page is hidden
-- the settings menu shows the running build at the foot of the list. it prints the service worker's cache name, the same string the deployed version is keyed on, so a device can be checked against what was published
 
 ## v2.6.13 (2026-09-17) - performance
 
