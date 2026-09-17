@@ -188,6 +188,18 @@ Two surfaces, and which one a drag started on is what decides its meaning.
 - **Peek** — the same gesture, released on the row it started on. The grid
   previews each aimed city at its true colours, so swiping up and letting go
   where you were is "let me just check over there" and costs nothing.
+- **The waiting dim** — a preview needs that city's grid built, which is real
+  work (the payload goes back through the renderer), so a row the warm window
+  has not reached cannot be shown in the frame the finger asks for it. The
+  blink every transition here is made of has two halves and only the second
+  needs the destination, so they are split across the wait: the darkening runs
+  immediately, staggered in the direction of travel, and the city comes up out
+  of it when the build lands a frame or two later. Being an ordinary sweep, it
+  retargets when the finger moves on and rewinds when it reverses. It rests at
+  55% rather than at black, which is this app's word for absent. A city with
+  no cached forecast dips and lifts back to the city on screen. Warmed rows do
+  not dim at all, and the current city's grid is seeded when the sheet opens,
+  so aiming back at its row is always immediate.
 - **Switch view** — swipe sideways, one step per swipe. Nothing moves under the
   finger: the travel is read at the release, and past 45px the grid plays one
   whole sweep, the same one a tap on the view buttons plays. A view is one of

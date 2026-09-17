@@ -31,6 +31,30 @@ const reduceMotion = () => REDUCE_Q.matches;
 // card; a fine one keeps the floating tooltip and its hover behaviour. Read
 // through `coarse()` so a device that changes primary pointer mid-session
 // (a tablet gaining a trackpad) answers with what is true now.
+// --- Debug switches -------------------------------------------------
+// One registry, so a new switch is a name here rather than another regex over
+// location.search. `?debug=perf,hold` turns several on in one URL, `?debug`
+// alone turns on everything, and the older `?perf` and `?holddebug` spellings
+// still work. A switch only adds a readout; none of them changes what the app
+// does, and none costs anything when the URL is silent.
+//
+// `?dev` (network-only load, sw.js) and `?nosw` (unregister the worker,
+// shared/sw-update.js) are the service worker's rather than the app's.
+const DEBUG_ON = (() => {
+    const on = new Set();
+    if (typeof location === 'undefined') return on;
+    const q = new URLSearchParams(location.search);
+    if (q.has('debug')) {
+        const v = (q.get('debug') || '').trim().toLowerCase();
+        if (!v || v === '1' || v === 'all') { on.add('perf'); on.add('hold'); }
+        else v.split(',').forEach(n => { const t = n.trim(); if (t) on.add(t); });
+    }
+    if (q.has('perf')) on.add('perf');
+    if (q.has('holddebug')) on.add('hold');
+    return on;
+})();
+const dbg = name => DEBUG_ON.has(name);
+
 const COARSE_Q = matchMedia('(pointer: coarse)');
 const coarse = () => COARSE_Q.matches;
 const syncReduceMotion = () =>
@@ -3215,8 +3239,10 @@ const endHoldScrub = () => {
 // component, and with `armed=no` for a press that drifts vertically
 // before it can arm.
 // `typeof` guard because research/test-docked-reading.mjs evals this
-// region with no `location` in scope.
-const HS_DEBUG = typeof location !== 'undefined' && /[?&]holddebug\b/.test(location.search);
+// region with neither `location` nor the switch registry in scope.
+const HS_DEBUG = typeof dbg === 'function'
+    ? dbg('hold')
+    : (typeof location !== 'undefined' && /[?&]holddebug\b/.test(location.search));
 const hsTally = { down: 0, gap: 0, arm: 0, drift: 0, cancel: 0, miss: 0, up: 0 };
 let hsG = null;          // the gesture being measured: {t0, x, y, far, armed, block}
 let hsLines = [];        // newest first, capped
@@ -4558,9 +4584,9 @@ const changeCity = (place, remember = true, anim = null) => {
 // They are grouped and named now, with the same seam the switcher uses,
 // because the search list is where those lifetimes are decided.
 const SUGGEST_TIERS = { pinned: 'pinned', recent: 'recent', result: '' };
-// One row's markup. Split out of renderSuggestions because the list is
-// painted twice per query now: once with what is already known plus a
-// pending row, and again when the geocoding hits land.
+// One row's markup. Split out of renderSuggestions because the list can be
+// painted twice per query: once before the lookup, and again when the
+// geocoding hits land.
 const suggestionRow = (p, i, all) => {
     const first = i === 0 || all[i - 1].tier !== p.tier;
     const label = first ? SUGGEST_TIERS[p.tier] : '';
@@ -4584,29 +4610,26 @@ const suggestionRow = (p, i, all) => {
         <span class="result-actions">${action}</span>
     </div>`;
 };
-// Shown while the geocoding request is out. The panel used to hold
-// whatever the previous keystroke left, which for a typed query is
-// nothing — typing collapses the recents tier — so the sheet emptied to
-// a blank strip for the length of the round trip. It pulses on the same
-// keyframe and at the same weight as the "Locating…" status, so waiting
-// reads the same way everywhere in the app, and is a row's height so the
-// sheet does not jump when the results replace it.
+// Shown while the geocoding request is out and there is nothing on screen to
+// pulse instead. For a typed query the panel held nothing, since typing
+// collapses the recents tier, so it emptied to a blank strip for the length
+// of the round trip. Same keyframe and weight as the "Locating…" status, and
+// a row's height, so the sheet does not jump when the results replace it.
 const BUSY_ROW = '<div class="search-busy" role="status">Searching…</div>';
-// Nothing to show, said in the terms of whichever nothing it is. An empty
-// list used to render as an empty panel, which is the same picture for
-// "no match", "still typing", and "the lookup failed" — three different
-// things to do next. Quiet rather than an error: none of them is a fault.
+// Which nothing it is. An empty list used to render as an empty panel, the
+// same picture for "no match", "still typing" and "the lookup failed", which
+// call for different things next. Quiet rather than an error: none of them is
+// a fault.
 const EMPTY_ROW = msg => `<div class="search-empty" role="status">${esc(msg)}</div>`;
 const emptyMessage = (query, ok) =>
     !ok ? 'Search unavailable. Check your connection'
   : query.trim().length === 1 ? 'Keep typing…'
   : query.trim() ? `No places match “${query.trim()}”`
   : 'No saved places yet. Type a city name';
-// The query the list on screen was built for, or null when there is no
-// list. The debounce means the field and the list disagree for a moment
-// after every keystroke, and Enter has to know which it is looking at:
-// a highlighted row belongs to this query, not to whatever is in the
-// field now.
+// The query the list on screen was built for, or null when there is no list.
+// The debounce leaves the field and the list disagreeing for a moment after
+// every keystroke, and a highlighted row belongs to this query rather than to
+// whatever is in the field now, which is what Enter has to know.
 let renderedQuery = null;
 let suggestToken = 0;
 const renderSuggestions = async query => {
@@ -4619,18 +4642,17 @@ const renderSuggestions = async query => {
     let hits = [];
     let ok = true;   // the lookup ran (vacuously true when none was needed)
     if (q.length >= 2) {
-        // Waiting, without throwing the list away. Replacing the panel with
+        // Waiting without throwing the list away. Replacing the panel with
         // the matching pinned cities plus the pending row collapsed it to a
         // single row on every keystroke and re-expanded it when the results
-        // landed, so refining a query flashed the whole panel once per
-        // letter. The rows already on screen are the best answer available
-        // until better ones arrive, so they stay, pickable, and the list
-        // pulses on the pending row's own keyframe instead. The pending row
-        // is for the case that has nothing to pulse: the first lookup after
-        // the panel opens.
+        // landed, so refining a query flashed the whole panel once a letter.
+        // The rows on screen are the best answer until better ones arrive, so
+        // they stay, pickable, and the list pulses on the pending row's
+        // keyframe. The pending row is for the first lookup after the panel
+        // opens, which has nothing to pulse.
         //
         // `renderedQuery` goes null either way, so Enter reads what is on
-        // screen as a list for a query that is no longer in the field.
+        // screen as a list for a query no longer in the field.
         const box = $('searchResults');
         renderedQuery = null;
         if (box.querySelector('.search-result')) {
@@ -4855,6 +4877,7 @@ document.addEventListener('click', e => {
 // not already up, so ⌘K and the placeholder row land in the same place.
 const openSearch = () => {
     if (sheetMode === 'search') { $('searchInput').focus(); return; }
+    perfBegin('search');
     openSheetChrome();
     // Give the sheet a list to step back to, so leaving search does not
     // land on an empty body when search was what opened the sheet.
@@ -4874,6 +4897,7 @@ const openSearch = () => {
     setSheetMode('search');
     renderSuggestions(''); // saved cities + geolocate, before any typing
     $('searchInput').focus();
+    perfEnd();
 };
 // The header strip is a readout now, not a control: the city name has
 // moved to the control row and search is reached through the sheet, so
@@ -6019,10 +6043,37 @@ const sheetColsFor = (idx, sh = sheet) => previewCols((sh?.rows || sheetRows())[
 // zero. Same honesty rule as the preview, where an uncached
 // city sweeps to black rather than to invented colours: the app
 // has one way of saying "not here yet" and it is to say nothing.
-const placeReading = place => withPlaceState(place, () => {
-    const h = nowHour();
-    return h ? viewReading(h, view) : null;
-});
+//
+// Reads the one hour it needs out of the cached payload instead of going
+// through withPlaceState, which runs processData over the whole 17-day
+// payload for it: ~10ms a city on a phone, and with eight rows most of the
+// cost of opening the switcher. The field names are processData's own, so the
+// value is the same.
+const placeReading = place => {
+    // state already holds the payload of the city on screen.
+    if (placeKey(place) === placeKey(state.place)) {
+        const h = nowHour();
+        return h ? viewReading(h, view) : null;
+    }
+    const entry = loadForecast(place);
+    if (!entry?.payload || forecastExpired(entry)) return null;
+    const hourly = entry.payload.hourly;
+    if (!hourly?.time?.length) return null;
+    // The payload's hour stamps are city-local ISO, so the city's own current
+    // hour is a string compare: shift UTC by the payload's offset and cut to
+    // the hour. Same construction forecastExpired uses.
+    const stamp = new Date(Date.now() + (entry.payload.utc_offset_seconds || 0) * 1000)
+        .toISOString().slice(0, 13);
+    const i = hourly.time.findIndex(t => t.slice(0, 13) === stamp);
+    if (i < 0) return null;
+    // A missing field reads blank rather than as a guess, as in the grid.
+    const h = {
+        pop: hourly.precipitation_probability?.[i] ?? null,
+        temp: hourly.temperature_2m?.[i] != null ? Math.round(hourly.temperature_2m[i]) : null,
+        wind: hourly.wind_speed_10m?.[i] ?? null
+    };
+    return viewReading(h, view);
+};
 
 // --- The comparison line in the tooltip ---------------------------------
 // The app already keeps an open tooltip alive across a city switch and
@@ -6248,6 +6299,84 @@ const paintAim = () => {
 // the latest aim wins, intermediate ones are never built. `swept` is what
 // the grid was last pointed at, which is what makes the sweep direction
 // the distance actually travelled rather than the last detent crossed.
+// --- The waiting dim ------------------------------------------------
+// A city whose grid is not built yet used to preview nothing: the finger
+// crossed the row, the thread spent ~100ms building that city's grid, and the
+// screen did not move until it was done.
+//
+// The blink every transition here is made of has two halves, a cell darkening
+// and then coming up in its new colour, and only the second needs the
+// destination. They are split across the wait: the darkening runs now,
+// staggered in the direction of travel, off the grid already on screen, and
+// the city comes up out of it when the build lands. Being an ordinary city
+// sweep, it retargets when the finger moves on, rewinds when the finger
+// reverses, and is held open by the drag; reduced motion skips it, since
+// flushAim returns before this.
+//
+// It rests at 0.55 rather than at black. Black is this app's word for absent
+// (an uncached city, a column with no data), and the data here is one frame
+// away.
+const AWAIT_DIM = 0.55;
+// One dim copy per source grid, kept by identity: `waveTo` compares
+// destinations with ===, so a fresh array per aim change would restart the
+// stagger on every row the finger crosses.
+let dimSrc = null, dimOut = null;
+const dimOf = base => {
+    if (dimSrc === base && dimOut) return dimOut;
+    dimSrc = base;
+    dimOut = base.map(col => col.map(d => d.empty ? d : { ...d, rgb: [
+        Math.round(d.rgb[0] * AWAIT_DIM),
+        Math.round(d.rgb[1] * AWAIT_DIM),
+        Math.round(d.rgb[2] * AWAIT_DIM)
+    ] }));
+    return dimOut;
+};
+// What a dim is taken of: the grid on screen, which mid-sweep is where the
+// sweep is heading. When that is already the dim, its source instead, since
+// dimming a dim fades the grid out over a run of fast rows.
+const awaitBase = () => {
+    const cols = wave ? wave.to : lastCols;
+    return cols === dimOut ? dimSrc : cols;
+};
+// True while the dim is on screen rather than a real city. The commit reads
+// it: with the dim up the destination was never previewed, so the city change
+// still has a transition to play rather than a repaint onto what is there.
+const awaitingCity = () => !!(wave && wave.to === dimOut) || !!aimBuildFrame;
+const startAwaitDim = dir => {
+    const base = awaitBase();
+    if (!base) return;
+    waveTo($('grid'), dimOf(base), dir, { axis: 'y', hold: true });
+};
+// The build, on the frame after the darkening is handed to the playhead. Run
+// in the same frame, it spends the frame the gesture is waiting on inside
+// processData, which is the stall the dim covers.
+//
+// One build in flight, for the row the finger is on when it runs rather than
+// the row that asked. `previewCols` caches, so a build the finger has left is
+// not wasted, and the newest row is queued behind it.
+let aimBuildFrame = null, aimBuildDir = 1;
+const queueAimBuild = dir => {
+    aimBuildDir = dir;
+    if (aimBuildFrame) return;
+    aimBuildFrame = scheduleFrame(() => {
+        aimBuildFrame = null;
+        if (!sheet) return;
+        const place = sheet.rows[sheet.aim]?.place;
+        if (!place) return;
+        const t0 = PERF_ON ? performance.now() : 0;
+        const cols = previewCols(place, sheet);
+        if (PERF_ON) perfSay(`preview ${place.name} ${cols ? 'built' : 'no cache'} in ${Math.round(performance.now() - t0)}ms`);
+        if (!sheet) return;
+        const now = sheet.rows[sheet.aim]?.place;
+        if (!now || placeKey(now) !== placeKey(place)) { queueAimBuild(aimBuildDir); return; }
+        // A city with no cached forecast has nothing to come up out of the
+        // dim, so the dim lifts and the grid returns to the city it was
+        // showing. A dip that returns reads as "nothing for that one"
+        // without claiming the black that means absent.
+        waveTo($('grid'), cols || awaitBase(), aimBuildDir, { axis: 'y', hold: true });
+    });
+};
+
 let aimFrame = null;
 const flushAim = () => {
     aimFrame = null;
@@ -6266,8 +6395,21 @@ const flushAim = () => {
     const idx = sheet.aim, was = sheet.swept;
     if (idx === was) return;
     sheet.swept = idx;
-    const cols = sheetColsFor(idx);
-    if (cols) waveTo($('grid'), cols, -(Math.sign(idx - was) || 1), { axis: 'y', hold: true });
+    const dir = -(Math.sign(idx - was) || 1);
+    const place = sheet.rows[idx]?.place;
+    const cols = place && sheet.cache.has(placeKey(place))
+        ? sheet.cache.get(placeKey(place)) : undefined;
+    // Already built: warmed, crossed before, or the city on screen, seeded
+    // into the cache when the sheet opens. The ordinary sweep, in one frame.
+    if (cols) waveTo($('grid'), cols, dir, { axis: 'y', hold: true });
+    else {
+        // Not built, or known to hold nothing: darken now, build next frame.
+        startAwaitDim(dir);
+        queueAimBuild(dir);
+    }
+    // The aim moved, so the window did: warm the row the finger is heading
+    // for next, once this frame's own work is done.
+    warmSheet(sheet);
 };
 const queueAim = () => { if (!aimFrame) aimFrame = scheduleFrame(flushAim); };
 // `run` is for the paths that end the gesture in the same task the aim
@@ -6291,12 +6433,16 @@ const setAim = idx => {
     queueAim();
 };
 
-// The cities either side of the aim, built while nothing is happening.
+// The two cities either side of the aim, built while nothing is happening.
 // `previewCols` caches per opening, so this is not extra work — it is the
 // same work moved off the drag, where it was the thing the highlight was
-// waiting behind. Walked outward from the opening aim, because the rows
-// nearest where the finger starts are the ones it reaches first, and
-// abandoned the moment the sheet it belongs to is gone.
+// waiting behind. Abandoned the moment the sheet it belongs to is gone.
+//
+// A window of one, re-aimed as the finger moves, rather than the whole list.
+// Warming every row cost ~90ms of grid building per city: eight pinned cities
+// queued some 600ms of work behind a gesture that had just started, and the
+// switcher got slower the more cities were pinned. The finger reaches one row
+// at a time, so one row either side is enough lead.
 const IDLE = cb => (window.requestIdleCallback
     || (f => setTimeout(() => f({ timeRemaining: () => FRAME_MS, didTimeout: true }), 24)))(cb);
 // One city's grid is about a frame's worth of work on a phone, so the slice
@@ -6305,27 +6451,24 @@ const IDLE = cb => (window.requestIdleCallback
 // frame, and 150ms of work spent inside it lands on the next one, which
 // during a drag is the frame the highlight was going to move in.
 const WARM_BUDGET_MS = 10;
-const warmSheet = (sh, queue = null) => {
-    if (!sh || sheet !== sh) return;
-    // Built once: the rows either side of the opening aim, nearest first,
-    // because those are the ones the finger reaches first.
-    if (!queue) {
-        queue = [];
-        for (let k = 1; k <= sh.rows.length; k++) {
-            for (const i of [sh.aim - k, sh.aim + k]) {
-                if (i >= 0 && i < sh.rows.length) queue.push(i);
-            }
-        }
-    }
-    if (!queue.length) return;
+let warmQueued = false;
+const warmSheet = (sh = sheet) => {
+    if (!sh || sheet !== sh || !sh.live || warmQueued) return;
+    // The window is read at the start of the slice, so one queued before the
+    // finger moved warms where the finger is now.
+    warmQueued = true;
     IDLE(deadline => {
+        warmQueued = false;
         if (sheet !== sh) return;
-        // A preview is already queued, so the finger is moving; or this
-        // slice has no room for a whole city. Warming is the one thing here
-        // with no deadline, so either way it waits for a better slice.
-        if (aimFrame || deadline.timeRemaining() < WARM_BUDGET_MS) { warmSheet(sh, queue); return; }
-        previewCols(sh.rows[queue.shift()].place, sh);
-        warmSheet(sh, queue);
+        // A preview is already queued, so the finger is moving; or this slice
+        // has no room for a whole city. Warming is the one thing here with no
+        // deadline, so either way it waits for a better slice.
+        if (aimFrame || deadline.timeRemaining() < WARM_BUDGET_MS) { warmSheet(sh); return; }
+        const next = [sh.aim - 1, sh.aim + 1]
+            .filter(i => i >= 0 && i < sh.rows.length && !sh.cache.has(placeKey(sh.rows[i].place)));
+        if (!next.length) return;   // the window is warm; nothing queued until the aim moves
+        previewCols(sh.rows[next[0]].place, sh);
+        warmSheet(sh);              // the other side, or the new window if the aim moved
     });
 };
 
@@ -6346,13 +6489,73 @@ const pinListToBottom = () => {
     l.scrollTop = l.scrollHeight;   // clamped by the browser to the real max
 };
 
+// --- ?perf: switcher timings, on the device ------------------------------
+// Off unless the URL says so. The paths that feel slow on a phone measure
+// fine on a desktop and under CPU throttling, so the numbers have to come
+// from the device. Each opening prints the rows it drew, how long the touch
+// waited before the open began, the synchronous handler, the time to the
+// frame the sheet is painted in, and the worst long animation frame in the
+// second after, split into script, style-and-layout and render.
+// `long-animation-frame` is Chromium-only; elsewhere that line is absent.
+const PERF_ON = dbg('perf');
+let perfLines = [], perfT0 = 0, perfLabel = '', perfTouch = 0, perfObs = null, perfWorst = null;
+const perfSay = line => {
+    console.log('[perf]', line);
+    perfLines = [line, ...perfLines].slice(0, 6);
+    let el = document.getElementById('perfBox');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'perfBox';
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;padding:4px 6px;'
+            + 'background:rgba(0,0,0,0.82);color:#7CFF7C;font:10px/1.35 ui-monospace,monospace;'
+            + 'white-space:pre-wrap;pointer-events:none;';
+        document.body.appendChild(el);
+    }
+    el.textContent = perfLines.join('\n');
+};
+const perfTouched = () => { if (PERF_ON) perfTouch = performance.now(); };
+const perfBegin = label => {
+    if (!PERF_ON) return;
+    perfLabel = label;
+    perfT0 = performance.now();
+    perfWorst = { d: 0, layout: 0, render: 0, script: '' };
+    try {
+        perfObs = new PerformanceObserver(l => l.getEntries().forEach(e => {
+            if (e.duration <= perfWorst.d) return;
+            perfWorst.d = Math.round(e.duration);
+            perfWorst.layout = Math.round(e.styleAndLayoutDuration || 0);
+            perfWorst.render = Math.round(e.renderStart ? e.startTime + e.duration - e.renderStart : 0);
+            perfWorst.script = (e.scripts || [])
+                .map(x => `${x.invoker || x.name}=${Math.round(x.duration)}`).slice(0, 2).join(' ');
+        }));
+        perfObs.observe({ type: 'long-animation-frame' });
+    } catch { perfObs = null; }
+};
+const perfEnd = () => {
+    if (!PERF_ON) return;
+    const sync = Math.round(performance.now() - perfT0);
+    const waited = perfTouch ? Math.round(perfT0 - perfTouch) : null;
+    const label = perfLabel, worst = perfWorst, obs = perfObs, rows = sheetRows().length;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        const painted = Math.round(performance.now() - perfT0);
+        setTimeout(() => {
+            obs?.disconnect();
+            perfSay(`${label} rows=${rows}${waited != null ? ` touch+${waited}` : ''}`
+                + ` sync=${sync}ms paint=${painted}ms`
+                + (worst.d ? `\n  worst frame ${worst.d}ms (layout ${worst.layout}, render ${worst.render})`
+                    + (worst.script ? ` ${worst.script}` : '') : ''));
+        }, 1000);
+    }));
+};
+
 const openSheet = via => {
+    perfBegin('switcher:' + via);
     openSheetChrome();
     // Nothing to pick between: skip the list and land straight in search,
     // which is the only thing a one-row list could offer anyway. This used
     // to ask about ★ favourites alone, so someone with three recents and
     // no stars was sent to search past a list that had plenty to show.
-    if (!sheetLive()) { setSheetMode('search'); renderSuggestions(''); $('searchInput').focus(); return; }
+    if (!sheetLive()) { setSheetMode('search'); renderSuggestions(''); $('searchInput').focus(); perfEnd(); return; }
     // The rows are taken once, here, and every index in the sheet from now
     // until it closes is an index into this exact array. See sheetRows.
     const rows = buildSheetRows();
@@ -6374,6 +6577,10 @@ const openSheet = via => {
         reads: new Map(),
         live: !reduceMotion()
     };
+    // The city on screen is already a built grid, so seed it: aiming back at
+    // the current row is then a sweep rather than a build, and it is the row
+    // a gesture is most likely to return to.
+    sheet.cache.set(placeKey(state.place), refCols());
     setSheetMode('places');
     setGestureMode(via === 'drag');
     renderSheet();
@@ -6394,6 +6601,7 @@ const openSheet = via => {
     // The list is the listbox, so it is what holds focus while the sheet
     // is open: aria-activedescendant is only read off the focused element.
     if (via === 'tap') $('sheetList').focus({ preventScroll: true });
+    perfEnd();
 };
 
 // One exit for every route out: release, tap, scrim, Escape. `commit`
@@ -6694,7 +6902,10 @@ const closeSheet = (commit = false) => {
         // ended and the grid may never have been pointed there — a preview
         // the release beat to the frame is a preview that never ran.
         const cur = s.rows.findIndex(r => placeKey(r.place) === placeKey(state.place));
-        const back = cur >= 0 && cur !== s.swept ? sheetColsFor(cur, s) : null;
+        // Aimed back when the dim never resolved too: a release onto the
+        // current row would otherwise settle on the darkened copy of it.
+        const back = cur >= 0 && (cur !== s.swept || awaitingCity())
+            ? sheetColsFor(cur, s) : null;
         if (back) waveTo($('grid'), back, -(Math.sign(cur - s.swept) || 1), { axis: 'y' });
         waveRelease();
         if (!wave) repaint();
@@ -6723,10 +6934,15 @@ const closeSheet = (commit = false) => {
     // city did not change. Intermittent, because it depended on what the
     // previous gesture had left running.
     let committed = false;
+    // `null` because the preview already put the destination on screen and
+    // the commit repaints onto the frame it shows. Not so with the dim up,
+    // where the destination was never previewed, so the commit plays the
+    // sweep in the direction the finger travelled.
+    const anim = awaitingCity() ? { type: 'wave', axis: 'y', dir: aimBuildDir } : null;
     const land = () => {
         if (committed) return;
         committed = true;
-        changeCity(place, true, null);
+        changeCity(place, true, anim);
     };
     if (!s.live || reduceMotion()) { land(); return; }
     waveRelease();
@@ -6798,6 +7014,7 @@ const armSwitch = () => {
 };
 
 controlRow.addEventListener('touchstart', e => {
+    perfTouched();
     if (e.touches.length !== 1) { rowTouch = null; return; }
     const t = e.touches[0];
     rowTouch = {
@@ -7756,9 +7973,8 @@ $('searchInput').addEventListener('focus', preconnectGeocoding, { once: true });
 // the list Enter read was often the one built from the previous
 // keystroke, or no list at all.
 //
-// So Enter now flushes that debounce and lets the keyboard go, which is
-// what the key means on a phone: the query is finished, show me the
-// results for it.
+// Enter flushes that debounce instead and drops the keyboard, which is what
+// the key means on a phone: the query is finished, load its results.
 $('searchInput').addEventListener('keydown', e => {
     const rows = [...$('searchResults').querySelectorAll('.search-result')];
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -7773,11 +7989,11 @@ $('searchInput').addEventListener('keydown', e => {
     } else if (e.key === 'Enter') {
         e.preventDefault();
         const value = $('searchInput').value;
-        // Is the list on screen the list for what is in the field? While the
-        // debounce is out it is not, and the highlighted row is then a row
-        // from the previous query — on a fine pointer, where the first result
-        // is preselected, that is how Enter could open the city sitting at the
-        // top of the resting list instead of a match for what was typed.
+        // Is the list on screen the list for what is in the field? Not while
+        // the debounce is out, where the highlighted row belongs to the
+        // previous query. On a fine pointer, which preselects the first
+        // result, that is how Enter could open the city at the top of the
+        // resting list instead of a match for what was typed.
         const current = value.trim() === renderedQuery;
         if (current && searchHighlight >= 0 && rows[searchHighlight]) {
             rows[searchHighlight].click();
@@ -7785,13 +8001,13 @@ $('searchInput').addEventListener('keydown', e => {
         }
         clearTimeout(searchTimeout);
         // Already showing this query's results with nothing highlighted:
-        // there is nothing to fetch, and re-rendering would replace a list
-        // that can be picked from with the pending row for half a second.
+        // nothing to fetch, and re-rendering would swap a list that can be
+        // picked from for the pending row for half a second.
         if (!current) renderSuggestions(value);
-        // Dropping the keyboard is the point on touch. On a fine pointer
+        // Touch is where dropping the keyboard matters. On a fine pointer
         // the field keeps focus: the global keydown handler passes on
         // anything aimed at an INPUT, and without that guard the arrows
-        // would start aiming the sheet instead of walking this list.
+        // would aim the sheet instead of walking this list.
         if (coarse()) $('searchInput').blur();
     }
 });

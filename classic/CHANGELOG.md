@@ -10,9 +10,9 @@ numbering from before the two variants split.
 
 - pressing enter in city search no longer opens whichever city sat at the top of the list. it dismisses the keyboard and loads the results for what was typed
 - the first result is no longer preselected on touch, where there is no enter key to explain the highlight
-- city search says when a lookup is out instead of showing a blank panel. the results already on screen stay put and pulse while the next ones load; the "Searching…" row is for the first lookup, when there is nothing to pulse yet
+- city search says when a lookup is out instead of showing a blank panel. the results already on screen stay put and pulse while the next ones load
 - on desktop, enter no longer opens a city from the list as it stood before the current keystroke. it commits only a highlighted row belonging to the text in the field
-- the search list says why it is empty instead of showing a blank panel: no match names the query, one character asks for more, and a lookup that failed says so rather than reading as "no such place"
+- the search list says why it is empty instead of showing a blank panel. a failed lookup says so rather than reading as "no such place"
 
 ## v1.2.1 (2026-08-13)
 

@@ -1,4 +1,29 @@
-if ('serviceWorker' in navigator) {
+// --- ?nosw: leave the service worker behind ---------------------------
+// For a device stuck on a shell no reload shifts: unregister every worker for
+// this scope, drop the caches they own, and reload without the flag. `?dev`
+// (see sw.js) covers the common case and changes nothing about the install;
+// this is for when the install is the problem. Scoped to this app's cache
+// names, so another app on the same origin keeps its storage.
+const swReset = typeof location !== 'undefined' && /[?&]nosw\b/.test(location.search);
+if (swReset && 'serviceWorker' in navigator) {
+    (async () => {
+        try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+            if (window.caches) {
+                const keys = await caches.keys();
+                await Promise.all(keys.filter(k => k.startsWith('maybe-rain')).map(k => caches.delete(k)));
+            }
+        } catch { /* nothing to undo */ }
+        // Without the flag, or the reload would land here again.
+        const q = new URLSearchParams(location.search);
+        q.delete('nosw');
+        const qs = q.toString();
+        location.replace(location.pathname + (qs ? `?${qs}` : '') + location.hash);
+    })();
+}
+
+if (!swReset && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         let swSettled = false;
         setTimeout(() => { swSettled = true; }, SW_SETTLE_MS);

@@ -1167,15 +1167,15 @@
             background-clip: padding-box;
             border-radius: var(--radius);
         }
-        /* A lookup is out and the list on screen is the previous query's.
-           The rows stay where they are, pickable, and the whole list pulses
-           on the pending row's keyframe: rebuilding the panel per keystroke
+        /* A lookup is out and the list on screen is the previous query's. The
+           rows stay where they are, pickable, and the list pulses on the
+           pending row's keyframe. Rebuilding the panel per keystroke
            collapsed it to one row and back, which read as flashing. */
         .search-results.pending {
             animation: skeletonPulse 1.6s ease-in-out infinite;
         }
         /* Nothing to show: the message takes the row's place rather than
-           leaving the panel blank. Quiet — no match is not an error. */
+           leaving the panel blank. Quiet, since no match is not an error. */
         .search-empty {
             display: flex;
             align-items: center;

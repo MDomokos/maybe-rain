@@ -1,9 +1,8 @@
 // --- City search (Open-Meteo geocoding, URL-encoded) --------------
-// Returns { ok, results }. Its two empty answers mean opposite things to
-// the reader — "there is no such place" and "the lookup did not happen"
-// — and both used to come back as an empty array, so a search made with
-// no connection read as a place that does not exist. `ok` is false only
-// when the request itself failed.
+// Returns { ok, results }. Its two empty answers mean opposite things,
+// "there is no such place" and "the lookup did not happen", and both used to
+// come back as an empty array, so a search made with no connection read as a
+// place that does not exist. `ok` is false only when the request failed.
 const searchCity = async query => {
     if (query.length < 2) return { ok: true, results: [] };
     try {
@@ -147,9 +146,21 @@ const shareURL = p => {
     if (p.country) q.set('country', p.country);
     return `${location.origin}${location.pathname}?${q}`;
 };
+// Switches a load was opened with survive the address-bar rewrite. The URL is
+// replaced on every city change, and it used to be replaced with the place
+// link alone: `?dev` or `?perf` was lost as soon as anything happened, and
+// `?nosw` never ran, since shared/sw-update.js reads it after app.js has
+// rewritten the URL. Not part of `shareURL`: a shared link carries the place
+// and nothing else.
+const STICKY_PARAMS = ['dev', 'perf', 'debug', 'holddebug', 'nosw'];
 // Keep the address bar shareable, without stacking history entries.
 const syncURL = p => {
-    try { history.replaceState(null, '', shareURL(p)); } catch { /* non-fatal */ }
+    try {
+        const url = new URL(shareURL(p));
+        const open = new URLSearchParams(location.search);
+        STICKY_PARAMS.forEach(k => { if (open.has(k)) url.searchParams.set(k, open.get(k) ?? ''); });
+        history.replaceState(null, '', url.pathname + url.search + url.hash);
+    } catch { /* non-fatal */ }
 };
 
 // --- "Use my location" ---------------------------------------------

@@ -2,6 +2,19 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.13 (2026-09-17) - performance
+
+- the switcher dims the grid in the direction of the swipe while a city's grid is still building, then brings that city up out of the dim when it lands, instead of holding still
+- the switcher no longer gets slower the more cities are pinned. a row's reading is read out of the cached payload instead of rebuilding that city's whole forecast for one hour's value
+- grid previews are warmed one row either side of the aim and follow it as it moves, instead of the whole list. eight pinned cities used to queue seven grid builds behind the gesture
+- fixed the stored app shell staying on the previous release. the copy for the cache was cloned after the page had started reading the response, which throws, and the error was swallowed
+- the shell is fetched past the browser's own http cache, on install too, so network-first means the network
+- the shell is cached under one key instead of one per url. a shared place link used to add an entry of its own while the copy the offline fallback reads went stale
+- `?dev` loads network-only and stores nothing, for testing a deploy without bumping the cache version. `?nosw` unregisters the worker and drops its caches
+- debug switches survive the address-bar rewrite, so a reload keeps them. they are never part of a shared link
+- `?debug=perf,hold` turns several switches on at once; `?perf` and `?holddebug` still work on their own
+- `?perf` prints on-device timings for each switcher opening: rows drawn, touch wait, handler, first painted frame, and the worst long animation frame split into script, layout and render
+
 ## v2.6.12 (2026-09-15) - performance
 
 - the city switcher opens faster on the swipe
@@ -13,8 +26,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - pressing enter in city search no longer opens whichever city sat at the top of the list
 - city search says when a lookup is out instead of showing a blank panel
 - on desktop, enter no longer opens a city from the list as it stood before the current keystroke. it commits only a highlighted row belonging to the text in the field
-- the search list says why it is empty instead of showing a blank panel: no match names the query, one character asks for more, and a lookup that failed says so rather than reading as "no such place"
-
+- the search list says why it is empty instead of showing a blank panel. a failed lookup says so rather than reading as "no such place"
 
 ## v2.6.10 (2026-09-15)
 

@@ -12,7 +12,7 @@
 // separately. The trailing minor.patch moves each release: bump the minor
 // for a larger change, the patch for a small one.
 const CACHE_PREFIX = 'maybe-rain-2.';
-const CACHE_NAME = CACHE_PREFIX + '6.11';
+const CACHE_NAME = CACHE_PREFIX + '6.13';
 // Caches written before the variant split were named maybe-rain-v45 and so
 // on, with no variant segment, and they sit at this scope. The prefix test
 // above no longer matches them, so without this they would leak forever.
@@ -34,10 +34,28 @@ const EXTRAS = [BASE + 'explain.css', BASE + 'explain.js'];
 // that a connection going nowhere does not hold the app on a blank screen.
 const SHELL_TIMEOUT_MS = 3500;
 
+// Fetched from the server rather than through the browser's HTTP cache, which
+// is what `cache.addAll` uses: on a host that sends no `Cache-Control` a new
+// worker can install itself around the shell the last visit left. A failed
+// fetch still rejects, so an unfetchable shell fails the install as before.
+const putFresh = (cache, urls) => Promise.all(urls.map(u =>
+  fetch(u, { cache: 'reload', credentials: 'same-origin' }).then(r => {
+    if (!r.ok) throw new Error(`${u} ${r.status}`);
+    return cache.put(u, r);
+  })));
+
+// Is this request part of a `?dev` load? See the fetch handler.
+const isDev = (request, url) => {
+  if (url.searchParams.has('dev')) return true;
+  if (!request.referrer) return false;
+  try { return new URL(request.referrer).searchParams.has('dev'); }
+  catch { return false; }
+};
+
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(SHELL))
+      .then(cache => putFresh(cache, SHELL))
       .then(() => self.skipWaiting())
   );
 });
@@ -51,12 +69,33 @@ self.addEventListener('activate', event => {
       .then(() => self.clients.claim())
       // Warmed once the new version owns the page. Not awaited, and allowed
       // to fail: the app works without them.
-      .then(() => caches.open(CACHE_NAME).then(cache => cache.addAll(EXTRAS)).catch(() => {}))
+      .then(() => caches.open(CACHE_NAME).then(cache => putFresh(cache, EXTRAS)).catch(() => {}))
   );
 });
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+
+  // --- ?dev: a load that ignores every cache -----------------------------
+  // Testing a deploy on a phone used to mean bumping CACHE_NAME. The stored
+  // shell answers the network-first race below on a slow connection, and the
+  // browser's HTTP cache can answer the fetch this worker makes, so an
+  // installed PWA can keep serving the last release.
+  //
+  // A page opened with `?dev` is served network-only with the HTTP cache
+  // bypassed, and nothing it loads is written here, so the next ordinary load
+  // is unaffected. Offline it falls back to the stored copy.
+  //
+  // Subresources carry no query of their own, so the flag is read off the
+  // referrer. The published build inlines its scripts, so there this is the
+  // navigation alone; the unbuilt tree is where the referrer matters.
+  if (event.request.method === 'GET' && isDev(event.request, url)) {
+    event.respondWith(
+      fetch(url.href, { cache: 'reload', credentials: 'same-origin' })
+        .catch(() => caches.match(event.request).then(c => c || Response.error()))
+    );
+    return;
+  }
 
   // Cross-origin (weather/geocoding APIs): network only, never cached here.
   if (url.origin !== location.origin) return;
@@ -89,7 +128,19 @@ self.addEventListener('fetch', event => {
   // cache either way, so a load served from the cache still leaves the newer
   // bytes there for the next one.
   if (event.request.mode === 'navigate' || url.pathname === BASE + 'index.html' || url.pathname === BASE || url.pathname === BASE + 'manifest.json') {
-    const fetched = fetch(event.request);
+    // `cache: 'reload'`: the browser's HTTP cache sits in front of this fetch
+    // and, on a host that sends no `Cache-Control`, answers it from the last
+    // visit's copy. Network-first then means "ask the browser's copy first",
+    // and an installed PWA stays on the previous release. The cost is a
+    // full shell over the wire per open, with no 304.
+    // The copy for the cache is cloned in the first `then` attached to the
+    // fetch. Both paths hold the same response and a body can be read once,
+    // so cloning inside `waitUntil`'s callback raced the page's read of it:
+    // when the page won, `clone()` threw "body is already used", the catch
+    // below swallowed it, and the stored shell stayed on the last release.
+    let forCache = null;
+    const fetched = fetch(url.href, { cache: 'reload', credentials: 'same-origin' })
+      .then(response => { forCache = response.clone(); return response; });
     // The stored copy is refreshed whichever answer the page got, and that
     // write is what `waitUntil` holds the worker open for: it used to finish
     // well inside the response it rode on, and now routinely outlives it, so
@@ -98,10 +149,15 @@ self.addEventListener('fetch', event => {
     // is still being dispatched and will accept it. A failure is offline
     // rather than an error, and is swallowed so it cannot come back as an
     // unhandled rejection on every load.
+    // Stored under the canonical shell key, not under the URL asked for. A
+    // place link carries its own query (?lat=…&lon=…), so keying by request
+    // gave every shared link a cache entry of its own, while the entry the
+    // offline fallback reads (BASE + 'index.html') was only written at
+    // install.
     event.waitUntil(
       fetched
-        .then(response => caches.open(CACHE_NAME)
-          .then(cache => cache.put(event.request, response.clone())))
+        .then(() => caches.open(CACHE_NAME)
+          .then(cache => cache.put(BASE + 'index.html', forCache)))
         .catch(() => {})
     );
     event.respondWith((async () => {
