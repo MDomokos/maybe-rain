@@ -177,6 +177,63 @@ const dueForRefetch = entry => {
     return next !== null && Date.now() >= next - REFRESH_GUARD;
 };
 
+// When the next automatic poll is worth making (DR-51). Four states,
+// and the ceiling under all of them.
+//
+//   Quiet, before the guard opens: sleep until it does.
+//   Guard and retry, from the guard until an hour past the expected
+//     moment: every FRESH_TIME, since an identical payload advances the
+//     timestamp and the floor spaces the attempts.
+//   Backoff, for three hours after that: the prediction has failed, so
+//     ask every half hour rather than every ten minutes.
+//   Past that: the ceiling alone.
+//
+// Every branch is capped by the ceiling, which is what makes a wrong
+// prediction, a wrong device clock and absent metadata all behave the
+// same way: one fetch an hour.
+const nextPollAt = () => {
+    const now = Date.now();
+    const ceiling = state.fetchedAt + REFRESH_CEILING;
+    const next = nextExpectedRun();
+    if (next === null) return ceiling;
+    let at;
+    if (now < next - REFRESH_GUARD) at = next - REFRESH_GUARD;
+    else if (now < next + REFRESH_RETRY_WINDOW) at = state.fetchedAt + FRESH_TIME;
+    else if (now < next + REFRESH_RETRY_WINDOW + REFRESH_BACKOFF_SPAN) at = state.fetchedAt + REFRESH_BACKOFF;
+    else at = ceiling;
+    return Math.min(at, ceiling);
+};
+
+// One self-arming timeout against that moment, in place of a fixed
+// interval. Re-armed from the end of every fetch, since a payload moves
+// state.fetchedAt and a new run moves the prediction.
+//
+// Metadata landing between two firings can move the prediction under a
+// timer already set. Nothing corrects for it: the stale timer fires
+// early, dueForRefetch says no, and the re-arm reads the new prediction.
+//
+// The page load counts as the first poll, so nothing fires inside the
+// first FRESH_TIME. That matters because a boot already fetches, and the
+// scheduler is armed alongside it rather than after it.
+let pollTimer = null, lastPoll = Date.now();
+const schedulePoll = () => {
+    clearTimeout(pollTimer);
+    const now = Date.now();
+    // Never two polls closer together than the floor, whatever the
+    // schedule works out. A run of failed fetches never advances
+    // state.fetchedAt, and without this the timer would spin on them.
+    const at = Math.max(nextPollAt(), lastPoll + FRESH_TIME, now);
+    pollTimer = setTimeout(() => {
+        pollTimer = null;
+        // Hidden: park. Nothing polls behind a hidden page, and the
+        // variant's visibilitychange handler arms this again on return.
+        if (document.hidden) return;
+        lastPoll = Date.now();
+        if (!state.loading) fetchWeather();
+        schedulePoll();
+    }, at - now);
+};
+
 // The settle retry (DR-51). One pending timer, app-wide: a second run
 // flip before the first retry fires replaces it rather than stacking,
 // and a payload that lands in the meantime clears it.
@@ -326,5 +383,9 @@ const fetchWeather = async ({ override = false, ignoreFresh = false } = {}) => {
         }
     } finally {
         clearTimeout(timer);
+        // Re-arm against what this attempt changed: a payload moves the
+        // timestamp the schedule counts from, and a failure leaves it
+        // where it was, which the floor covers.
+        schedulePoll();
     }
 };

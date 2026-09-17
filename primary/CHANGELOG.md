@@ -8,6 +8,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - the run time and next-update countdown now read the model that actually serves the city on screen. a place in the americas was told icon's cycle while its forecast came from gfs, two hours apart on the day this was measured
 - the app stops asking for a forecast at times the model provably has nothing new. it looks from half an hour before the next release until it lands, and once an hour regardless, instead of every thirty minutes around the clock
 - a run the api announces before all its servers are serving it gets one more look ten minutes on, then no more
+- the thirty-minute timer is gone. the app now sets one alarm for the moment its model is next due, moves it every time a forecast lands, and stops it entirely while the page is hidden
 
 ## v2.6.13 (2026-09-17) - performance
 

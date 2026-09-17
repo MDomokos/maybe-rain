@@ -21,6 +21,15 @@ const REFRESH_GUARD = 30 * 60 * 1000;
 // this fires and the app polls hourly, which is what it did before at
 // half the rate.
 const REFRESH_CEILING = 60 * 60 * 1000;
+// How long past the expected moment to keep looking every FRESH_TIME
+// before giving up on the prediction. Open-Meteo's status page flags a
+// model more than 20 minutes late, so an hour covers a late run without
+// covering for a model that has stopped publishing.
+const REFRESH_RETRY_WINDOW = 60 * 60 * 1000;
+// Past the retry window the prediction has failed. Back off to this
+// cadence, for this long, then let the ceiling carry it alone.
+const REFRESH_BACKOFF = 30 * 60 * 1000;
+const REFRESH_BACKOFF_SPAN = 3 * 60 * 60 * 1000;
 // The API can report a new run before every server is serving it, with
 // another 10 minutes suggested. DR-6's hash compare already makes an
 // early fetch cheap, so a run flip that produced an identical payload

@@ -1851,10 +1851,10 @@ document.addEventListener('click', e => {
     }
 });
 
-// Auto-refresh every 30 minutes
-setInterval(() => {
-    if (!document.hidden && !state.loading) fetchWeather();
-}, 30 * 60 * 1000);
+// The forecast poll (DR-51). A self-arming timeout against the model's
+// own next release, not a fixed interval: see schedulePoll in the shared
+// fetch layer. Armed here, then re-armed from the end of every fetch.
+schedulePoll();
 
 // The poll skips while hidden, so a backgrounded tab/PWA can sit on a
 // stale run time for hours. Re-check when it becomes visible again:
@@ -1862,7 +1862,9 @@ setInterval(() => {
 // reached, and fetchModelMeta self-guards on the model cadence, so this
 // is cheap and only does real work when a new run is actually due.
 document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && !state.loading) fetchWeather();
+    if (document.hidden) return;
+    if (!state.loading) fetchWeather();
+    schedulePoll(); // the poll parks while hidden; this is what restarts it
 });
 
 // Connection state flows through the one status line. Going
