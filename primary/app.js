@@ -4996,7 +4996,9 @@ const renderSettings = () => {
                  <div class="sc"><span>Switch city</span><span>↑ ↓</span></div>
                  <div class="sc"><span>Switch view</span><span>← →</span></div>
                </div>`
-            : '');
+            : '') +
+        // Outside the hints block above, which is pointer:fine only.
+        versionReadout();
 };
 // The sheet has three bodies and shows one at a time: the saved places, the
 // search results, and the menu. None of them is a panel of its own. Each is

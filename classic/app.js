@@ -1428,7 +1428,9 @@ const renderSettings = () => {
                  <div class="sc"><span>Switch city</span><span>↑ ↓</span></div>
                  <div class="sc"><span>Switch view</span><span>← →</span></div>
                </div>`
-            : '');
+            : '') +
+        // Outside the hints block above, which is pointer:fine only.
+        versionReadout();
 };
 const toggleSettings = open => {
     const willOpen = open ?? $('settings').classList.contains('hidden');

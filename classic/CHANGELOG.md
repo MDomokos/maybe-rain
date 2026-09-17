@@ -12,6 +12,7 @@ numbering from before the two variants split.
 - the run time and next-update countdown read the model that actually serves the city on screen. a place in the americas was told icon's cycle while its forecast came from gfs
 - switching to a city fetched a minute ago no longer refetches it
 - a run the api announces before all its servers are serving it gets one more look ten minutes on, then no more
+- the settings menu shows the running build at the foot of the list, as the service worker's cache name
 
 ## v1.2.2 (2026-09-15)
 

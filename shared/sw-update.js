@@ -59,3 +59,14 @@ if (!swReset && 'serviceWorker' in navigator) {
         }).catch(() => {});
     });
 }
+
+// --- The running build, at the foot of the settings menu --------------
+// Prints sw.js's CACHE_NAME verbatim, so the menu can be compared
+// against the file. The token is assembled, not written out: build.mjs
+// replaces every occurrence of it, including this one.
+const versionReadout = () => {
+    const token = '__APP_' + 'VERSION__';
+    const build = APP_VERSION === token ? 'unbuilt' : APP_VERSION;
+    return '<div class="shortcuts-hint"><div class="sc">'
+        + `<span>Version</span><span>${esc(build)}</span></div></div>`;
+};
