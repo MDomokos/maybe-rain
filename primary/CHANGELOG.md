@@ -2,6 +2,10 @@
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
 
+## v2.6.14 (2026-09-17) - refresh
+
+- switching to a city fetched a minute ago no longer refetches it. the switch still outranks a fetch in flight for the city being left, which is the only part of it that was needed
+
 ## v2.6.13 (2026-09-17) - performance
 
 - the switcher dims the grid in the direction of the swipe while a city's grid is still building, then brings that city up out of the dim when it lands, instead of holding still

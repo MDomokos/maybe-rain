@@ -111,8 +111,16 @@ const fetchLocalMeta = async () => {
     } catch { /* offline / CORS / timeout: fall back to global-only line */ }
 };
 
-const fetchWeather = async (force = false) => {
-    if (state.loading && !force) return;
+// Two overrides used to share one `force` flag, and they are not the
+// same question. `override` says this fetch outranks one already in
+// flight, which is what a city switch needs: the request in the air is
+// for the place the user just left. `ignoreFresh` says go to the
+// network whatever the freshness test thinks, which is what a manual
+// tap, a midnight re-slice and coming back online need. A city switch
+// asked for both and only wanted the first, so arriving at a city
+// fetched a minute ago refetched it.
+const fetchWeather = async ({ override = false, ignoreFresh = false } = {}) => {
+    if (state.loading && !override) return;
     // Pin the place this fetch is for. A mid-flight city switch aborts
     // our controller, but if the response already resolved in the gap
     // before the abort lands, the continuation would otherwise read the
@@ -128,8 +136,23 @@ const fetchWeather = async (force = false) => {
     // freshness window would leave the drawer clamped at a reach the user
     // can see is wrong. Fires once per place, on the first load after the
     // reach changed, then never again.
-    if (!force && state.data.length && (Date.now() - state.fetchedAt) < FRESH_TIME
-        && !staleHorizon(loadForecast(place))) {
+    //
+    // Freshness belongs to this place's own payload, not to whatever was
+    // fetched last. A switch to a place with no cache leaves the previous
+    // city's data and fetch time sitting in state, and reading those would
+    // skip the fetch the new city needs. Before the split above this path
+    // never ran on a switch, because every switch passed `force`; it does
+    // now, so the test names the entry that is actually on screen.
+    const entry = loadForecast(place);
+    const showingThisPlace = state.data.length && entry && state.fetchedAt === entry.timestamp;
+    if (!ignoreFresh && showingThisPlace && (Date.now() - entry.timestamp) < FRESH_TIME
+        && !staleHorizon(entry)) {
+        // An override that skips the network still has to retire the fetch
+        // it outranks. That request is for the place the user just left, so
+        // its own continuation bails on the place pin and never clears the
+        // loading flag; without this, one switch to a freshly fetched city
+        // would strand the app in "Updating…" for good.
+        if (override && state.loading) { state.controller?.abort(); setLoading(false); }
         updateStatus();
         return;
     }
@@ -161,25 +184,27 @@ const fetchWeather = async (force = false) => {
         // and post-switch revalidations. Different: the old current
         // rotates into prev (the last payload that actually differed)
         // and qualifying cells pulse once on the render that follows.
-        const entry = loadForecast(place);
-        const same = entry?.payload && hourlySnapshot(entry.payload) === hourlySnapshot(payload);
+        // Re-read rather than reusing the one above: an await sat between
+        // them, and a fetch for this same place could have written in the gap.
+        const cached = loadForecast(place);
+        const same = cached?.payload && hourlySnapshot(cached.payload) === hourlySnapshot(payload);
         if (same && state.data.length) {
-            saveForecast(place, { ...entry, timestamp: state.fetchedAt });
+            saveForecast(place, { ...cached, timestamp: state.fetchedAt });
             setLoading(false);
             updateStatus();
         } else {
-            if (entry?.payload && !same) {
-                state.changed = diffHourly(entry.payload, payload);
+            if (cached?.payload && !same) {
+                state.changed = diffHourly(cached.payload, payload);
                 state.pulsePending = Object.keys(state.changed).length > 0;
                 saveForecast(place, {
                     timestamp: state.fetchedAt, payload,
-                    prev: { timestamp: entry.timestamp, payload: entry.payload }
+                    prev: { timestamp: cached.timestamp, payload: cached.payload }
                 });
             } else {
                 // First payload for this place (or a recovered paint):
                 // nothing differed, so any existing prev stands.
-                saveForecast(place, entry?.prev
-                    ? { timestamp: state.fetchedAt, payload, prev: entry.prev }
+                saveForecast(place, cached?.prev
+                    ? { timestamp: state.fetchedAt, payload, prev: cached.prev }
                     : { timestamp: state.fetchedAt, payload });
             }
             // Fresh data present already (cached paint / background poll):

@@ -885,7 +885,7 @@ const scheduleDayRollover = () => {
             processData(entry.payload);
             updateDisplay();
         }
-        if (!document.hidden && !state.loading) fetchWeather(true);
+        if (!document.hidden && !state.loading) fetchWeather({ ignoreFresh: true });
         scheduleDayRollover(); // arm the next midnight (fresh offset)
     }, msUntilCityMidnight() + 2000);
 };
@@ -1170,7 +1170,7 @@ const changeCity = (place, remember = true, anim = null) => {
     // direction, e.g. a search pick).
     const cached = paintCachedForecast(anim);
     nextRevealAnim = cached ? null : (anim || { type: 'reveal' });
-    fetchWeather(true);
+    fetchWeather({ override: true });
     scheduleDayRollover(); // new city may sit in a different timezone
 };
 
@@ -1298,7 +1298,7 @@ const renderSuggestions = async query => {
         hideTooltip();
         if (state.updateNote) { openChangelog(); return; }
         if (state.swUpdate) { location.reload(); return; }
-        fetchWeather(true);
+        fetchWeather({ override: true, ignoreFresh: true });
     };
     s.addEventListener('click', refresh);
     s.addEventListener('keydown', e => {
@@ -1876,7 +1876,7 @@ const setOnline = online => {
         setStatus('Back online', 'fresh', { transient: true });
         // Refresh after the acknowledgement is visible, before its timer
         // would clear, so the line reads Back online → Updating… → resting.
-        setTimeout(() => { if (!state.loading) fetchWeather(true); }, 1000);
+        setTimeout(() => { if (!state.loading) fetchWeather({ ignoreFresh: true }); }, 1000);
     } else {
         updateStatus(); // resting layer shows the offline notice
     }
