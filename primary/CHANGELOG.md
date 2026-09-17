@@ -1,6 +1,9 @@
 # changelog
 
 what changed, newest first. the version is `CACHE_NAME` in sw.js
+
+everything below v2.0.0 is the flat numbering the app used before it split into two variants.
+
 ## v2.6.14b (2026-09-18) — fix
 
 - fixed the app failing to start on a device that had used it before. 2.6.14 re-keyed the cached model metadata and the startup code still read the old shape, so it threw before the grid was drawn
@@ -49,7 +52,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 - three illustrated explainers, one per view, showing what the colours and the marks mean
 - on a first launch the bottom line offers it ("what the colours mean") instead of naming a gesture, and retires once opened
 
-## v2.6.9 (2026-08-21) - experimental
+## v2.6.9 (2026-08-21) — experimental
 
 - an hour that was filled in rather than computed by the model now says so in its reading, whatever size block it is drawn in. the line used to appear only on blocks covering more than one hour, so it said nothing about the hours it mattered most for
 - the app now works out where the forecast stops being hourly by reading the response, instead of assuming it. nothing on the grid moves yet
@@ -84,7 +87,6 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 ## v2.6.5 (2026-08-19) — bugfix
 
 - fixed tapping the reading card on a phone switching to the block behind it instead of expanding the card
-
 - flicking the day grid now locks the extra days open instead of springing back to today, timed by the flick's own speed. removed the status-line hint that used to explain why a fast swipe didn't work
 - the search list's unpin star is now filled instead of struck through, so a pinned city reads as "on" instead of "removed"
 - fixed a pinned city's star sometimes showing grey instead of gold after a tap, from a hover style that stuck on touch
@@ -238,6 +240,10 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 - split the app into two versions: primary (new UI) and classic (original static screen)
 - both share the same forecast data, colors, theming, caching and city handling
+
+## before the split
+
+the app was one version until 2026-07-29. the releases below use the flat numbering from then, and are the shared history of both variants. classic froze its layout and navigation at v40, so v42 to v45 are primary's alone.
 
 ## v45 (2026-07-29)
 
