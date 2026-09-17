@@ -5,6 +5,7 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 ## v2.6.14 (2026-09-17) - refresh
 
 - switching to a city fetched a minute ago no longer refetches it. the switch still outranks a fetch in flight for the city being left, which is the only part of it that was needed
+- the run time and next-update countdown now read the model that actually serves the city on screen. a place in the americas was told icon's cycle while its forecast came from gfs, two hours apart on the day this was measured
 
 ## v2.6.13 (2026-09-17) - performance
 

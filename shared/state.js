@@ -7,7 +7,7 @@ let state = {
     sun: {},      // date → { rise: {h, m}, set: {h, m} } (city-local)
     cadence: null, // DR-35 reading of the payload on screen: where the source model stopped computing one value per hour. Replaced whole on every processData and never carried between payloads or cities, because the boundary's index moves with the age of the model run. Null in a variant that does not load shared/cadence.js.
     fetchedAt: 0, // timestamp of the forecast currently displayed
-    modelRun: null, // global model run: { init, interval, nextUpdate } ms, from the metadata API
+    modelRun: null, // global model run: { init, interval, nextUpdate } ms + { slug, label }, from the metadata API. Which backbone that is depends on the place (globalModelFor), so this is cleared and refetched when a switch crosses into another one.
     localRun: null, // regional high-res model run (or null): { init, interval, nextUpdate, slug, label }
     loading: false,
     controller: null,

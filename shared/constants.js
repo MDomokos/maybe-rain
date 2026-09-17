@@ -5,10 +5,29 @@ const GUST_MIN = 8; // km/h a gust must exceed the sustained wind by before the 
 // The forecast uses Open-Meteo "Best Match" (a different model per
 // location, whose identity the API never returns). For the freshness
 // line we read the *run* time of the global model that drives the
-// 7-day horizon (DWD ICON, 6-hourly, hourly, 7.5 days) as an honest
-// reference for how recent the underlying model output is. The
-// metadata endpoint is tiny and is NOT counted against rate limits.
-const META_URL = 'https://api.open-meteo.com/data/dwd_icon/static/meta.json';
+// 7-day horizon, as an honest reference for how recent the underlying
+// model output is. The metadata endpoint is tiny and is NOT counted
+// against rate limits.
+//
+// Which global model that is depends on where the place is. ICON is the
+// backbone over most of the world; over the Americas it is GFS, which on
+// 2026-09-17 published 1h43 later than ICON did. This used to be pinned
+// to ICON everywhere, so a place in the United States was told a cycle
+// no part of its forecast was on: a wrong countdown on the status line,
+// and under DR-51 a wrong fetch schedule.
+//
+// Same approximation as LOCAL_MODELS below, and the same caveat: Best
+// Match never reveals its pick, so this is a reading of the coverage
+// rather than an answer from the API. First box that contains the point
+// wins, and anything no box claims falls to ICON.
+const GLOBAL_MODELS = [
+    { slug: 'ncep_gfs013', label: 'GFS', bbox: [-60.0, -170.0, 75.0, -30.0] }
+];
+const GLOBAL_DEFAULT = { slug: 'dwd_icon', label: 'ICON' };
+const inBBox = (bbox, lat, lon) =>
+    lat >= bbox[0] && lat <= bbox[2] && lon >= bbox[1] && lon <= bbox[3];
+const globalModelFor = (lat, lon) =>
+    GLOBAL_MODELS.find(m => inBBox(m.bbox, lat, lon)) || GLOBAL_DEFAULT;
 // Regional high-resolution models Best Match may use for the near-term
 // hours; each refreshes more often than the global run and covers a
 // limited area. bbox = [latMin, lonMin, latMax, lonMax], read from each
@@ -24,12 +43,12 @@ const LOCAL_MODELS = [
     { slug: 'ncep_hrrr_conus',                 label: 'HRRR',     bbox: [21.14, -122.72, 47.84, -60.92] },
     { slug: 'jma_msm',                         label: 'MSM',      bbox: [22.4, 120.0, 47.6, 150.0] }
 ];
-const localMetaURL = slug => `https://api.open-meteo.com/data/${slug}/static/meta.json`;
+const metaURL = slug => `https://api.open-meteo.com/data/${slug}/static/meta.json`;
 const localModelFor = (lat, lon) => {
     let best = null, bestD = Infinity;
     for (const m of LOCAL_MODELS) {
         const [a, b, c, d] = m.bbox;
-        if (lat < a || lat > c || lon < b || lon > d) continue;
+        if (!inBBox(m.bbox, lat, lon)) continue;
         const dist = (lat - (a + c) / 2) ** 2 + (lon - (b + d) / 2) ** 2;
         if (dist < bestD) { bestD = dist; best = m; }
     }
@@ -82,7 +101,7 @@ const LS_SETTINGS = 'mr-settings';
 const LS_VIEW = 'mr-view';       // 'rain' | 'temp' | 'wind' grid mode
 const LS_INSTALL = 'mr-install-dismissed';
 const LS_FAVORITES = 'mr-favorites'; // explicit ★ favorites (capped, user-curated)
-const LS_META = 'mr-model-meta';     // cached global model-run metadata (run time + cadence)
+const LS_META = 'mr-model-meta';     // cached global model-run metadata, keyed by model slug (the global model changes with the place)
 const LS_META_LOCAL = 'mr-model-meta-local'; // cached regional model meta, keyed by model slug
 const LS_VERSION = 'mr-version';     // build id last seen on this device (drives the post-update note)
 // City-local date the day note last popped for. One date, not a set: the

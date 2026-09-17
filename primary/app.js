@@ -2643,9 +2643,9 @@ const showTooltip = (el, anchor = null) => {
         const body = state.modelRun
             ? (state.localRun
                 ? [`<strong>Local:</strong> the ${esc(state.localRun.label)} regional model. Drives the near-term hours and refreshes often.`,
-                   '<strong>Global:</strong> ICON, updated about every 6h. Covers the full 7-day forecast.',
+                   `<strong>Global:</strong> ${esc(state.modelRun.label)}, updated ${runEvery(state.modelRun)}. Covers the full 7-day forecast.`,
                    'Each shows when it last ran.']
-                : ['<strong>Global model (ICON):</strong> sets the run and next-update times, refreshing about every 6h.',
+                : [`<strong>Global model (${esc(state.modelRun.label)}):</strong> sets the run and next-update times, refreshing ${runEvery(state.modelRun)}.`,
                    'No local short-range model covers this location.'])
             : ['Shows when the app last fetched the forecast.',
                'The model run time is unavailable right now.'];

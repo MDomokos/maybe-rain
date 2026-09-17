@@ -49,9 +49,28 @@ const parseRun = meta => {
         : init + 4 * 60 * 60 * 1000; // fallback: typical global publish lag
     return { init, interval, nextUpdate: released + interval };
 };
-const setModelRun = meta => { state.modelRun = parseRun(meta); };
-const setLocalRun = (meta, model) =>
-    { state.localRun = { ...parseRun(meta), slug: model.slug, label: model.label }; };
+// How often this model publishes, in words, for the freshness tooltip.
+// Read from the model's own update_interval_seconds rather than written
+// down, since the backbone now changes with the place: ICON and GFS are
+// 6-hourly, HRRR is hourly.
+const runEvery = run => {
+    const h = Math.round((run?.interval || 0) / 3600000);
+    return h <= 1 ? 'about every hour' : `about every ${h}h`;
+};
+
+const setRun = (meta, model) => ({ ...parseRun(meta), slug: model.slug, label: model.label });
+const setModelRun = (meta, model) => { state.modelRun = setRun(meta, model); };
+const setLocalRun = (meta, model) => { state.localRun = setRun(meta, model); };
+
+// This key used to hold one model's meta object, back when the global
+// model was pinned to ICON. It now holds a map keyed by slug, because
+// the global model changes with the place. An old flat value has no slug
+// key, so it reads as a miss and the first save replaces it outright,
+// rather than leaving its fields loose in the map.
+const metaCache = key => {
+    const c = loadJSON(key);
+    return (c && !c.last_run_initialisation_time) ? c : {};
+};
 
 // Fetch the model-run metadata. Fired in parallel with the forecast
 // (never chained after it) and non-blocking: the grid paints first and
@@ -59,19 +78,33 @@ const setLocalRun = (meta, model) =>
 // localStorage and only re-fetched once the next run is due, so it
 // adds no perceptible load. On any failure the line falls back to
 // fetch time (see updateStatus).
+//
+// The model is chosen by location, the same way the regional one is, so
+// a place in the Americas is told GFS's cycle rather than ICON's. Per
+// slug cache, since switching cities can switch backbones.
 const fetchModelMeta = async () => {
-    // Until the next update is expected, the cached value is still correct.
-    if (state.modelRun && Date.now() < state.modelRun.nextUpdate) return;
+    const model = globalModelFor(state.place.latitude, state.place.longitude);
+    // Have this model's run already and it's still current.
+    if (state.modelRun?.slug === model.slug && Date.now() < state.modelRun.nextUpdate) return;
+    const cached = metaCache(LS_META)[model.slug];
+    if (cached?.last_run_initialisation_time) {
+        setModelRun(cached, model);
+        if (Date.now() < state.modelRun.nextUpdate) return; // cache still within cadence
+    } else if (state.modelRun?.slug !== model.slug) {
+        state.modelRun = null; // don't show the previous backbone's run while fetching
+    }
     try {
-        const r = await fetch(META_URL, {
+        const r = await fetch(metaURL(model.slug), {
             cache: 'no-store',
             signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
         });
         if (!r.ok) return;
         const meta = await r.json();
         if (!meta?.last_run_initialisation_time) return;
-        setModelRun(meta);
-        saveJSON(LS_META, meta);
+        // The place may have crossed into another backbone mid-fetch.
+        if (globalModelFor(state.place.latitude, state.place.longitude).slug !== model.slug) return;
+        setModelRun(meta, model);
+        saveJSON(LS_META, { ...metaCache(LS_META), [model.slug]: meta });
         if (!state.loading) updateStatus(); // don't clobber "Loading…"/"Updating…"
     } catch { /* offline / CORS / timeout: keep fetch-time fallback */ }
 };
@@ -87,8 +120,7 @@ const fetchLocalMeta = async () => {
     if (!model) { state.localRun = null; return; }
     // Have this model's run already and it's still current.
     if (state.localRun?.slug === model.slug && Date.now() < state.localRun.nextUpdate) return;
-    const cache = loadJSON(LS_META_LOCAL) || {};
-    const cached = cache[model.slug];
+    const cached = metaCache(LS_META_LOCAL)[model.slug];
     if (cached?.last_run_initialisation_time) {
         setLocalRun(cached, model);
         if (Date.now() < state.localRun.nextUpdate) return; // cache still within cadence
@@ -96,7 +128,7 @@ const fetchLocalMeta = async () => {
         state.localRun = null; // don't show the previous region's run while fetching
     }
     try {
-        const r = await fetch(localMetaURL(model.slug), {
+        const r = await fetch(metaURL(model.slug), {
             cache: 'no-store',
             signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
         });
@@ -106,7 +138,7 @@ const fetchLocalMeta = async () => {
         // The place may have changed regions mid-fetch, discard if so.
         if (localModelFor(state.place.latitude, state.place.longitude)?.slug !== model.slug) return;
         setLocalRun(meta, model);
-        saveJSON(LS_META_LOCAL, { ...(loadJSON(LS_META_LOCAL) || {}), [model.slug]: meta });
+        saveJSON(LS_META_LOCAL, { ...metaCache(LS_META_LOCAL), [model.slug]: meta });
         if (!state.loading) updateStatus(); // don't clobber "Loading…"/"Updating…"
     } catch { /* offline / CORS / timeout: fall back to global-only line */ }
 };
