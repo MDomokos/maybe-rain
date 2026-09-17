@@ -2489,11 +2489,11 @@ const scheduleDayRollover = () => {
 // but that only ever happens on a fetch, a city/view switch, or the
 // midnight tick above, so the "now" time label, the grid's current-
 // hour ring, and the night background can all sit stuck on a past
-// hour indefinitely: `fetchWeather` no-ops past a status update when
-// the cached data is still within FRESH_TIME (10 min), which paints
-// nothing, so a tab left open (or backgrounded and returned to)
-// inside that window shows a stale hour until the next real poll
-// happens to land.
+// hour indefinitely: `fetchWeather` no-ops past a status update
+// whenever the model's schedule says nothing can be new (DR-51),
+// which paints nothing, so a tab left open (or backgrounded and
+// returned to) can show a stale hour for most of an hour until the
+// next real poll happens to land.
 //
 // The fix is *not* a bare `updateDisplay()` (tried first, reverted):
 // that rebuilds the grid's `innerHTML` wholesale, replacing every
@@ -8086,11 +8086,11 @@ setInterval(() => {
     if (!document.hidden && !state.loading) fetchWeather();
 }, 30 * 60 * 1000);
 
-// The 30-min timer skips while hidden, so a backgrounded tab/PWA can
-// sit on a stale run time for hours. Re-check when it becomes visible
-// again: fetchWeather no-ops if data is < 10 min old, and fetchModelMeta
-// self-guards on the model cadence, so this is cheap and only does real
-// work when a new run is actually due.
+// The poll skips while hidden, so a backgrounded tab/PWA can sit on a
+// stale run time for hours. Re-check when it becomes visible again:
+// fetchWeather no-ops unless the guard window or the ceiling has been
+// reached, and fetchModelMeta self-guards on the model cadence, so this
+// is cheap and only does real work when a new run is actually due.
 //
 // That freshness no-op is exactly why the current-hour marker needs
 // its own direct refresh here too, not just scheduleHourTick above:
@@ -8268,7 +8268,7 @@ if (firstVisit) {
     // in with the reveal so a reload has the same entrance as a first visit
     // (a background refresh then defers behind it and blinks only changes).
     paintCachedForecast({ type: 'reveal' });
-    fetchWeather(); // refresh in background (skips network if data < 10 min old)
+    fetchWeather(); // refresh in background (skips the network unless a run is due)
 }
 // Arm the local-midnight re-slice and the current-hour keep-alive.
 // The cached paint above already set state.utcOffset for a

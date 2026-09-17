@@ -6,6 +6,8 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 - switching to a city fetched a minute ago no longer refetches it. the switch still outranks a fetch in flight for the city being left, which is the only part of it that was needed
 - the run time and next-update countdown now read the model that actually serves the city on screen. a place in the americas was told icon's cycle while its forecast came from gfs, two hours apart on the day this was measured
+- the app stops asking for a forecast at times the model provably has nothing new. it looks from half an hour before the next release until it lands, and once an hour regardless, instead of every thirty minutes around the clock
+- a run the api announces before all its servers are serving it gets one more look ten minutes on, then no more
 
 ## v2.6.13 (2026-09-17) - performance
 

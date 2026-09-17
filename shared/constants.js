@@ -1,4 +1,31 @@
-const FRESH_TIME = 10 * 60 * 1000;   // consider data fresh for 10 min
+// The floor between two automatic fetches. It used to be the whole
+// freshness test; under DR-51 it is the shortest gap the schedule can
+// ask for, which is also the retry cadence inside the guard window: a
+// fetch that comes back identical resets the age, so the next attempt
+// lands 10 minutes later.
+const FRESH_TIME = 10 * 60 * 1000;
+// DR-51. Past the floor, an automatic refetch happens only when the
+// model's own release schedule says the API can have something new.
+//
+// The guard is how early the app starts looking, and it is sized from
+// the early side only: a run landing later than predicted is caught by
+// looking again 10 minutes later, one landing earlier is missed until
+// the ceiling. 30 minutes is the untuned starting value, more than twice
+// ECMWF's measured 37-minute spread (and that spread was seen through a
+// 15-minute poll, so the real one is smaller). It moves once, from
+// scripts/cadence/run-availability-watch.py --report.
+const REFRESH_GUARD = 30 * 60 * 1000;
+// The safety net under all of it, and the answer to two failure modes at
+// once: a device clock that is wrong shifts every prediction, and a model
+// whose metadata never answers leaves no prediction at all. Either way
+// this fires and the app polls hourly, which is what it did before at
+// half the rate.
+const REFRESH_CEILING = 60 * 60 * 1000;
+// The API can report a new run before every server is serving it, with
+// another 10 minutes suggested. DR-6's hash compare already makes an
+// early fetch cheap, so a run flip that produced an identical payload
+// gets exactly one more look, and then no more.
+const SETTLE_RETRY = 10 * 60 * 1000;
 const FETCH_TIMEOUT = 10 * 1000;     // abort a stalled forecast fetch after 10s
 const HOUR_START = 6, HOUR_END = 21; // displayed hours (inclusive)
 const GUST_MIN = 8; // km/h a gust must exceed the sustained wind by before the tooltip shows it

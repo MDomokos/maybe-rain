@@ -1856,11 +1856,11 @@ setInterval(() => {
     if (!document.hidden && !state.loading) fetchWeather();
 }, 30 * 60 * 1000);
 
-// The 30-min timer skips while hidden, so a backgrounded tab/PWA can
-// sit on a stale run time for hours. Re-check when it becomes visible
-// again: fetchWeather no-ops if data is < 10 min old, and fetchModelMeta
-// self-guards on the model cadence, so this is cheap and only does real
-// work when a new run is actually due.
+// The poll skips while hidden, so a backgrounded tab/PWA can sit on a
+// stale run time for hours. Re-check when it becomes visible again:
+// fetchWeather no-ops unless the guard window or the ceiling has been
+// reached, and fetchModelMeta self-guards on the model cadence, so this
+// is cheap and only does real work when a new run is actually due.
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && !state.loading) fetchWeather();
 });
@@ -1996,7 +1996,7 @@ if (firstVisit) {
     // in with the reveal so a reload has the same entrance as a first visit
     // (a background refresh then defers behind it and blinks only changes).
     paintCachedForecast({ type: 'reveal' });
-    fetchWeather(); // refresh in background (skips network if data < 10 min old)
+    fetchWeather(); // refresh in background (skips the network unless a run is due)
 }
 // Arm the local-midnight re-slice. The cached paint above already set
 // state.utcOffset for a returning user; first-visit arms again inside

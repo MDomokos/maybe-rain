@@ -151,6 +151,38 @@ const fetchLocalMeta = async () => {
 // tap, a midnight re-slice and coming back online need. A city switch
 // asked for both and only wanted the first, so arriving at a city
 // fetched a minute ago refetched it.
+// The moment the API can first have something new for this place: the
+// earlier of the two predictions, because the regional model drives the
+// near-term hours and can publish while the global run still stands.
+// Null when neither has answered, which is what the ceiling is for.
+const nextExpectedRun = () => {
+    const t = [state.modelRun?.nextUpdate, state.localRun?.nextUpdate].filter(Boolean);
+    return t.length ? Math.min(...t) : null;
+};
+
+// DR-51: whether an automatic fetch can return anything. Three rules, in
+// order. Nothing inside the floor, because no model publishes twice in
+// ten minutes. Everything past the ceiling, whatever the prediction says
+// or fails to say. In between, only from the guard onward.
+//
+// The retry cadence inside the guard window is the floor doing its
+// second job: an identical payload still advances the timestamp, so the
+// next attempt is ten minutes out, and the one after that, until the run
+// lands. The scheduler decides when to ask; this decides the answer.
+const dueForRefetch = entry => {
+    const age = Date.now() - entry.timestamp;
+    if (age < FRESH_TIME) return false;
+    if (age >= REFRESH_CEILING) return true;
+    const next = nextExpectedRun();
+    return next !== null && Date.now() >= next - REFRESH_GUARD;
+};
+
+// The settle retry (DR-51). One pending timer, app-wide: a second run
+// flip before the first retry fires replaces it rather than stacking,
+// and a payload that lands in the meantime clears it.
+let settleTimer = null;
+const clearSettle = () => { clearTimeout(settleTimer); settleTimer = null; };
+
 const fetchWeather = async ({ override = false, ignoreFresh = false } = {}) => {
     if (state.loading && !override) return;
     // Pin the place this fetch is for. A mid-flight city switch aborts
@@ -177,8 +209,7 @@ const fetchWeather = async ({ override = false, ignoreFresh = false } = {}) => {
     // now, so the test names the entry that is actually on screen.
     const entry = loadForecast(place);
     const showingThisPlace = state.data.length && entry && state.fetchedAt === entry.timestamp;
-    if (!ignoreFresh && showingThisPlace && (Date.now() - entry.timestamp) < FRESH_TIME
-        && !staleHorizon(entry)) {
+    if (!ignoreFresh && showingThisPlace && !dueForRefetch(entry) && !staleHorizon(entry)) {
         // An override that skips the network still has to retire the fetch
         // it outranks. That request is for the place the user just left, so
         // its own continuation bails on the place pin and never clears the
@@ -220,8 +251,22 @@ const fetchWeather = async ({ override = false, ignoreFresh = false } = {}) => {
         // them, and a fetch for this same place could have written in the gap.
         const cached = loadForecast(place);
         const same = cached?.payload && hourlySnapshot(cached.payload) === hourlySnapshot(payload);
+        clearSettle();
         if (same && state.data.length) {
             saveForecast(place, { ...cached, timestamp: state.fetchedAt });
+            // A run flip that produced no change is the documented gap
+            // between the API announcing a run and every server serving
+            // it. One more look 10 minutes on, and then nothing: the
+            // second identical payload leaves settleRun where it is, so
+            // only the next flip can arm another.
+            const init = state.modelRun?.init || 0;
+            if (init && init !== state.runAtPayload && init !== state.settleRun) {
+                state.settleRun = init;
+                settleTimer = setTimeout(() => {
+                    settleTimer = null;
+                    if (!document.hidden && !state.loading) fetchWeather({ ignoreFresh: true });
+                }, SETTLE_RETRY);
+            }
             setLoading(false);
             updateStatus();
         } else {
@@ -243,6 +288,9 @@ const fetchWeather = async ({ override = false, ignoreFresh = false } = {}) => {
             // blink only the changed cells. Nothing on screen yet: use the
             // pending directional/first-load reveal from the skeleton.
             const hadData = state.data.length > 0;
+            // The run this payload's contents belong to, so a later
+            // identical payload can tell a run flip from an ordinary poll.
+            state.runAtPayload = state.modelRun?.init || 0;
             processData(payload);
             // Genuinely new data: the guard above returns early when the
             // payload matches the cached one, so a poll that changes

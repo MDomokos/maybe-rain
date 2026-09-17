@@ -16,6 +16,8 @@ let state = {
     updateNote: false, // the brief "New version" note is up (tap opens the changelog), vs the resting reload CTA
     whatsNewPending: false, // we're running a build not seen before: owe a one-time "see what's new" note, shown once the line first rests
     lastError: '',   // last no-data error text, so updateStatus can restate it
+    runAtPayload: 0, // model run init in force when the payload on screen last differed. A later identical payload under a newer init is a run the servers have announced but not all served (DR-51).
+    settleRun: 0,    // run init a settle retry has already been spent on, so each flip earns exactly one
     changed: null,   // "date|hour" → {pop|temp|wind: [was, now]} vs the previous model run
     pulsePending: false, // the next render pulses changed cells, then consumes this
     arrivePending: false, // new data is due an arrival on the current hour; primary's grid consumes it
