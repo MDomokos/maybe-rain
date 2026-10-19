@@ -7,6 +7,7 @@ everything below v2.0.0 is the flat numbering the app used before it split into 
 ## v2.7.1 (2026-11-26) — fix
 
 - tapping the city name on a touch screen opens the city list without the keyboard. tapping the list's search row then starts the search, and a mouse click on the name still goes straight to search
+- fixed the app not loading offline with airplane mode off, such as with mobile data turned off. it showed the web manifest as text on a grey page. the worker stored the manifest where it keeps the page, so opening a place link offline served the manifest instead of the app
 
 ## v2.7.0 (2026-11-24) — e-ink
 

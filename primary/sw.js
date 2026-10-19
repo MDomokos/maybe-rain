@@ -154,15 +154,20 @@ self.addEventListener('fetch', event => {
     // gave every shared link a cache entry of its own, while the entry the
     // offline fallback reads (BASE + 'index.html') was only written at
     // install.
+    // The manifest has a key of its own. This handler also answers its
+    // request, which the page makes after the document, so storing it under
+    // the page's key put the manifest JSON where the offline fallback reads
+    // the page, and the next offline open of a place link showed it as text.
+    const key = url.pathname === BASE + 'manifest.json' ? url.pathname : BASE + 'index.html';
     event.waitUntil(
       fetched
         .then(() => caches.open(CACHE_NAME)
-          .then(cache => cache.put(BASE + 'index.html', forCache)))
+          .then(cache => cache.put(key, forCache)))
         .catch(() => {})
     );
     event.respondWith((async () => {
       const stored = await caches.match(event.request)
-        || await caches.match(BASE + 'index.html');
+        || await caches.match(key);
       // Nothing stored to fall back to (a first run): the network is the only
       // answer there is, and waiting for it is the only thing to do.
       if (!stored) return fetched;
