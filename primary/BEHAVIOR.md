@@ -205,7 +205,9 @@ Two surfaces, and which one a drag started on is what decides its meaning.
   whole sweep, the same one a tap on the view buttons plays. A view is one of
   three rather than a position between two, so there is nothing for a
   half-played sweep to mean.
-- **Search** — tap the city name. Every one of these is decided on release, so
+- **City list** — tap the city name. On touch this opens the list without the
+  keyboard; tapping the sheet's search row then starts the search. A mouse click
+  goes straight to search. Every one of these is decided on release, so
   a tap that turns into a swipe is still a swipe, and a press that never
   travels is a tap however long it is held.
   **Distance is the only arbiter.** There is no press-and-hold: a threshold in
@@ -414,7 +416,8 @@ gated at 80px so a retracting URL bar cannot trigger it.
 
 ## Places
 
-Tap the city name to search (Open-Meteo geocoding), or use the location button.
+Tap the city name to open the list; search (Open-Meteo geocoding) is its first
+row, or use the location button. A mouse click on the name goes straight to search.
 
 The switcher is a **tiered list**, not a favourites list. Bottom-up, which is
 the direction the thumb travels:

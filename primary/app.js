@@ -7097,7 +7097,10 @@ const endRowTouch = commit => {
         // Never travelled far enough to be a swipe on either axis, so it was
         // a press, so it is a tap — and how long it lasted does not enter
         // into it. A tap on a view word is left to its own click handler.
-        if (commit && r.onName) { openSearch(); return true; }
+        // The list, not the field: a thumb tap that raised the keyboard
+        // straight away hid the list it was meant to show. Search is the
+        // list's own first row. A mouse click still goes to search (below).
+        if (commit && r.onName) { openSheet('tap'); return true; }
         return;
     }
     // A swipe up. `closeSheet` takes the aim only if the finger reached a row,

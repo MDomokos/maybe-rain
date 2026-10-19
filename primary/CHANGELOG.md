@@ -4,6 +4,10 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 everything below v2.0.0 is the flat numbering the app used before it split into two variants.
 
+## v2.7.1 (2026-11-26) — fix
+
+- tapping the city name on a touch screen opens the city list without the keyboard. tapping the list's search row then starts the search, and a mouse click on the name still goes straight to search
+
 ## v2.7.0 (2026-11-24) — e-ink
 
 - an e-ink build at `/eink/` for colour e-readers such as the PocketBook Era Color: no animation, lighter greys and hairlines, and a brighter, more saturated grid. it is made from this app at build time, so it gets every change and the main page carries none of it
