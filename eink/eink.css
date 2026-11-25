@@ -1,0 +1,36 @@
+/* E-ink build only. build.mjs inlines this after primary's own styles in
+   dist/eink/index.html; primary itself never carries it.
+
+   No motion. CSS cannot answer the reduced-motion media query the way
+   eink.js answers it for JS, so every animation and transition is stopped
+   here instead. Each animated element rests on its visible state without
+   its animation, which is what reduced-motion users already get. */
+*, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+}
+
+/* Greys lifted. Kaleido 3 shows 16 grey levels under a colour filter that
+   darkens the white, so the faint labels and hairlines tuned for an OLED
+   phone fall into the black. Same order of emphasis, compressed upward. */
+:root {
+    --text-muted: #eee;
+    --text-faint: #bbb;
+    --text-dim: #aaa;
+    --text-dimmer: #999;
+    --status-info: #aaa;
+    --status-hover: #ccc;
+    --line: rgba(255,255,255,0.5);
+    --line-strong: rgba(255,255,255,0.8);
+    --divider: rgba(255,255,255,0.3);
+    --gridline: rgba(255,255,255,0.5);
+}
+
+/* The grid's colours are written inline by JS, so they are pushed apart
+   here as a whole: Kaleido 3 mutes saturation and crushes the dark end,
+   where the night hours sit. Brightness stops at 1.25: above that the
+   brightest suns and pale skies clip to flat yellow and white.
+   shortcut: tuned in desktop Chromium, not on the panel; retune on the Era Color. */
+.chart-grid {
+    filter: brightness(1.25) saturate(1.6);
+}

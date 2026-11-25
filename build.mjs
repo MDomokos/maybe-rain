@@ -11,6 +11,7 @@
 // Layout in → out:
 //   primary/*        →  dist/            (the redesign; existing bookmarks)
 //   classic/*        →  dist/classic/    (the frozen feature-complete variant)
+//   primary/* + eink →  dist/eink/       (primary with the e-ink overlay)
 //   shared/*.js      →  inlined into both, never emitted
 //   root assets      →  copied into BOTH dist/ and dist/classic/, so each
 //                       variant is self-contained under its own SW scope
@@ -26,7 +27,7 @@
 // Run: npm run build
 
 import { readFile, writeFile, mkdir, rm, readdir, copyFile, stat } from 'node:fs/promises';
-import { join, extname, relative, resolve, dirname } from 'node:path';
+import { join, extname, relative, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 // Named imports, not the `process` global: this module declares a function
@@ -49,13 +50,37 @@ const OUT = join(SRC, 'dist');
 const VARIANTS = [
   { dir: 'primary', dest: '.' },
   { dir: 'classic', dest: 'classic' },
+  { dir: 'primary', dest: 'eink', patch: (rel, text) => einkPatch(rel, text) },
 ];
+
+// --- the e-ink build -------------------------------------------------------
+// Primary's own sources with eink/ spliced in at build time, so it gets every
+// primary change and primary ships none of its bytes. Each splice asserts its
+// anchor, so a primary edit that moves one fails the build instead of quietly
+// shipping an e-ink page without its overlay.
+//
+// sw.js gets its own cache prefix: cache storage is per-origin, and sharing
+// primary's would let either variant's activate sweep delete the other's shell.
+const EINK_CSS = await readFile(join(SRC, 'eink', 'eink.css'), 'utf8');
+const splice = (text, anchor, insert, rel) => {
+  if (text.split(anchor).length !== 2) throw new Error(`eink: ${rel} lost its anchor ${anchor}`);
+  return text.replace(anchor, insert);
+};
+function einkPatch(rel, text) {
+  if (rel === 'index.html') {
+    text = splice(text, '</head>', `<style>\n${EINK_CSS}</style>\n</head>`, rel);
+    return splice(text, '<script src="config.js"></script>',
+      '<script src="../eink/eink.js"></script>\n    <script src="config.js"></script>', rel);
+  }
+  if (rel === 'sw.js') return splice(text, "CACHE_PREFIX = 'maybe-rain-2.'", "CACHE_PREFIX = 'maybe-rain-e2.'", rel);
+  return text;
+}
 
 // Directories walk() never descends into. The variant dirs and shared/ are
 // here because they are built explicitly below, not swept up as root assets.
 const SKIP_DIRS = new Set([
   '.git', '.github', 'node_modules', 'dist', 'research', 'archive', 'scripts',
-  'shared', ...VARIANTS.map(v => v.dir),
+  'shared', 'eink', ...VARIANTS.map(v => v.dir),
 ]);
 // Files we never publish (tooling + local-only working docs + junk).
 const SKIP_FILES = new Set([
@@ -178,7 +203,7 @@ async function inlineScripts(html, dir) {
   return { html: out.replace(MARK, bundle), files: hits.map(h => h[1]) };
 }
 
-async function process(srcPath, destPath, version) {
+async function process(srcPath, destPath, version, patch = (rel, text) => text) {
   await mkdir(dirname(destPath), { recursive: true });
 
   const rel = relative(OUT, destPath);
@@ -189,14 +214,14 @@ async function process(srcPath, destPath, version) {
 
   try {
     if (ext === '.html') {
-      let html = await readFile(srcPath, 'utf8');
+      let html = patch(basename(srcPath), await readFile(srcPath, 'utf8'));
       const res = await inlineScripts(html, dirname(srcPath));
       inlined = res.files.length;
       // Substitute AFTER inlining so the token is replaced in the shared
       // modules too, not just in the page's own markup.
       out = await minifyHtml(res.html.replaceAll('__APP_VERSION__', version), HTML_OPTS);
     } else if (ext === '.js') {
-      const src = (await readFile(srcPath, 'utf8')).replaceAll('__APP_VERSION__', version);
+      const src = patch(basename(srcPath), await readFile(srcPath, 'utf8')).replaceAll('__APP_VERSION__', version);
       out = (await minifyJs(src, { compress: true, mangle: true })).code;
     } else if (ext === '.css') {
       // A stylesheet not inlined into a page: primary/explain.css. Wrapping it
@@ -253,7 +278,7 @@ async function main() {
   for (const v of VARIANTS) {
     const from = join(SRC, v.dir);
     const to = join(OUT, v.dest);
-    const swSrc = await readFile(join(from, 'sw.js'), 'utf8');
+    const swSrc = (v.patch || ((rel, text) => text))('sw.js', await readFile(join(from, 'sw.js'), 'utf8'));
     const version = (swSrc.match(/CACHE_NAME\s*=\s*(?:CACHE_PREFIX\s*\+\s*)?['"]([^'"]+)['"]/) || [])[1];
     if (!version) throw new Error(`${v.dir}/sw.js: no CACHE_NAME found`);
     const prefix = (swSrc.match(/CACHE_PREFIX\s*=\s*['"]([^'"]+)['"]/) || [])[1] || '';
@@ -277,7 +302,7 @@ async function main() {
 
     for (const rel of files) {
       if (inlined.has(resolve(from, rel))) continue;
-      await process(join(from, rel), join(to, rel), build);
+      await process(join(from, rel), join(to, rel), build, v.patch);
     }
     for (const rel of assets) {
       await process(join(SRC, rel), join(to, rel), build);
