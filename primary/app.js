@@ -7157,7 +7157,18 @@ $('location').addEventListener('keydown', e => {
 });
 $('citySheet').addEventListener('click', e => {
     const row = e.target.closest('.sheet-row');
-    if (!row || !sheet) return;
+    if (!row) return;
+    // Fewer than two places: search opens with no sheet object (see
+    // openSearch), so there is no aim for closeSheet to read. The two
+    // action buttons still have to switch modes, or the menu is unreachable
+    // on a first run. Same mapping as closeSheet's action branch.
+    if (!sheet) {
+        if (row.id !== 'sheetWide' && row.id !== 'sheetMode') return;
+        const menu = sheetMode === 'settings', wide = row.id === 'sheetWide';
+        if (wide ? !menu : menu) openSearch();
+        else setSheetMode('settings');
+        return;
+    }
     // Through setAim, not by assignment: a tapped row is an aim like any
     // other, and the commit gate in closeSheet reads the flag setAim sets.
     // Tapping the row that is already aimed is still a commit, so the flag
