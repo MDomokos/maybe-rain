@@ -4,6 +4,12 @@ what changed, newest first. the version is `CACHE_NAME` in sw.js
 
 everything below v2.0.0 is the flat numbering the app used before it split into two variants.
 
+## v2.7.0 (2026-11-24) — e-ink
+
+- an e-ink build at `/eink/` for colour e-readers such as the PocketBook Era Color: no animation, lighter greys and hairlines, and a brighter, more saturated grid. it is made from this app at build time, so it gets every change and the main page carries none of it
+- fixed the ⚙ menu doing nothing with fewer than two places saved, so it was unreachable on a first run
+- with javascript off, the page says it needs javascript instead of showing an empty screen
+
 ## v2.6.14b (2026-09-18) — fix
 
 - fixed the app failing to start on a device that had used it before. 2.6.14 re-keyed the cached model metadata and the startup code still read the old shape, so it threw before the grid was drawn
