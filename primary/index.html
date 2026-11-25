@@ -2998,6 +2998,9 @@
     </style>
 </head>
 <body>
+    <!-- Only parsed with JS off, so it costs a visit nothing. Inline styles
+         because the page's own CSS assumes the app has drawn the layout. -->
+    <noscript><p style="position:fixed;inset:0 0 auto;z-index:99;margin:0;padding:16px;background:#000;color:#fff;font:15px/1.4 system-ui,sans-serif;border-bottom:1px solid #fff">Maybe Rain? needs JavaScript to fetch and draw the forecast. Turn JavaScript on in the browser settings and reload.</p></noscript>
     <div class="titlebar-drag" aria-hidden="true"></div>
     <!-- The spoken half of the status channel. Off-screen, never drawn, and
          written to only for states worth interrupting for: loading, offline,
